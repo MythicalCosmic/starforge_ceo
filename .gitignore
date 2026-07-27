@@ -1,0 +1,34 @@
+# Dependencies and generated output
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.vite/
+.vitest/
+*.tsbuildinfo
+
+# Local and secret-bearing environment configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Test and browser automation output
+playwright-report/
+test-results/
+
+# User-supplied scratch assets do not belong in source control
+/uploads/
+/temp/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
