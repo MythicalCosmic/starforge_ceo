@@ -23,7 +23,7 @@
   display: block;
   margin-bottom: 9px;
   color: var(--sf-primary);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -75,7 +75,7 @@
 
 .sf-settings-account span {
   color: var(--sf-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -143,7 +143,7 @@
 
 .sf-settings-section-heading > div > span {
   color: var(--sf-primary);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -345,7 +345,7 @@
 
 .sf-settings-language-list button > span {
   color: var(--sf-primary);
-  font: 700 9px/1 var(--sf-font-mono);
+  font: 700 11px/1 var(--sf-font-mono);
   letter-spacing: 0.08em;
 }
 
@@ -355,7 +355,7 @@
 }
 
 .sf-settings-language-list small {
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .sf-settings-language-list svg {
@@ -381,7 +381,7 @@
 
 .sf-settings-assurance-list > div > span {
   color: var(--sf-primary);
-  font: 700 9px/1.5 var(--sf-font-mono);
+  font: 700 11px/1.5 var(--sf-font-mono);
 }
 
 .sf-settings-assurance-list strong,

@@ -16,7 +16,7 @@
   --sf-ink: #1F1B16;
   --sf-ink-2: #3A332A;
   --sf-muted: #786850;
-  --sf-muted-2: #95836A;
+  --sf-muted-2: #786850;
   --sf-border: #E5D9BE;
   --sf-border-strong: #CFC0A0;
 
@@ -31,10 +31,13 @@
 
   --sf-success: #4F7B3B;
   --sf-success-soft: #DDEACA;
-  --sf-warn: #C68423;
+  --sf-success-ink: #29451E;
+  --sf-warn: #9B6414;
   --sf-warn-soft: #F6E4B8;
+  --sf-warn-ink: #674006;
   --sf-danger: #B33A2A;
   --sf-danger-soft: #F3D2CC;
+  --sf-danger-ink: #761F15;
 
   /* AI gets its own quiet treatment — saffron halo on cream */
   --sf-ai: #8B5A0F;
@@ -60,7 +63,7 @@
   --sf-ink: #1A1F22;
   --sf-ink-2: #2F363B;
   --sf-muted: #60686D;
-  --sf-muted-2: #7B8388;
+  --sf-muted-2: #60686D;
   --sf-border: #DDDAD0;
   --sf-border-strong: #BFBBA8;
 
@@ -87,7 +90,7 @@
   --sf-ink: #15182A;
   --sf-ink-2: #262A40;
   --sf-muted: #646672;
-  --sf-muted-2: #80828F;
+  --sf-muted-2: #646672;
   --sf-border: #DCD4BA;
   --sf-border-strong: #BFB596;
 
@@ -114,7 +117,7 @@
   --sf-ink: #1A1E18;
   --sf-ink-2: #2F352A;
   --sf-muted: #646759;
-  --sf-muted-2: #7B806E;
+  --sf-muted-2: #646759;
   --sf-border: #D9D6BD;
   --sf-border-strong: #B7B399;
 
@@ -141,7 +144,7 @@
   --sf-ink: #F2EADA;
   --sf-ink-2: #D8CFBC;
   --sf-muted: #9E927E;
-  --sf-muted-2: #786E5C;
+  --sf-muted-2: #9E927E;
   --sf-border: #3A3329;
   --sf-border-strong: #4E4435;
 
@@ -153,6 +156,16 @@
   --sf-accent: #EBBE5E;
   --sf-accent-soft: #3D2F12;
   --sf-accent-ink: #FCE3A4;
+
+  --sf-success: #9FCB87;
+  --sf-success-soft: #26361E;
+  --sf-success-ink: #CDE8BF;
+  --sf-warn: #F0C56E;
+  --sf-warn-soft: #3C2E13;
+  --sf-warn-ink: #FFE1A0;
+  --sf-danger: #F19A8C;
+  --sf-danger-soft: #3B201D;
+  --sf-danger-ink: #FFC8BE;
 
   --sf-ai: #F0CB7F;
   --sf-ai-bg: linear-gradient(135deg, #2D241B 0%, #3A2D1E 100%);
@@ -220,8 +233,8 @@
 .sf-chip--primary { background: var(--sf-primary-soft); color: var(--sf-primary-ink); border-color: transparent; }
 .sf-chip--accent  { background: var(--sf-accent-soft);  color: var(--sf-accent-ink);  border-color: transparent; }
 .sf-chip--ai      { background: var(--sf-ai-bg); color: var(--sf-ai); border-color: var(--sf-ai-border); }
-.sf-chip--success { background: var(--sf-success-soft); color: var(--sf-success); border-color: transparent; }
-.sf-chip--danger  { background: var(--sf-danger-soft); color: var(--sf-danger); border-color: transparent; }
+.sf-chip--success { background: var(--sf-success-soft); color: var(--sf-success-ink); border-color: transparent; }
+.sf-chip--danger  { background: var(--sf-danger-soft); color: var(--sf-danger-ink); border-color: transparent; }
 
 /* AI surface — applied to AI cards for the signature "halo" */
 .sf-ai-surface {

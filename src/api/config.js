@@ -9,11 +9,16 @@ const flag = (v, dflt) => {
 };
 
 export const API_CONFIG = Object.freeze({
-  // Trailing slash trimmed so `${baseUrl}/students` is always well-formed.
-  baseUrl: String(env.VITE_API_URL || '').replace(/\/+$/, ''),
+  // Credentials and management data always travel through the page's own
+  // origin. Local backend work uses Vite's validated proxy target; production
+  // builds reject VITE_API_URL, so no public bundle value can redirect a login.
+  baseUrl: '',
   useMock: flag(env.VITE_USE_MOCK, false),
-  // Opaque credentials live for one browser tab/session. Never read a token
-  // from VITE_*: build-time values are public to every bundle user.
-  tokenKey: 'sf-auth-token',
+  // The current browser credential is an HttpOnly server cookie. This key is
+  // retained only so an upgrade can delete credentials written by old bundles.
+  legacyTokenKey: 'sf-auth-token',
   deviceKey: 'sf-auth-device',
+  // Non-secret cross-tab signals. Credentials are never copied through storage.
+  sessionSignalKey: 'sf-auth-session-epoch',
+  logoutSignalKey: 'sf-auth-logout-epoch',
 });

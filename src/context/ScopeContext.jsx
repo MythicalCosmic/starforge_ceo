@@ -5,7 +5,7 @@ import { createContext, useContext, useMemo } from 'react';
 // selector as authorization.
 const ScopeContext = createContext(null);
 
-export function ScopeProvider({ role, defaultBranch, children }) {
+export function ScopeProvider({ role, defaultBranch, defaultBranchName, children }) {
   const manager = role === 'manager';
   const initialId = manager ? defaultBranch ?? 'membership' : 'all';
   const branchId = initialId;
@@ -13,9 +13,9 @@ export function ScopeProvider({ role, defaultBranch, children }) {
   const options = useMemo(
     () =>
       manager
-        ? [{ id: initialId, name: defaultBranch ? `Branch #${defaultBranch}` : 'Assigned membership scope' }]
+        ? [{ id: initialId, name: defaultBranchName || 'Assigned leadership scope' }]
         : [{ id: 'all', name: '__ALL__' }],
-    [defaultBranch, initialId, manager],
+    [defaultBranchName, initialId, manager],
   );
 
   const current = options.find((option) => String(option.id) === String(branchId)) || options[0];

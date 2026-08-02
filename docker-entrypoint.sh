@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 
 api_upstream=${API_UPSTREAM:-}
 
@@ -24,6 +25,16 @@ if ! printf '%s\n' "$api_upstream" \
 fi
 
 authority=${api_upstream#https://}
+api_upstream_host=${authority%%:*}
+
+# Accept DNS names and IPv4 literals, but reject empty, oversized, or malformed
+# labels before they reach either Nginx configuration or TLS SNI verification.
+if [ "${#api_upstream_host}" -gt 253 ] \
+  || ! printf '%s\n' "$api_upstream_host" \
+    | grep -Eq '^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(\.([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$'; then
+  fail_upstream
+fi
+
 case "$authority" in
   *:*)
     port=${authority##*:}
@@ -33,7 +44,8 @@ case "$authority" in
     ;;
 esac
 
-envsubst '${API_UPSTREAM}' \
+export API_UPSTREAM_HOST="$api_upstream_host"
+envsubst '${API_UPSTREAM} ${API_UPSTREAM_HOST}' \
   < /etc/nginx/nginx.conf.template \
   > /tmp/nginx.conf
 

@@ -10,7 +10,7 @@ function destinationLabel(item, t) {
   if (item.id === 'settings') {
     return t('shell.workspacePreferences', { defaultValue: 'Workspace preferences' });
   }
-  if (item.id === 'backendAccount') {
+  if (item.id === 'account') {
     return t('shell.myProfile', { defaultValue: 'My profile' });
   }
   return t(item.labelKey, { defaultValue: item.label || item.id });
@@ -31,7 +31,31 @@ function scopeLabel(scope, t) {
   return scope.name;
 }
 
-function GroupMenu({ group, active, onNav }) {
+function routeHref(target) {
+  const path = String(target || 'overview')
+    .replace(/^#/, '')
+    .replace(/^\/+/, '');
+  return `#/${path || 'overview'}`;
+}
+
+function handleRouteClick(event, onNav, target, afterNavigate) {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  onNav(target);
+  afterNavigate?.();
+}
+
+function GroupMenu({ group, active, onNav, onPrefetch }) {
   const { t } = useTranslation();
   const pop = usePopover(false);
   const panelId = useId();
@@ -40,16 +64,19 @@ function GroupMenu({ group, active, onNav }) {
 
   if (group.items.length === 1) {
     const item = group.items[0];
+    const target = item.path || item.id;
     return (
-      <button
-        type="button"
+      <a
         className={'ad-primary-group' + (current ? ' is-active' : '')}
-        onClick={() => onNav(item.id)}
+        href={routeHref(target)}
+        onClick={(event) => handleRouteClick(event, onNav, target)}
+        onMouseEnter={() => onPrefetch?.(target)}
+        onFocus={() => onPrefetch?.(target)}
         aria-current={current ? 'page' : undefined}
       >
         {cloneElement(item.icon, { size: 15 })}
         <span>{label}</span>
-      </button>
+      </a>
     );
   }
 
@@ -75,20 +102,21 @@ function GroupMenu({ group, active, onNav }) {
           <div className="ad-primary-popover-title">{label}</div>
           {group.items.map((item) => {
             const selected = item.id === active;
+            const target = item.path || item.id;
             return (
-              <button
-                type="button"
+              <a
                 key={item.id}
                 className={'ad-primary-option' + (selected ? ' is-current' : '')}
-                onClick={() => {
-                  onNav(item.id);
-                  pop.setOpen(false);
-                }}
+                href={routeHref(target)}
+                onClick={(event) => handleRouteClick(event, onNav, target, () => pop.close(false))}
+                onMouseEnter={() => onPrefetch?.(target)}
+                onFocus={() => onPrefetch?.(target)}
+                aria-current={selected ? 'page' : undefined}
               >
                 <span>{cloneElement(item.icon, { size: 16 })}</span>
                 <strong>{destinationLabel(item, t)}</strong>
                 {selected && cloneElement(Icons.check, { size: 13 })}
-              </button>
+              </a>
             );
           })}
         </div>
@@ -97,7 +125,7 @@ function GroupMenu({ group, active, onNav }) {
   );
 }
 
-function WorkspaceSearch({ cfg, onNav, navigatorOpen }) {
+function WorkspaceSearch({ cfg, onNav, onPrefetch, navigatorOpen }) {
   const { t } = useTranslation();
   const {
     open: searchOpen,
@@ -106,13 +134,14 @@ function WorkspaceSearch({ cfg, onNav, navigatorOpen }) {
     triggerRef,
   } = usePopover(false);
   const inputRef = useRef(null);
+  const panelId = useId();
   const listboxId = useId();
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
 
   const entries = useMemo(
     () =>
-      cfg.nav.map((item) => {
+      (cfg.directoryNav || cfg.destinations || cfg.nav).map((item) => {
         const label = destinationLabel(item, t);
         const group = destinationGroup(item.grpKey, t);
         return {
@@ -122,7 +151,7 @@ function WorkspaceSearch({ cfg, onNav, navigatorOpen }) {
           searchable: `${label} ${group}`.toLocaleLowerCase(),
         };
       }),
-    [cfg.nav, t],
+    [cfg.destinations, cfg.directoryNav, cfg.nav, t],
   );
 
   const results = useMemo(() => {
@@ -167,7 +196,9 @@ function WorkspaceSearch({ cfg, onNav, navigatorOpen }) {
 
   const go = (entry) => {
     if (!entry) return;
-    onNav(entry.id);
+    const target = entry.path || entry.id;
+    onPrefetch?.(target);
+    onNav(target);
     close();
   };
 
@@ -195,14 +226,17 @@ function WorkspaceSearch({ cfg, onNav, navigatorOpen }) {
         onClick={() => setSearchOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={searchOpen}
+        aria-controls={searchOpen ? panelId : undefined}
+        aria-label={t('shell.searchWorkspace', { defaultValue: 'Go to page' })}
       >
         {cloneElement(Icons.search, { size: 16 })}
-        <span>{t('shell.searchWorkspace', { defaultValue: 'Search workspace' })}</span>
+        <span>{t('shell.searchWorkspace', { defaultValue: 'Go to page' })}</span>
         <kbd>Ctrl K</kbd>
       </button>
 
       {searchOpen && (
         <div
+          id={panelId}
           className="ad-command-panel"
           role="dialog"
           aria-label={t('shell.quickNavigation', { defaultValue: 'Quick navigation' })}
@@ -248,30 +282,39 @@ function WorkspaceSearch({ cfg, onNav, navigatorOpen }) {
 
           <div id={listboxId} className="ad-command-results" role="listbox">
             {results.length ? (
-              results.map((entry, index) => (
-                <button
-                  type="button"
-                  role="option"
-                  id={`${listboxId}-option-${index}`}
-                  aria-selected={highlighted === index}
-                  key={entry.id}
-                  className={
-                    'ad-command-result' + (highlighted === index ? ' is-highlighted' : '')
-                  }
-                  onMouseEnter={() => setHighlighted(index)}
-                  onFocus={() => setHighlighted(index)}
-                  onClick={() => go(entry)}
-                >
-                  <span className="ad-command-result-icon">
-                    {cloneElement(entry.icon, { size: 17 })}
-                  </span>
-                  <span className="ad-command-result-copy">
-                    <strong>{entry.label}</strong>
-                    <small>{entry.group}</small>
-                  </span>
-                  {cloneElement(Icons.chevR, { size: 13 })}
-                </button>
-              ))
+              results.map((entry, index) => {
+                const target = entry.path || entry.id;
+                return (
+                  <a
+                    role="option"
+                    id={`${listboxId}-option-${index}`}
+                    aria-selected={highlighted === index}
+                    key={entry.id}
+                    className={
+                      'ad-command-result' + (highlighted === index ? ' is-highlighted' : '')
+                    }
+                    href={routeHref(target)}
+                    onMouseEnter={() => {
+                      setHighlighted(index);
+                      onPrefetch?.(target);
+                    }}
+                    onFocus={() => {
+                      setHighlighted(index);
+                      onPrefetch?.(target);
+                    }}
+                    onClick={(event) => handleRouteClick(event, onNav, target, close)}
+                  >
+                    <span className="ad-command-result-icon">
+                      {cloneElement(entry.icon, { size: 17 })}
+                    </span>
+                    <span className="ad-command-result-copy">
+                      <strong>{entry.label}</strong>
+                      <small>{entry.group}</small>
+                    </span>
+                    {cloneElement(Icons.chevR, { size: 13 })}
+                  </a>
+                );
+              })
             ) : (
               <div className="ad-command-empty">
                 <strong>
@@ -305,12 +348,13 @@ export function Topbar({
   navigationLayout = 'sidebar',
   navigatorOpen = false,
   onNav,
+  onPrefetch,
   onOpenDrawer,
 }) {
   const { t } = useTranslation();
   const groups = groupNav(cfg.nav);
-  const hasEngagement = cfg.nav.some((item) => item.id === 'backendEngagement');
-  const hasAccount = cfg.nav.some((item) => item.id === 'backendAccount');
+  const hasEngagement = cfg.nav.some((item) => item.id === 'engagement');
+  const hasAccount = cfg.nav.some((item) => item.id === 'account');
   const currentLabel = current
     ? destinationLabel(current, t)
     : t('shell.workspace', { defaultValue: 'Workspace' });
@@ -318,46 +362,64 @@ export function Topbar({
   return (
     <header className="ad-masthead" data-layout={navigationLayout}>
       <div className="ad-top">
-        <button type="button" className="ad-masthead-brand" onClick={() => onNav('dash')}>
+        <a
+          className="ad-masthead-brand"
+          href={routeHref('overview')}
+          onClick={(event) => handleRouteClick(event, onNav, 'overview')}
+          onMouseEnter={() => onPrefetch?.('overview')}
+          onFocus={() => onPrefetch?.('overview')}
+          aria-label="StarForge EDU · Overview"
+        >
           <span aria-hidden="true"><SfStar size={20} color="currentColor" /></span>
           <strong>StarForge <small>EDU</small></strong>
-        </button>
+        </a>
 
         <div className="ad-top-context">
           <span>{t(cfg.labelKey)} · {scopeLabel(scope, t)}</span>
           <strong>{currentLabel}</strong>
         </div>
 
-        <WorkspaceSearch cfg={cfg} onNav={onNav} navigatorOpen={navigatorOpen} />
+        <WorkspaceSearch
+          cfg={cfg}
+          onNav={onNav}
+          onPrefetch={onPrefetch}
+          navigatorOpen={navigatorOpen}
+        />
 
         <div className="ad-top-actions">
-          <PreferencesMenu />
+          <PreferencesMenu onOpenSettings={() => onNav('settings')} />
 
           {hasEngagement && (
-            <button
-              type="button"
+            <a
               className="ad-top-ic"
-              onClick={() => onNav('backendEngagement')}
+              href={routeHref('engagement/notifications')}
+              onClick={(event) =>
+                handleRouteClick(event, onNav, 'engagement/notifications')
+              }
+              onMouseEnter={() => onPrefetch?.('engagement/notifications')}
+              onFocus={() => onPrefetch?.('engagement/notifications')}
               aria-label={t('shell.openUpdates', { defaultValue: 'Open updates' })}
               title={t('shell.updates', { defaultValue: 'Updates' })}
             >
               {cloneElement(Icons.bell, { size: 17 })}
-            </button>
+            </a>
           )}
 
           {hasAccount && (
-            <button
-              type="button"
+            <a
               className="ad-top-av"
-              onClick={() => onNav('backendAccount')}
+              href={routeHref('account')}
+              onClick={(event) => handleRouteClick(event, onNav, 'account')}
+              onMouseEnter={() => onPrefetch?.('account')}
+              onFocus={() => onPrefetch?.('account')}
               aria-label={`${cfg.who} · ${t('shell.myProfile', { defaultValue: 'My profile' })}`}
             >
-              <SfAvatar name={cfg.who} size={32} color={cfg.accent} />
+              <SfAvatar name={cfg.who} size={32} color={cfg.accent} decorative />
               <span>
                 <strong>{cfg.who}</strong>
                 <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
               </span>
-            </button>
+            </a>
           )}
 
           <button
@@ -365,6 +427,8 @@ export function Topbar({
             className="ad-mobile-navigator"
             onClick={onOpenDrawer}
             data-navigator-trigger
+            aria-haspopup="dialog"
+            aria-expanded={navigatorOpen}
             aria-label={t('shell.openMenu', { defaultValue: 'Open all destinations' })}
           >
             {cloneElement(Icons.filter, { size: 18 })}
@@ -381,6 +445,7 @@ export function Topbar({
                 group={group}
                 active={active}
                 onNav={onNav}
+                onPrefetch={onPrefetch}
               />
             ))}
           </nav>
@@ -389,6 +454,8 @@ export function Topbar({
             className="ad-all-destinations"
             onClick={onOpenDrawer}
             data-navigator-trigger
+            aria-haspopup="dialog"
+            aria-expanded={navigatorOpen}
           >
             {cloneElement(Icons.filter, { size: 15 })}
             <span>{t('shell.allDestinations', { defaultValue: 'All destinations' })}</span>

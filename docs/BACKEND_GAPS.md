@@ -6,6 +6,12 @@ Backend commit inspected: `416f607` (`feat: secure messaging push and thread mut
 Live tenant: `https://starforge.78.111.91.113.nip.io`  
 Live schema: `https://starforge.78.111.91.113.nip.io/api/schema/`
 
+> Historical audit baseline. It describes the deployed schema inspected at the
+> commit above, not the current local candidate. Use
+> [BACKEND_PRODUCT_REQUIREMENTS_2026-08-01.md](./BACKEND_PRODUCT_REQUIREMENTS_2026-08-01.md)
+> for the active implementation and production gate, including the additive
+> HttpOnly browser-session transport.
+
 This ledger records capabilities the management console needs but the backend
 does not currently expose cleanly, exposes only as lower-level operations, or
 describes incorrectly in OpenAPI. It deliberately separates an absent backend

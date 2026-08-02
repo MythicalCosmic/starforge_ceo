@@ -1,31 +1,52 @@
-// Session helpers for the StarForge backend's opaque bearer credential.
+// Session helpers for the StarForge backend's opaque HttpOnly cookie credential.
 // CEOs and managers authenticate through the backend's role-native endpoint.
 
 import { API_CONFIG } from './config.js';
 import { ApiError, httpRequest } from './http.js';
+import { queryClient } from './queryClient.js';
 
 export const AUTH_SESSION_CHANGED = 'sf-auth-session-changed';
 export const AUTH_SESSION_INVALIDATED = 'sf-auth-session-invalidated';
 
-function readStoredToken() {
+function removeLegacyTokens() {
   try {
-    return sessionStorage.getItem(API_CONFIG.tokenKey) || '';
+    sessionStorage.removeItem(API_CONFIG.legacyTokenKey);
   } catch {
-    return '';
+    // Continue: the credential is not stored in JavaScript-accessible storage.
+  }
+  try {
+    localStorage.removeItem(API_CONFIG.legacyTokenKey);
+  } catch {
+    // localStorage may be unavailable or blocked.
   }
 }
 
-function removeLegacyPersistentToken() {
-  try {
-    localStorage.removeItem(API_CONFIG.tokenKey);
-  } catch {
-    // localStorage may be unavailable or blocked. It is never used for auth.
-  }
-}
-
-function notifySessionChange(reason) {
+function notifySessionChange(reason, { broadcast = false } = {}) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(AUTH_SESSION_CHANGED, { detail: { reason } }));
+  if (broadcast) broadcastSessionChange(reason);
+}
+
+function broadcastSessionChange(reason) {
+  try {
+    localStorage.setItem(
+      API_CONFIG.sessionSignalKey,
+      JSON.stringify({ reason, at: Date.now(), nonce: Math.random().toString(16).slice(2) }),
+    );
+  } catch {
+    // New tabs still discover the shared cookie during bootstrap.
+  }
+}
+
+function broadcastLogout(reason = 'confirmed') {
+  try {
+    localStorage.setItem(
+      API_CONFIG.logoutSignalKey,
+      JSON.stringify({ reason, at: Date.now(), nonce: Math.random().toString(16).slice(2) }),
+    );
+  } catch {
+    // Other tabs will still expire on their next protected request.
+  }
 }
 
 function deviceId() {
@@ -41,78 +62,115 @@ function deviceId() {
   }
 }
 
-function authSessionSource() {
-  removeLegacyPersistentToken();
-  return readStoredToken() ? 'storage' : null;
+function acceptBrowserSession({ notify = true, reason = 'signed-in' } = {}) {
+  removeLegacyTokens();
+  queryClient.clear();
+  if (notify) notifySessionChange(reason);
+  broadcastSessionChange(reason);
 }
 
-export function hasAuthSession() {
-  return Boolean(authSessionSource());
-}
-
-function saveAuthToken(token, { notify = true } = {}) {
-  const normalized = String(token || '').trim();
-  if (!normalized) throw new ApiError(0, 'Your sign-in could not be completed. Please try again.');
-
+function clearBrowserSession({ notify = true, clearDevice = false, broadcast = false, logoutReason = 'confirmed' } = {}) {
   try {
-    sessionStorage.setItem(API_CONFIG.tokenKey, normalized);
-  } catch {
-    throw new ApiError(0, 'The browser could not save this session.');
-  }
-  removeLegacyPersistentToken();
-  if (notify) notifySessionChange('signed-in');
-}
-
-function clearAuthToken({ notify = true, clearDevice = false } = {}) {
-  try {
-    sessionStorage.removeItem(API_CONFIG.tokenKey);
+    sessionStorage.removeItem(API_CONFIG.legacyTokenKey);
     if (clearDevice) sessionStorage.removeItem(API_CONFIG.deviceKey);
   } catch {
     // The in-memory UI must still reflect the signed-out state.
   }
-  removeLegacyPersistentToken();
+  removeLegacyTokens();
+  queryClient.clear();
+  if (broadcast) broadcastLogout(logoutReason);
   if (notify) notifySessionChange('signed-out');
 }
 
 export async function loginWithPassword({ username, password }, { notify = true } = {}) {
-  const cleanUsername = String(username || '').trim();
-  if (!cleanUsername || !password) throw new ApiError(400, 'Username and password are required.');
+  const cleanUsername = String(username ?? '').trim();
+  const exactPassword = String(password ?? '');
+  if (!cleanUsername || !exactPassword) {
+    throw new ApiError(400, 'Username and password are required.');
+  }
+  if (cleanUsername.length > 150 || exactPassword.length > 128) {
+    throw new ApiError(400, 'Check the highlighted sign-in details and try again.');
+  }
+  if (/\p{Cc}/u.test(cleanUsername) || /\p{Cc}/u.test(exactPassword)) {
+    throw new ApiError(400, 'Sign-in details cannot contain control characters.');
+  }
+
+  // Login itself is CSRF protected. This safe GET sets the CSRF cookie and
+  // returns its masked request token; neither value authenticates a user.
+  const browserSession = await httpRequest('GET', '/api/v1/auth/session/', {
+    auth: false,
+    timeout: 7000,
+  });
 
   const result = await httpRequest('POST', '/api/v1/auth/role-login/', {
     body: {
       username: cleanUsername,
-      password,
+      // Passwords are opaque credentials. Altering surrounding whitespace can
+      // silently turn a valid password into a different one; injection safety
+      // belongs to parameterized service-side authentication.
+      password: exactPassword,
       platform: 'web',
       device_id: deviceId(),
     },
-    // A stale credential must not be sent while replacing a session.
+    csrfToken: browserSession?.csrf_token,
+    sessionTransport: 'cookie',
     auth: false,
   });
-  saveAuthToken(result?.access, { notify });
+  acceptBrowserSession({ notify });
   return result;
 }
 
 export function getCurrentUser({ signal } = {}) {
-  return httpRequest('GET', '/api/v1/users/me/', { signal });
+  // Session bootstrap owns its 401 transition. Suppressing the global 401
+  // signal here avoids a stale bootstrap response invalidating a newer cookie
+  // session established in another tab.
+  return httpRequest('GET', '/api/v1/users/me/', {
+    signal,
+    timeout: 7000,
+    invalidateOnUnauthorized: false,
+  });
 }
 
 export async function changeCurrentPassword({ oldPassword, newPassword }, { notify = true } = {}) {
-  if (!oldPassword || !newPassword) {
+  const exactOldPassword = String(oldPassword ?? '');
+  const exactNewPassword = String(newPassword ?? '');
+  if (!exactOldPassword || !exactNewPassword) {
     throw new ApiError(400, 'Current and new passwords are required.');
   }
+  if (exactOldPassword.length > 128 || exactNewPassword.length > 128) {
+    throw new ApiError(400, 'Check the highlighted password details and try again.');
+  }
+  if (/\p{Cc}/u.test(exactOldPassword) || /\p{Cc}/u.test(exactNewPassword)) {
+    throw new ApiError(400, 'Password details cannot contain control characters.');
+  }
   const result = await httpRequest('POST', '/api/v1/auth/password/change/', {
-    body: { old_password: oldPassword, new_password: newPassword },
+    body: { old_password: exactOldPassword, new_password: exactNewPassword },
   });
-  saveAuthToken(result?.access, { notify });
+  acceptBrowserSession({ notify, reason: 'password-changed' });
   return result;
 }
 
 export async function logoutCurrentSession() {
+  let failure = null;
   try {
-    // The backend invalidates its server-side opaque session here.
-    if (hasAuthSession()) await httpRequest('POST', '/api/v1/auth/logout/');
+    // End this browser session on the backend before clearing private UI state.
+    await httpRequest('POST', '/api/v1/auth/logout/', {
+      timeout: 3500,
+      // Logout handles an already-ended session as a confirmed outcome itself;
+      // it must not emit a competing global unauthorized transition first.
+      invalidateOnUnauthorized: false,
+    });
+  } catch (error) {
+    // An already-expired or already-revoked session is a confirmed signed-out
+    // outcome. Transport, CSRF, and service failures remain unconfirmed.
+    if (Number(error?.status) !== 401) failure = error;
   } finally {
-    // Local data must not stay visible if the network request fails.
-    clearAuthToken({ clearDevice: true });
+    // Cached/private data must not stay visible if the network request fails.
+    clearBrowserSession({
+      clearDevice: true,
+      broadcast: true,
+      logoutReason: failure ? 'unconfirmed' : 'confirmed',
+    });
   }
+  if (failure) throw failure;
 }

@@ -1,9 +1,10 @@
 import { Icons } from '../components/Icons.jsx';
-import { API_CONFIG } from '../api/config.js';
-import { managementMembership } from './resolveRole.js';
+import { effectiveCapabilities, hasCapability } from '../lib/permissions.js';
+import { managementMembership, managementMemberships } from './resolveRole.js';
 
 const nav = (id, icon, grpKey, label, extra = {}) => ({
   id,
+  path: id,
   icon,
   grpKey,
   label,
@@ -11,33 +12,148 @@ const nav = (id, icon, grpKey, label, extra = {}) => ({
   ...extra,
 });
 
-const dashboard = nav('dash', Icons.home, 'main', 'Overview');
-const account = nav('backendAccount', Icons.user, 'system', 'My account');
-const settings = nav('settings', Icons.settings, 'system', 'Workspace preferences');
+const overview = nav('overview', Icons.home, 'main', 'Overview');
+const branches = nav('branches', Icons.globe, 'main', 'Branches', {
+  capabilities: ['org:read', 'intelligence:read'],
+});
+const students = nav('students', Icons.cohort, 'people', 'Students', {
+  capabilities: ['students:read'],
+});
+const teachers = nav('teachers', Icons.user, 'people', 'Teachers', {
+  capabilities: ['teachers:read'],
+});
+const groups = nav('groups', Icons.cohort, 'people', 'Groups', {
+  capabilities: ['cohorts:read'],
+});
+const exams = nav('exams', Icons.doc, 'people', 'Exams', {
+  capabilities: ['academics:read'],
+});
+const people = nav('people', Icons.cohort, 'people', 'People & cohorts', {
+  capabilities: ['students:read', 'cohorts:read', 'teachers:read', 'parents:read', 'users:read'],
+  primary: false,
+});
+const attendance = nav('attendance', Icons.check, 'people', 'Attendance', {
+  capabilities: ['attendance:read'],
+  primary: false,
+  hidden: true,
+});
+const academics = nav('academics', Icons.doc, 'people', 'Academic records', {
+  capabilities: ['academics:read'],
+  primary: false,
+});
+const assignments = nav('assignments', Icons.folder, 'people', 'Assignments', {
+  capabilities: ['assignments:read'],
+  primary: false,
+  hidden: true,
+});
+const placement = nav('placement', Icons.flag, 'people', 'Placement', {
+  capabilities: ['placement:read'],
+});
+const recognition = nav('recognition', Icons.brand, 'people', 'Recognition & conduct', {
+  capabilities: ['achievements:read', 'rewards:read', 'card:read', 'compliance:read', 'penalty:read'],
+});
+const schedule = nav('schedule', Icons.cal, 'operations', 'Schedule', {
+  capabilities: ['schedule:read', 'meeting:write'],
+});
+const organization = nav('organization', Icons.globe, 'operations', 'Organization', {
+  capabilities: ['org:read', 'users:read'],
+});
+const operations = nav('operations', Icons.settings, 'operations', 'Operations', {
+  capabilities: ['tasks:read', 'cover:read', 'procurement:read', 'loan:read'],
+});
+const decisions = nav('decisions', Icons.check, 'operations', 'Decisions', {
+  accent: 'var(--sf-warn)',
+  capabilities: ['approvals:read', 'ledger:read'],
+});
+const content = nav('content', Icons.folder, 'operations', 'Content & print', {
+  capabilities: ['content:read', 'printing:read'],
+});
+const intelligence = nav('intelligence', Icons.trend, 'insights', 'Leadership intelligence', {
+  capabilities: ['intelligence:read'],
+});
+const reports = nav('reports', Icons.doc, 'insights', 'Reports', {
+  capabilities: ['reports:read'],
+});
+const audit = nav('audit', Icons.shield, 'insights', 'Activity history', {
+  capabilities: ['audit:read'],
+});
+const engagement = nav('engagement', Icons.bell, 'comms', 'Community engagement', {
+  capabilities: ['campaign:read', 'forms:read', 'notifications:read', 'notifications:write'],
+});
+const messaging = nav('messaging', Icons.chat, 'comms', 'Messages & contacts', {
+  capabilities: ['messaging:read'],
+});
+const finance = nav('finance', Icons.trend, 'finance', 'Finance', {
+  accent: 'var(--sf-success)',
+  capabilities: ['finance:read', 'payments:read', 'sale:read'],
+});
+const aiGovernance = nav('ai-governance', Icons.ai, 'governance', 'Responsible AI', {
+  capabilities: ['ai:read'],
+});
+const starAI = nav('star-ai', Icons.ai, 'main', 'StarAI', {
+  capabilities: ['intelligence:read', 'ai:read'],
+});
+const access = nav('access', Icons.shield, 'governance', 'Access & roles', {
+  capabilities: ['access:read'],
+});
+const account = nav('account', Icons.user, 'system', 'My account', { hidden: true });
+const settings = nav('settings', Icons.settings, 'system', 'Workspace preferences', {
+  hidden: true,
+});
 
 const coreManagement = [
-  nav('backendPeople', Icons.cohort, 'people', 'People and cohorts'),
-  nav('backendAttendance', Icons.check, 'people', 'Attendance oversight'),
-  nav('backendAcademics', Icons.doc, 'people', 'Academic records'),
-  nav('backendAssignments', Icons.folder, 'people', 'Assignments'),
-  nav('backendScheduling', Icons.cal, 'ops', 'Meetings and scheduling'),
-  nav('backendApprovals', Icons.check, 'ops', 'Approvals and ledger', { accent: 'var(--sf-warn)' }),
-  nav('backendOperations', Icons.settings, 'ops', 'Operations center'),
-  nav('backendIntelligence', Icons.trend, 'org', 'Intelligence center'),
-  nav('backendReports', Icons.doc, 'org', 'Reports'),
-  nav('backendAudit', Icons.shield, 'org', 'Audit trail'),
-  nav('backendEngagement', Icons.bell, 'comms', 'Engagement'),
-  nav('backendMessaging', Icons.chat, 'comms', 'Messaging directory'),
-  nav('backendAI', Icons.ai, 'comms', 'AI governance'),
-  nav('backendContent', Icons.folder, 'ops', 'Content and printing'),
-  nav('backendPlacement', Icons.flag, 'people', 'Placement'),
-  nav('backendRecognition', Icons.brand, 'people', 'Recognition and conduct'),
+  overview,
+  branches,
+  students,
+  teachers,
+  groups,
+  exams,
+  people,
+  attendance,
+  academics,
+  assignments,
+  placement,
+  recognition,
+  schedule,
+  operations,
+  decisions,
+  content,
+  intelligence,
+  reports,
+  audit,
+  engagement,
+  messaging,
+  starAI,
+  aiGovernance,
 ];
 
-const directorOnly = [
-  nav('backendOrganization', Icons.globe, 'org', 'Organization directory'),
-  nav('backendFinance', Icons.trend, 'finance', 'Finance control', { accent: 'var(--sf-success)' }),
-  nav('backendAccess', Icons.shield, 'system', 'Access administration'),
+const directorManagement = [
+  overview,
+  branches,
+  students,
+  teachers,
+  groups,
+  exams,
+  people,
+  attendance,
+  academics,
+  assignments,
+  placement,
+  recognition,
+  organization,
+  schedule,
+  operations,
+  decisions,
+  content,
+  intelligence,
+  reports,
+  audit,
+  engagement,
+  messaging,
+  finance,
+  starAI,
+  aiGovernance,
+  access,
 ];
 
 const ROLE_CFG = {
@@ -47,17 +163,7 @@ const ROLE_CFG = {
     consoleKey: 'roles.ceoConsole',
     whoRoleKey: 'roles.ceoWhoRole',
     accent: 'var(--sf-primary)',
-    nav: [
-      dashboard,
-      coreManagement[0],
-      directorOnly[0],
-      ...coreManagement.slice(1, 5),
-      directorOnly[1],
-      ...coreManagement.slice(5),
-      directorOnly[2],
-      account,
-      settings,
-    ],
+    destinations: [...directorManagement, account, settings],
   },
   manager: {
     role: 'manager',
@@ -65,9 +171,9 @@ const ROLE_CFG = {
     consoleKey: 'roles.managerConsole',
     whoRoleKey: 'roles.managerWhoRole',
     accent: 'var(--sf-primary)',
-    // This is the conservative department-head navigation. The backend
-    // remains authoritative and individual tabs fail closed with 403.
-    nav: [dashboard, ...coreManagement, account, settings],
+    // This is the conservative department-head navigation. The service remains
+    // authoritative and individual views fail closed when a grant is absent.
+    destinations: [...coreManagement, account, settings],
   },
 };
 
@@ -78,22 +184,66 @@ function displayName(user) {
   return composed || String(user?.username || 'Management account');
 }
 
+function capabilityAwareNav(items, user) {
+  const capabilities = effectiveCapabilities(user);
+  if (!capabilities) return items;
+  const capabilitySet = new Set(capabilities);
+  return items.filter((item) =>
+    !item.capabilities?.length || item.capabilities.some((permission) =>
+      hasCapability(capabilitySet, permission)));
+}
+
+export function managementScopeSummary(role, user) {
+  if (role === 'ceo') return { id: 'all', name: '', count: 0 };
+  const memberships = managementMemberships(user, 'manager');
+  const membership = memberships[0];
+  const declaredScopes = Array.isArray(user?.scopes) ? user.scopes : [];
+  const scopeCount = declaredScopes.length || memberships.length;
+  const singleScope = declaredScopes.length === 1 ? declaredScopes[0] : null;
+  const singleBranch = singleScope?.branch;
+  const singleDepartment = singleScope?.department;
+  const singleScopeName = [
+    singleBranch?.name || membership?.branch_name,
+    singleDepartment?.name || membership?.department_name,
+  ].filter(Boolean).join(' · ');
+  return {
+    id: scopeCount > 1
+      ? 'assigned-scopes'
+      : singleBranch?.id ?? membership?.branch ?? 'membership',
+    name: scopeCount > 1
+      ? `${scopeCount.toLocaleString()} assigned leadership scopes`
+      : singleScopeName || 'Assigned leadership scope',
+    count: scopeCount,
+  };
+}
+
 export function roleConfigForUser(role, user) {
   const base = ROLE_CFG[role];
   if (!base) return null;
   const membership = managementMembership(user, role);
+  const scope = managementScopeSummary(role, user);
+  const destinations = capabilityAwareNav(base.destinations, user);
+  const primaryNav = destinations.filter((item) => item.primary !== false);
+  const directoryNav = destinations.filter((item) => !item.hidden);
   return {
     ...base,
-    nav: API_CONFIG.useMock ? [dashboard, settings] : base.nav,
+    // Routing is authorized from the complete destination registry. Visible
+    // navigation is intentionally independent so moving Attendance or
+    // Assignments into Groups never makes their routes disappear.
+    destinations,
+    primaryNav,
+    directoryNav,
+    nav: primaryNav,
     who: displayName(user),
     whoRole: membership?.account_type_name || '',
-    defaultBranch: role === 'ceo' ? 'all' : membership?.branch ?? null,
+    defaultBranch: scope.id,
+    defaultBranchName: scope.name,
   };
 }
 
 export function groupNav(navItems) {
   const groups = [];
-  navItems.forEach((item) => {
+  navItems.filter((item) => !item.hidden).forEach((item) => {
     let group = groups.find((candidate) => candidate.grpKey === item.grpKey);
     if (!group) {
       group = { grpKey: item.grpKey, items: [] };

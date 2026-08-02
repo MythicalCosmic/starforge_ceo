@@ -1,17 +1,25 @@
 # API integration
 
 The management console is live-first. Unless `VITE_USE_MOCK=true` is set
-explicitly for local demonstration work, every business screen reads the tenant
-backend through the same browser origin.
+explicitly for the local backend-off design preview, every business screen
+reads the tenant backend through the same browser origin.
+
+The integration baseline is
+[starforge_edu commit 416f607](https://github.com/MythicalCosmic/starforge_edu/commit/416f607ba9b0a70f54b24f030c76462b2f74f00a)
+on `codex/permission-audit-release`. The default backend branch is not
+contract-compatible. Required successor changes are tracked in
+[backend release actions](../../docs/BACKEND_RELEASE_ACTIONS.md).
 
 ## Audience and authentication
 
 The supported login sequence is:
 
-1. `POST /api/v1/auth/role-login/`
-2. save the returned opaque `access` credential in `sessionStorage`
-3. `GET /api/v1/users/me/`
-4. require the exact management membership
+1. `GET /api/v1/auth/session/` to establish the same-origin CSRF cookie;
+2. `POST /api/v1/auth/role-login/` with `X-Session-Transport: cookie` and
+   `X-CSRFToken`;
+3. accept the opaque session only through the backend's Secure, HttpOnly,
+   SameSite cookie—the key is never returned to browser JavaScript;
+4. `GET /api/v1/users/me/` and require the exact management membership.
 
 The product boundary is deliberately narrow:
 
@@ -27,7 +35,9 @@ closed.
 Live mode never accepts a role from a query string or `VITE_ROLE`. The latter is
 only a fixed-fixture development convenience. The browser clears the session
 after an authenticated 401 and removes any credential left by older versions in
-`localStorage`.
+`localStorage` or `sessionStorage`. Non-secret storage events synchronize login
+and logout state across already-open tabs; new tabs discover the shared HttpOnly
+cookie through `/users/me/` without ever reading the credential.
 
 Credentials must never be placed in a `VITE_*` variable. Vite embeds every such
 value in public browser JavaScript.
@@ -62,26 +72,67 @@ target tenant.
 
 `http.js` provides the shared HTTP contract:
 
-- 15-second request timeout, even when a caller also supplies an abort signal;
-- `Authorization: Bearer <session credential>`;
+- 10-second default request timeout, even when a caller also supplies an abort
+  signal; security-sensitive calls may set a shorter explicit timeout;
+- same-origin cookie credentials, plus Django's CSRF cookie/header pair on every
+  state-changing request;
 - `Accept-Language` and a unique `X-Request-ID`;
 - JSON request/response handling;
-- unwrapping of `{success, data, pagination?}`;
+- unwrapping of `{success, data, pagination?, warnings?}`;
 - structured `ApiError` fields for status, backend code, validation errors,
   request ID, and retry timing;
-- session invalidation after an authenticated 401.
+- session invalidation and query-cache removal after an authenticated 401.
 
 Callers should display the returned request ID when an operator needs to report
 an API failure.
 
-## Read-only management catalog
+## Query cache and loading behavior
 
-`catalog.js` declares 20 management modules, 104 collection/tab GET routes, 79
-verified detail GET routes, and 17 lazy selected-record related GET routes.
-Those 200 paths are unique. Each tab defines its endpoint, columns, detail
+`QueryClientProvider` owns one TanStack Query cache for dashboard, collection,
+and selected-record reads. `apiQueryKey()` includes the active language,
+request path, and sorted parameters, preventing page, filter, and translation
+collisions while deduplicating identical in-flight requests.
+
+Default behavior is:
+
+- 45-second freshness and five-minute garbage collection;
+- structural sharing for stable renders;
+- one retry for transient 5xx responses and no automatic retry for 4xx;
+- stale refresh on reconnect and window focus;
+- caller cancellation through the signal supplied by TanStack Query;
+- complete cache clearing on sign-in replacement, logout, and authenticated
+  401 invalidation.
+
+Do not put credentials or principal IDs into query keys. The cache is cleared at
+the identity boundary instead. New read surfaces should use `useQuery`,
+`useApiResource`, or `useApiDetail`, not component-local fetch effects.
+
+Use `npm run analyze` to create `dist/bundle-report.html`, an interactive
+gzip/Brotli-aware treemap. This is a normal production-mode build: preview data
+must remain disabled, and source maps remain off.
+
+## Complete leadership navigation and read catalog
+
+`catalog.js` declares 20 management domains, 104 collection GETs, 79 detail
+GETs, and 17 selected-record relations. All 200 unique configured reads have a
+route-backed product path; no catalog tab is silently discarded.
+
+`backendPages.jsx` presents the catalog as grouped, full-page leadership
+workspaces with clean route IDs and executive-facing copy. Students and
+Teachers also have dedicated focused entry points. The CEO navigation exposes
+22 visible destinations including Overview; the manager navigation excludes
+the organization-wide directory, Finance, and Access & roles by default. If
+`/users/me/` supplies `effective_permissions`, `roles.js` removes destinations
+and `BackendModule` removes tabs the current session cannot read.
+
+Tabbed views and selected records use nested hash routes, so profiles can be
+linked, refreshed, and navigated with browser history instead of accumulating
+dialogs. Former module and consolidated route IDs redirect to the matching
+restored view while preserving valid record identifiers.
+
+Each catalog entry still declares its endpoint, approved columns and detail
 fields, row identifier, pagination behavior, and capability label.
-`BackendModule` renders only those approved fields; it is not a raw JSON
-inspector.
+`BackendModule` renders only those fields; it is not a raw JSON inspector.
 
 Related panels substitute only the selected row's identifier, remount when that
 identity changes, and fetch independently from the parent list. Paginated
@@ -103,9 +154,10 @@ The catalog covers:
   administration.
 
 The shared `useApiResource` hook normalizes the backend's known list envelopes
-and provides server-side search, pagination, retry, caller cancellation,
-stale-response protection, and explicit 401/403/429/error states. Detail
-requests are declared only where GET is actually supported.
+on top of TanStack Query and provides server-side search, pagination, manual
+retry, cancellation, cached-data continuity, warnings, and explicit
+401/403/429/error states. Detail requests are declared only where GET is
+actually supported.
 
 The endpoint catalog is covered by `catalog.test.js`, including uniqueness,
 field declarations, and regressions that exclude side-effecting or falsely
@@ -142,22 +194,29 @@ mutation may be added only after it has:
 
 Do not simulate missing backend workflows in persistent browser state.
 
-## Demonstration fixture mode
+## Backend-off design preview
 
-Fixture mode must be requested explicitly:
+The preview must be requested explicitly and run through the Vite development
+server:
 
 ```env
 VITE_USE_MOCK=true
 VITE_ROLE=ceo
 ```
 
-It exposes only fixed dashboard counts and local console settings. Backend
-management modules are disabled, there is no mock CRUD database, and no
-production data endpoint is called. Vite production builds and Docker refuse
-fixture mode.
+It bypasses sign-in with a fixed director or department-head identity and
+dynamically serves deterministic GET results from `mockFixtures.js`. Prepared
+examples cover the overview, students, teachers, enrollment, branch/risk
+signals, notices, decisions, tasks, meetings, and invoices. Unsupported catalog
+areas return an empty page with a preview warning rather than invented records.
 
-Fixture mode must not be used to validate authorization, backend DTOs,
-production paging, or feature completeness.
+Use `?role=manager` to inspect the manager surface. There is no persistent CRUD
+store, no accepted write method, and no production data request. The mock module
+is imported only when both Vite development mode and the explicit preview flag
+are active. Vite production builds and Docker refuse preview mode.
+
+The preview must not be used to validate authorization, backend DTOs,
+production paging, metric correctness, or feature completeness.
 
 ## Important backend limitations
 
@@ -175,8 +234,9 @@ contract. In particular:
 - wallet reads that provision a missing wallet instead of remaining read-only;
 - achievement approval/rejection advertised as GET despite being POST-only.
 
-See [`../../docs/BACKEND_GAPS.md`](../../docs/BACKEND_GAPS.md) for backend
-evidence, priorities, and closure criteria.
+See [backend gaps](../../docs/BACKEND_GAPS.md) for evidence and
+[backend release actions](../../docs/BACKEND_RELEASE_ACTIONS.md) for the pinned
+deployment decision, response additions, security fixes, and acceptance gates.
 
 ## File map
 
@@ -184,5 +244,9 @@ evidence, priorities, and closure criteria.
   logout, and tab/session-scoped credential lifecycle.
 - `config.js` — immutable Vite environment parsing; live is the default.
 - `http.js` — fetch, headers, timeout/cancellation, envelopes, and `ApiError`.
+- `queryClient.js` — language-aware query keys, cache policy, and retry policy.
+- `mockFixtures.js` — development-only, read-only design-preview responses.
 - `catalog.js` — explicit read-only management module definitions.
 - `../hooks/useApiResource.js` — list/detail loading and envelope normalization.
+- `../pages/backendPages.jsx` — complete leadership workspaces built from
+  catalog entries, plus focused Student and Teacher presentations.

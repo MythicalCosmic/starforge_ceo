@@ -1,23 +1,38 @@
-import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { cloneElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
 import { PageLoader } from '../components/feedback.jsx';
-import { Field, TextInput } from '../components/form.jsx';
+import { TextInput } from '../components/form.jsx';
 import { Button, Card, SfStar } from '../components/primitives.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
 import { LANGUAGES } from '../i18n/index.js';
+import {
+  passwordChangeFailure,
+  validatePasswordChange,
+} from '../lib/passwordPolicy.js';
+import { userFacingError } from '../lib/userFacingError.js';
 import {
   getLoginPrompt,
   normalizeLoginLanguage,
   PAGE_PROMPT_INDEX,
 } from './loginExperience.js';
 
-function messageFor(error, fallback) {
-  if (error?.data && typeof error.data === 'object') {
-    return error.data.message || error.data.error || error.message || fallback;
-  }
-  return error?.message || fallback;
+function messageFor(error, fallback, context = 'workspace') {
+  return userFacingError(error, { context, fallback });
+}
+
+function AuthField({ id, label, required = false, children }) {
+  return (
+    <div className="sf-field">
+      <label className="sf-field-l" htmlFor={id}>
+        {label}
+        {required ? <em aria-hidden="true">*</em> : null}
+      </label>
+      {children}
+    </div>
+  );
 }
 
 function AuthFrame({ title, description, children }) {
@@ -203,23 +218,25 @@ function LoginFrame({ children }) {
 
       <section className="sf-login-access" aria-labelledby="sf-login-title">
         <div className="sf-login-tools">
-          <div
-            className="sf-login-languages"
-            role="group"
-            aria-label={t('connection.languageLabel')}
-          >
-            {LANGUAGES.map((locale) => (
-              <button
-                key={locale}
-                type="button"
-                className={language === locale ? 'is-active' : ''}
-                onClick={() => i18n.changeLanguage(locale)}
-                aria-pressed={language === locale}
-              >
-                {locale.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          {LANGUAGES.length > 1 && (
+            <div
+              className="sf-login-languages"
+              role="group"
+              aria-label={t('connection.languageLabel')}
+            >
+              {LANGUAGES.map((locale) => (
+                <button
+                  key={locale}
+                  type="button"
+                  className={language === locale ? 'is-active' : ''}
+                  onClick={() => i18n.changeLanguage(locale)}
+                  aria-pressed={language === locale}
+                >
+                  {locale.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             className="sf-login-theme"
             type="button"
@@ -253,30 +270,76 @@ function LoginFrame({ children }) {
 export function LoginPage() {
   const { t } = useTranslation();
   const { login } = useAuth();
+  const toast = useToast();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const pendingRef = useRef(false);
   const errorId = error ? 'sf-login-error' : undefined;
+  const credentialError = error && [400, 401, 403, 422].includes(Number(error.status));
 
   const submit = async (event) => {
     event.preventDefault();
+    if (pendingRef.current) return;
+    const cleanUsername = username.trim();
+    const exactPassword = password;
+    const nextErrors = {};
+    if (!cleanUsername) nextErrors.username = t('connection.usernameRequired');
+    else if (cleanUsername.length > 150) nextErrors.username = t('connection.usernameTooLong');
+    else if (/\p{Cc}/u.test(cleanUsername)) nextErrors.username = t('connection.invalidCharacters');
+    if (!exactPassword) nextErrors.password = t('connection.passwordRequired');
+    else if (exactPassword.length > 128) nextErrors.password = t('connection.passwordTooLong');
+    else if (/\p{Cc}/u.test(exactPassword)) nextErrors.password = t('connection.invalidCharacters');
+
+    setUsername(cleanUsername);
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      toast.warning(t('connection.checkFields'), {
+        id: 'sf-login-feedback',
+        title: t('connection.signInNeedsAttention'),
+      });
+      window.requestAnimationFrame(() => {
+        document.getElementById(nextErrors.username ? 'sf-login-username' : 'sf-login-password')?.focus();
+      });
+      return;
+    }
+
+    pendingRef.current = true;
     setPending(true);
-    setError('');
+    setError(null);
+    setFieldErrors({});
     try {
-      await login({ username, password });
+      const nextSession = await login({ username: cleanUsername, password: exactPassword });
+      if (nextSession?.status === 'authenticated' || nextSession?.status === 'password-change') {
+        toast.success(t('connection.loginSuccess'), {
+          id: 'sf-login-feedback',
+          title: t('connection.welcome'),
+        });
+      }
     } catch (requestError) {
-      setPassword('');
-      setError(
-        messageFor(
-          requestError,
-          t('connection.loginFailed', {
-            defaultValue: 'Sign-in failed. Check your credentials and try again.',
-          }),
-        ),
+      const message = messageFor(
+        requestError,
+        t('connection.loginFailed', {
+          defaultValue: 'Sign-in failed. Check your details and try again.',
+        }),
+        'login',
       );
+      setPassword('');
+      setShowPassword(false);
+      setError(requestError);
+      setFieldErrors({});
+      toast.danger(message, {
+        id: 'sf-login-feedback',
+        title: t('connection.loginFailedTitle'),
+      });
+      pendingRef.current = false;
       setPending(false);
+      window.requestAnimationFrame(() => {
+        document.getElementById('sf-login-password')?.focus();
+      });
     }
   };
 
@@ -285,41 +348,66 @@ export function LoginPage() {
       <form
         className="sf-login-form"
         onSubmit={submit}
+        noValidate
         aria-busy={pending}
         aria-describedby="sf-login-description"
       >
-        <Field label={t('connection.username', { defaultValue: 'Username' })} required>
-          <TextInput
-            id="sf-login-username"
-            value={username}
-            onChange={(value) => {
-              setUsername(value);
-              if (error) setError('');
-            }}
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-            disabled={pending}
-            aria-invalid={Boolean(error)}
-            aria-describedby={errorId}
-            autoFocus
-            required
-          />
-        </Field>
-        <Field label={t('connection.password', { defaultValue: 'Password' })} required>
+        <AuthField
+          id="sf-login-username"
+          label={t('connection.username', { defaultValue: 'Username' })}
+          required
+        >
+          <span className="sf-login-input-shell">
+            <span className="sf-login-input-icon" aria-hidden="true">
+              {cloneElement(Icons.user, { size: 18 })}
+            </span>
+            <TextInput
+              id="sf-login-username"
+              value={username}
+              onChange={(value) => {
+                setUsername(value);
+                setFieldErrors((current) => ({ ...current, username: '' }));
+                if (error) setError(null);
+              }}
+              onBlur={() => setUsername((value) => value.trim())}
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              disabled={pending}
+              aria-invalid={Boolean(fieldErrors.username || credentialError)}
+              aria-describedby={fieldErrors.username ? 'sf-login-username-error' : errorId}
+              autoFocus
+              required
+            />
+          </span>
+          {fieldErrors.username ? (
+            <span className="sf-login-field-error" id="sf-login-username-error" role="alert">
+              {fieldErrors.username}
+            </span>
+          ) : null}
+        </AuthField>
+        <AuthField
+          id="sf-login-password"
+          label={t('connection.password', { defaultValue: 'Password' })}
+          required
+        >
           <span className="sf-login-password">
+            <span className="sf-login-input-icon" aria-hidden="true">
+              {cloneElement(Icons.shield, { size: 18 })}
+            </span>
             <TextInput
               id="sf-login-password"
               value={password}
               onChange={(value) => {
                 setPassword(value);
-                if (error) setError('');
+                setFieldErrors((current) => ({ ...current, password: '' }));
+                if (error) setError(null);
               }}
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
               disabled={pending}
-              aria-invalid={Boolean(error)}
-              aria-describedby={errorId}
+              aria-invalid={Boolean(fieldErrors.password || credentialError)}
+              aria-describedby={fieldErrors.password ? 'sf-login-password-error' : errorId}
               required
             />
             <button
@@ -332,10 +420,21 @@ export function LoginPage() {
               {showPassword ? t('connection.hidePassword') : t('connection.showPassword')}
             </button>
           </span>
-        </Field>
+          {fieldErrors.password ? (
+            <span className="sf-login-field-error" id="sf-login-password-error" role="alert">
+              {fieldErrors.password}
+            </span>
+          ) : null}
+        </AuthField>
         {error ? (
           <div className="sf-login-error" id="sf-login-error" role="alert">
-            {error}
+            {messageFor(
+              error,
+              t('connection.loginFailed', {
+                defaultValue: 'Sign-in failed. Check your details and try again.',
+              }),
+              'login',
+            )}
           </div>
         ) : null}
         <button className="sf-login-submit" type="submit" disabled={pending}>
@@ -355,30 +454,43 @@ export function LoginPage() {
 
 export function PasswordChangePage() {
   const { changePassword, logout } = useAuth();
+  const toast = useToast();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
+  const pendingRef = useRef(false);
 
   const submit = async (event) => {
     event.preventDefault();
-    setError('');
-    if (newPassword !== confirmation) {
-      setError('The new passwords do not match.');
+    if (pendingRef.current) return;
+    setError(null);
+    const policyIssue = validatePasswordChange({
+      currentPassword: oldPassword,
+      newPassword,
+      confirmation,
+    });
+    if (policyIssue) {
+      setError(policyIssue);
+      toast.warning(policyIssue.message, { title: 'Check the highlighted field' });
       return;
     }
-    if (newPassword === oldPassword) {
-      setError('Choose a new password that is different from the temporary password.');
-      return;
-    }
+    pendingRef.current = true;
     setPending(true);
     try {
       await changePassword({ oldPassword, newPassword });
+      toast.success('Your password has been changed and the leadership workspace is ready.', { title: 'Password updated' });
     } catch (requestError) {
-      setNewPassword('');
-      setConfirmation('');
-      setError(messageFor(requestError, 'The password could not be changed.'));
+      const failure = passwordChangeFailure(requestError);
+      setError(failure);
+      toast.danger(failure.message, { title: 'Password not changed' });
+      if (failure.field === 'current') setOldPassword('');
+      if (failure.field === 'new') {
+        setNewPassword('');
+        setConfirmation('');
+      }
+      pendingRef.current = false;
       setPending(false);
     }
   };
@@ -389,40 +501,76 @@ export function PasswordChangePage() {
       description="Your account requires a new password before management data can be opened."
     >
       <form className="sf-connection-form" onSubmit={submit} aria-busy={pending}>
-        <Field label="Temporary password" required>
+        <AuthField id="sf-current-password" label="Temporary password" required>
           <TextInput
+            id="sf-current-password"
             value={oldPassword}
-            onChange={setOldPassword}
+            onChange={(value) => {
+              setOldPassword(value);
+              if (error?.field === 'current') setError(null);
+            }}
             type="password"
             autoComplete="current-password"
             disabled={pending}
             autoFocus
+            aria-invalid={error?.field === 'current'}
+            aria-describedby={error?.field === 'current' ? 'sf-current-password-error' : undefined}
             required
           />
-        </Field>
-        <Field label="New password" required>
+          {error?.field === 'current' && (
+            <span className="sf-field-help is-error" id="sf-current-password-error" role="alert">
+              {error.message}
+            </span>
+          )}
+        </AuthField>
+        <AuthField id="sf-new-password" label="New password" required>
           <TextInput
+            id="sf-new-password"
             value={newPassword}
-            onChange={setNewPassword}
+            onChange={(value) => {
+              setNewPassword(value);
+              if (error?.field === 'new') setError(null);
+            }}
             type="password"
             autoComplete="new-password"
             disabled={pending}
+            aria-invalid={error?.field === 'new'}
+            aria-describedby={`sf-password-policy${error?.field === 'new' ? ' sf-new-password-error' : ''}`}
             required
           />
-        </Field>
-        <Field label="Confirm new password" required>
+          <span className="sf-field-help" id="sf-password-policy">
+            Use 10–128 characters. Avoid common, numeric-only, or account-based passwords.
+          </span>
+          {error?.field === 'new' && (
+            <span className="sf-field-help is-error" id="sf-new-password-error" role="alert">
+              {error.message}
+            </span>
+          )}
+        </AuthField>
+        <AuthField id="sf-confirm-password" label="Confirm new password" required>
           <TextInput
+            id="sf-confirm-password"
             value={confirmation}
-            onChange={setConfirmation}
+            onChange={(value) => {
+              setConfirmation(value);
+              if (error?.field === 'confirmation') setError(null);
+            }}
             type="password"
             autoComplete="new-password"
             disabled={pending}
+            aria-invalid={error?.field === 'confirmation'}
+            aria-describedby={error?.field === 'confirmation' ? 'sf-confirm-password-error' : undefined}
             required
           />
-        </Field>
-        {error ? (
+          {error?.field === 'confirmation' && (
+            <span className="sf-field-help is-error" id="sf-confirm-password-error" role="alert">
+              {error.message}
+            </span>
+          )}
+        </AuthField>
+        {error?.field === 'form' ? (
           <div className="sf-form-error" role="alert">
-            {error}
+            {error.message}
           </div>
         ) : null}
         <div className="sf-connection-actions">
@@ -438,18 +586,18 @@ export function PasswordChangePage() {
   );
 }
 
-export function AuthMessagePage({ title, description, retry, logout }) {
+export function AuthMessagePage({ title, description, retry, logout, retryLabel = 'Try again', logoutLabel = 'Sign out' }) {
   return (
     <AuthFrame title={title} description={description}>
       <div className="sf-connection-actions">
         {retry ? (
           <Button kind="primary" onClick={retry}>
-            Try again
+            {retryLabel}
           </Button>
         ) : null}
         {logout ? (
           <Button kind={retry ? 'ghost' : 'primary'} onClick={logout}>
-            Sign out
+            {logoutLabel}
           </Button>
         ) : null}
       </div>

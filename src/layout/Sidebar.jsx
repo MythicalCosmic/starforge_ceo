@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useRef } from 'react';
+import { cloneElement, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
 import { SfAvatar, SfStar } from '../components/primitives.jsx';
@@ -8,7 +8,7 @@ function itemLabel(item, t) {
   if (item.id === 'settings') {
     return t('shell.workspacePreferences', { defaultValue: 'Workspace preferences' });
   }
-  if (item.id === 'backendAccount') {
+  if (item.id === 'account') {
     return t('shell.myProfile', { defaultValue: 'My profile' });
   }
   return t(item.labelKey, { defaultValue: item.label || item.id });
@@ -29,11 +29,35 @@ function scopeLabel(scope, t) {
   return scope.name;
 }
 
+function routeHref(target) {
+  const path = String(target || 'overview')
+    .replace(/^#/, '')
+    .replace(/^\/+/, '');
+  return `#/${path || 'overview'}`;
+}
+
+function handleRouteClick(event, onNav, target) {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  onNav(target);
+}
+
 export function Sidebar({
   variant = 'navigator',
   cfg,
   active,
   onNav,
+  onPrefetch,
   branches = [],
   branch,
   open,
@@ -48,10 +72,26 @@ export function Sidebar({
   const currentScope =
     branches.find((candidate) => String(candidate.id) === String(branch)) || branches[0];
 
+  useLayoutEffect(() => {
+    if (open) panelRef.current?.focus({ preventScroll: true });
+  }, [open, variant]);
+
   useEffect(() => {
     if (!open) return undefined;
 
-    const frame = window.requestAnimationFrame(() => closeRef.current?.focus());
+    const focusEntry = () => {
+      closeRef.current?.focus({ preventScroll: true });
+      if (!panelRef.current?.contains(document.activeElement)) {
+        panelRef.current?.focus({ preventScroll: true });
+      }
+    };
+    // The pointer that opens the overlay can restore focus to its trigger after
+    // React commits. Repeat the hand-off after the initiating click's default
+    // focus behavior, on the next frame, and after the entry transition.
+    focusEntry();
+    const clickTimer = window.setTimeout(focusEntry, 0);
+    const frame = window.requestAnimationFrame(focusEntry);
+    const transitionTimer = window.setTimeout(focusEntry, 200);
     const handleKeys = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -67,7 +107,10 @@ export function Sidebar({
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (!panelRef.current.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -76,10 +119,18 @@ export function Sidebar({
       }
     };
 
-    document.addEventListener('keydown', handleKeys);
+    const handleFocus = (event) => {
+      if (!panelRef.current?.contains(event.target)) focusEntry();
+    };
+
+    document.addEventListener('keydown', handleKeys, true);
+    document.addEventListener('focusin', handleFocus, true);
     return () => {
       window.cancelAnimationFrame(frame);
-      document.removeEventListener('keydown', handleKeys);
+      window.clearTimeout(clickTimer);
+      window.clearTimeout(transitionTimer);
+      document.removeEventListener('keydown', handleKeys, true);
+      document.removeEventListener('focusin', handleFocus, true);
     };
   }, [onClose, open]);
 
@@ -91,16 +142,23 @@ export function Sidebar({
         aria-label={t('shell.primaryNavigation', { defaultValue: 'Primary navigation' })}
         role={open ? 'dialog' : undefined}
         aria-modal={open ? 'true' : undefined}
+        tabIndex={open ? -1 : undefined}
       >
         <header className="ad-rail-head">
-          <button type="button" className="ad-rail-brand" onClick={() => onNav('dash')}>
+          <a
+            className="ad-rail-brand"
+            href={routeHref('overview')}
+            onClick={(event) => handleRouteClick(event, onNav, 'overview')}
+            onMouseEnter={() => onPrefetch?.('overview')}
+            onFocus={() => onPrefetch?.('overview')}
+          >
             <span aria-hidden="true">
               <SfStar size={20} color="currentColor" />
             </span>
             <strong>
               StarForge <small>EDU</small>
             </strong>
-          </button>
+          </a>
           <button
             ref={closeRef}
             type="button"
@@ -126,18 +184,21 @@ export function Sidebar({
               <h2>{groupLabel(group.grpKey, t)}</h2>
               {group.items.map((item) => {
                 const selected = item.id === active;
+                const target = item.path || item.id;
                 return (
-                  <button
-                    type="button"
+                  <a
                     key={item.id}
                     className={'ad-rail-link' + (selected ? ' is-current' : '')}
-                    onClick={() => onNav(item.id)}
+                    href={routeHref(target)}
+                    onClick={(event) => handleRouteClick(event, onNav, target)}
+                    onMouseEnter={() => onPrefetch?.(target)}
+                    onFocus={() => onPrefetch?.(target)}
                     aria-current={selected ? 'page' : undefined}
                   >
                     <span>{cloneElement(item.icon, { size: 16 })}</span>
                     <strong>{itemLabel(item, t)}</strong>
                     {selected && <i aria-hidden="true" />}
-                  </button>
+                  </a>
                 );
               })}
             </section>
@@ -145,18 +206,29 @@ export function Sidebar({
         </nav>
 
         <footer className="ad-rail-footer">
-          <button
-            type="button"
-            className="ad-rail-profile"
-            onClick={() => canLogout && onNav('backendAccount')}
-            disabled={!canLogout}
-          >
-            <SfAvatar name={cfg.who} size={36} color={cfg.accent} />
-            <span>
-              <strong>{cfg.who}</strong>
-              <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
-            </span>
-          </button>
+          {canLogout ? (
+            <a
+              className="ad-rail-profile"
+              href={routeHref('account')}
+              onClick={(event) => handleRouteClick(event, onNav, 'account')}
+              onMouseEnter={() => onPrefetch?.('account')}
+              onFocus={() => onPrefetch?.('account')}
+            >
+              <SfAvatar name={cfg.who} size={36} color={cfg.accent} decorative />
+              <span>
+                <strong>{cfg.who}</strong>
+                <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
+              </span>
+            </a>
+          ) : (
+            <div className="ad-rail-profile is-disabled" aria-disabled="true">
+              <SfAvatar name={cfg.who} size={36} color={cfg.accent} decorative />
+              <span>
+                <strong>{cfg.who}</strong>
+                <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
+              </span>
+            </div>
+          )}
           {canLogout && (
             <button
               type="button"
@@ -180,10 +252,17 @@ export function Sidebar({
       role="dialog"
       aria-modal="true"
       aria-labelledby="navigator-title"
+      tabIndex={open ? -1 : undefined}
       style={{ '--role-accent': cfg.accent }}
     >
       <header className="ad-navigator-head">
-        <div className="ad-navigator-brand">
+        <a
+          className="ad-navigator-brand"
+          href={routeHref('overview')}
+          onClick={(event) => handleRouteClick(event, onNav, 'overview')}
+          onMouseEnter={() => onPrefetch?.('overview')}
+          onFocus={() => onPrefetch?.('overview')}
+        >
           <span className="ad-navigator-mark" aria-hidden="true">
             <SfStar size={22} color="currentColor" />
           </span>
@@ -193,7 +272,7 @@ export function Sidebar({
               {t('shell.navigatorTitle', { defaultValue: 'Workspace navigator' })}
             </small>
           </span>
-        </div>
+        </a>
         <button
           ref={closeRef}
           type="button"
@@ -225,13 +304,16 @@ export function Sidebar({
                 {group.items.map((item) => {
                   const selected = item.id === active;
                   const label = itemLabel(item, t);
+                  const target = item.path || item.id;
 
                   return (
-                    <button
-                      type="button"
+                    <a
                       key={item.id}
                       className={'ad-navigator-link' + (selected ? ' is-current' : '')}
-                      onClick={() => onNav(item.id)}
+                      href={routeHref(target)}
+                      onClick={(event) => handleRouteClick(event, onNav, target)}
+                      onMouseEnter={() => onPrefetch?.(target)}
+                      onFocus={() => onPrefetch?.(target)}
                       aria-current={selected ? 'page' : undefined}
                     >
                       <span className="ad-navigator-link-icon">
@@ -243,7 +325,7 @@ export function Sidebar({
                           {cloneElement(Icons.check, { size: 13 })}
                         </span>
                       )}
-                    </button>
+                    </a>
                   );
                 })}
               </div>
@@ -253,18 +335,29 @@ export function Sidebar({
       </div>
 
       <footer className="ad-navigator-footer">
-        <button
-          type="button"
-          className="ad-navigator-profile"
-          onClick={() => canLogout && onNav('backendAccount')}
-          disabled={!canLogout}
-        >
-          <SfAvatar name={cfg.who} size={38} color={cfg.accent} />
-          <span>
-            <strong>{cfg.who}</strong>
-            <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
-          </span>
-        </button>
+        {canLogout ? (
+          <a
+            className="ad-navigator-profile"
+            href={routeHref('account')}
+            onClick={(event) => handleRouteClick(event, onNav, 'account')}
+            onMouseEnter={() => onPrefetch?.('account')}
+            onFocus={() => onPrefetch?.('account')}
+          >
+            <SfAvatar name={cfg.who} size={38} color={cfg.accent} decorative />
+            <span>
+              <strong>{cfg.who}</strong>
+              <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
+            </span>
+          </a>
+        ) : (
+          <div className="ad-navigator-profile is-disabled" aria-disabled="true">
+            <SfAvatar name={cfg.who} size={38} color={cfg.accent} decorative />
+            <span>
+              <strong>{cfg.who}</strong>
+              <small>{cfg.whoRole || t(cfg.whoRoleKey)}</small>
+            </span>
+          </div>
+        )}
         {canLogout && (
           <button
             type="button"

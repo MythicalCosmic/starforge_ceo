@@ -32,6 +32,13 @@ body {
   overflow-x: clip;
 }
 
+/* Browsers scale an unstyled <small> to roughly 83% of its inherited size.
+   Keep secondary labels readable instead of allowing an 11px parent to fall
+   below the product's minimum text size. */
+small {
+  font-size: 11px;
+}
+
 button,
 a,
 input,
@@ -50,6 +57,34 @@ textarea:focus-visible,
   outline-offset: 3px;
 }
 
+@media print {
+  @page { margin: 12mm; }
+
+  body,
+  .ad-root,
+  .ad-col,
+  .ad-main {
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .ad-root,
+  .ad-col { display: block !important; }
+
+  .ad-sidebar-rail,
+  .ad-masthead,
+  .ad-scrim,
+  .ad-skip-link,
+  .ad-preview-note,
+  .sf-toast-viewport { display: none !important; }
+
+  .sf-route-stage { animation: none !important; }
+}
+
 .ad-root {
   position: relative;
   background: var(--sf-bg);
@@ -62,7 +97,6 @@ textarea:focus-visible,
 
 .sf-route-stage {
   min-width: 0;
-  animation: sf-route-enter 180ms ease-out both;
 }
 
 .ad-page-h {
@@ -76,7 +110,7 @@ textarea:focus-visible,
   gap: 8px;
   margin-bottom: 9px;
   color: var(--sf-primary);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -174,7 +208,7 @@ textarea:focus-visible,
   min-height: 25px;
   padding: 5px 9px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 780;
   letter-spacing: 0.045em;
 }
@@ -195,7 +229,7 @@ textarea:focus-visible,
 .ad-table th {
   background: color-mix(in srgb, var(--sf-surface-2) 70%, var(--sf-surface));
   color: var(--sf-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.075em;
 }
@@ -307,7 +341,7 @@ textarea:focus-visible,
 
 .sf-page-loader-copy span {
   color: var(--sf-muted);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .sf-page-loader-lines {
@@ -359,7 +393,7 @@ textarea:focus-visible,
   align-items: center;
   gap: 8px;
   color: var(--sf-muted);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 650;
 }
 
@@ -426,7 +460,7 @@ textarea:focus-visible,
 
 .sf-empty-state-eyebrow {
   color: var(--sf-primary);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -558,7 +592,7 @@ textarea:focus-visible,
   background: transparent;
   color: var(--sf-toast-tone);
   cursor: pointer;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 780;
 }
 
@@ -612,16 +646,6 @@ textarea:focus-visible,
 .sf-toast.is-leaving {
   pointer-events: none;
   animation: sf-toast-leave 260ms cubic-bezier(0.4, 0, 1, 1) both;
-}
-
-@keyframes sf-route-enter {
-  from {
-    opacity: 0.55;
-  }
-
-  to {
-    opacity: 1;
-  }
 }
 
 @keyframes sf-toast-enter {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Toggle state for a popover that closes on outside-click or Escape.
+// Toggle state for a popover that closes on outside interaction, focus departure, or Escape.
 export function usePopover(initial = false) {
   const [open, setOpen] = useState(initial);
   const ref = useRef(null);
@@ -9,9 +9,15 @@ export function usePopover(initial = false) {
 
   const close = useCallback((restoreFocus = false) => {
     setOpen(false);
+    if (focusFrameRef.current) {
+      cancelAnimationFrame(focusFrameRef.current);
+      focusFrameRef.current = null;
+    }
     if (restoreFocus) {
-      if (focusFrameRef.current) cancelAnimationFrame(focusFrameRef.current);
-      focusFrameRef.current = requestAnimationFrame(() => triggerRef.current?.focus());
+      focusFrameRef.current = requestAnimationFrame(() => {
+        focusFrameRef.current = null;
+        triggerRef.current?.focus();
+      });
     }
   }, []);
 
@@ -26,13 +32,18 @@ export function usePopover(initial = false) {
         close(true);
       }
     };
+    const onFocus = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) close(false);
+    };
     const onCloseAll = () => close(false);
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
+    document.addEventListener('focusin', onFocus);
     window.addEventListener('sf-close-popovers', onCloseAll);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('focusin', onFocus);
       window.removeEventListener('sf-close-popovers', onCloseAll);
     };
   }, [close, open]);

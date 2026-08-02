@@ -18,7 +18,7 @@ export function SfStar({ size = 24, color = 'currentColor' }) {
 
 const AVATAR_COLORS = ['#B85535', '#D89A2E', '#4F7B3B', '#2A6F9F', '#7A4A82', '#A55A24', '#3F6E5C'];
 
-export function SfAvatar({ name = 'A', size = 36, color }) {
+export function SfAvatar({ name = 'A', size = 36, color, decorative = false }) {
   const safeName = String(name || 'A');
   const initials = safeName
     .split(/\s+/)
@@ -31,8 +31,10 @@ export function SfAvatar({ name = 'A', size = 36, color }) {
 
   return (
     <div
-      role="img"
-      aria-label={safeName}
+      className="sf-avatar"
+      role={decorative ? undefined : 'img'}
+      aria-label={decorative ? undefined : safeName}
+      aria-hidden={decorative ? 'true' : undefined}
       style={{
         width: size,
         height: size,
@@ -94,19 +96,6 @@ export function Card({ title, action, children, pad = true, style }) {
         </div>
       )}
       <div className={pad ? 'ad-card-b' : ''}>{children}</div>
-    </div>
-  );
-}
-
-export function PageHeader({ title, sub, right, eyebrow }) {
-  return (
-    <div className="ad-page-h">
-      <div>
-        {eyebrow && <div className="ad-page-eyebrow">{eyebrow}</div>}
-        <h1 className="ad-page-title">{title}</h1>
-        {sub && <div className="ad-page-sub">{sub}</div>}
-      </div>
-      {right && <div className="ad-page-right">{right}</div>}
     </div>
   );
 }

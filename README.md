@@ -4,12 +4,20 @@ This repository contains the browser-based management console for StarForge
 EDU. It is a React 18 and Vite 6 single-page application for authenticated
 CEOs and managers only.
 
-The application is now live-API-first: demonstration fixtures are disabled by
-default, every production Vite build rejects fixture mode, and live identity is
-established through the backend's role login and current-user endpoints. This does **not**
-mean that every visible workflow is writable or that every requested management
-feature exists in the backend. Read [Backend gaps](docs/BACKEND_GAPS.md) and the
-[production-readiness audit](docs/PRODUCTION_READINESS_AUDIT.md) before release.
+The application is live-first: local preview data is disabled by default, every
+production Vite build rejects preview mode, and live identity is established
+through role login and the current-user endpoint. Commit
+[416f607](https://github.com/MythicalCosmic/starforge_edu/commit/416f607ba9b0a70f54b24f030c76462b2f74f00a)
+is the historical compatibility baseline. The evolving companion worktree has
+been inspected as an implementation reference, while the files in `docs/`
+remain the required production contract. Neither local code nor documentation
+is deployment evidence; production integration waits for the backend owner's
+immutable-release confirmation.
+
+This does **not** mean that every visible workflow is writable or that every
+requested management feature exists. Read the current
+[backend product requirements](docs/BACKEND_PRODUCT_REQUIREMENTS_2026-08-01.md)
+before release; the earlier audits remain historical baselines.
 
 ## Support boundary
 
@@ -27,36 +35,33 @@ feature exists in the backend. Read [Backend gaps](docs/BACKEND_GAPS.md) and the
 
 ## Implemented surfaces
 
-The seed-backed legacy CRUD pages have been removed from production navigation.
-They are replaced by 20 explicit, read-only management modules covering 104
-collection/tab GETs, 79 verified detail GETs, and 17 lazy selected-record
-related GETs: 200 unique configured reads in total.
+The complete management catalog is available again through 24 visible CEO
+destinations. Overview, Branches, Students, Teachers, Groups, Exams, Finance,
+and StarAI are dedicated decision workspaces; the restored supporting domains
+cover people, academic records, placement, recognition, scheduling,
+organization, operations, decisions, content, intelligence, reporting,
+activity history, engagement, messaging, responsible AI, and access. Account
+and preferences remain utility routes rather than competing with daily work.
 
-- the current management account;
-- people, guardians, teachers, employee accounts, cohorts, and branches;
-- organization and department structure;
-- meetings, schedules, substitutions, and rooms;
-- messaging directories and AI governance;
-- attendance oversight;
-- academic records and transcripts;
-- assignments and submissions;
-- intelligence and branch-risk signals;
-- approvals and the money ledger;
-- finance operations;
-- reports and audit history;
-- operational jobs;
-- engagement;
-- content and printing;
-- placement;
-- recognition and conduct;
-- access administration.
+Department managers receive the complete set of scoped operating domains, but
+the organization-wide directory, Finance, and Access & roles remain
+director-only by default. When `effective_permissions` is present on the
+current-user response, navigation and tabs are reduced further to match the
+session's actual grants. The backend remains authoritative for every request.
 
-These catalog modules declare their endpoint, columns, details, pagination, and
-required permission explicitly. Related panels load only after an operator
-selects a record, and their pagination remains server-side. They are not
-generic raw-JSON explorers.
+All 104 catalog views are route-backed. Student and teacher records use focused
+full-page profiles instead of stacked dialogs; broad workspaces retain setup,
+reference, and supporting views under horizontally scrollable tabs. Former
+module hashes and record links resolve to the matching clean route without
+discarding their record identifier.
 
-The live schema currently contains 230 canonical GET paths. The remaining 30
+The read-only contract inventory in `src/api/catalog.js` contains 20 domains,
+104 collection GETs, 79 detail GETs, and 17 selected-record relations—200 unique
+configured reads. Lists stay service-paginated and related information loads
+only for the selected record.
+
+The schema audited for backend commit 416f607 contains 230 canonical GET paths.
+The remaining 30
 are deliberately not generic management tabs: five require mandatory selectors,
 ten are self-service views, eight are export/download/token workflows, four are
 duplicates or nested operations already represented elsewhere, and three are
@@ -105,41 +110,125 @@ With an empty browser-facing API URL, Vite proxies `/api/*` to the HTTPS tenant
 host. This keeps requests same-origin in the browser and avoids weakening the
 backend's production CORS policy for local development.
 
-Open `http://localhost:5173`, sign in with a real director or department-head
+Open `http://127.0.0.1:5173`, sign in with a real director or department-head
 account, and verify the tenant and role shown by the shell.
 
-### Demonstration fixture mode
+### Local companion backend
 
-Fixture mode is only for isolated shell/dashboard development:
+The companion backend is currently being updated outside this repository. The
+requirements and release gates in `docs/` are the frontend team's handoff; they
+are **not** evidence that those contracts are deployed. Do not migrate, seed, or
+run live-contract validation against a shared or moving backend checkout. Use
+the design preview below until the backend owner confirms the immutable
+production candidate.
+
+After that confirmation, an entirely local live-data workflow can use the
+matching companion checkout at `../starforge_edu` and its Docker development
+stack:
+
+```bash
+cd ../starforge_edu
+docker compose -f docker/docker-compose.yml up -d postgres redis minio
+docker compose -f docker/docker-compose.yml build web
+docker compose -f docker/docker-compose.yml run --rm web migrate
+docker compose -f docker/docker-compose.yml run --rm web python scripts/seed_dev.py
+docker compose -f docker/docker-compose.yml run --rm web python scripts/seed_ceo_console.py
+docker compose -f docker/docker-compose.yml up -d web
+```
+
+Point this console at the tenant host in `.env.local`:
+
+```dotenv
+VITE_API_URL=
+VITE_API_PROXY_TARGET=http://demo.localhost:8000
+VITE_USE_MOCK=false
+VITE_DEV_HOST=127.0.0.1
+```
+
+Start Vite and open `http://127.0.0.1:5173` (or `http://demo.localhost:5173`). The role-native local CEO
+account is `admin` with password `root`. This intentionally weak, memorable pair is a
+development credential only; the Django administrators documented in the
+backend repository are intentionally separate and cannot sign in to this
+console. These credentials exist only after the confirmed matching seed has
+been run; they must never be enabled in production. The seed is designed to be
+safe to rerun and not delete unrelated tenant data, but it must still be used
+only against a disposable local tenant.
+
+### Backend-off design preview
+
+When the backend is unavailable, run the local-only design preview:
 
 ```dotenv
 VITE_USE_MOCK=true
 VITE_ROLE=ceo
 ```
 
-It exposes fixed dashboard counts and console settings only. It has no mock CRUD
-database, business-record pages, or mutation layer. URL role switching is
-accepted only when Vite is running the development server with fixture mode
-explicitly enabled. Any `vite build` command rejects fixture mode. Live role and
+Then start `npm run dev`. The preview skips sign-in and supplies deterministic,
+read-only examples for the executive overview, branch comparison, students,
+teachers, groups, four months of attendance, exams and results, enrollment and
+risk signals, invoices, payments, expenses, family contacts, decisions, tasks,
+meetings, content, and printing relationships. Unprepared areas render an
+honest empty state with a preview notice. It has no persistent record store,
+mutation layer, authorization proof, or production-contract value, and it
+makes no business-data request to a live tenant.
+
+Use `?role=manager` to inspect the conservative manager navigation. URL role
+switching works only in the Vite development server with preview mode explicitly
+enabled. Every production build rejects `VITE_USE_MOCK=true`; live role and
 scope always come from `/api/v1/users/me/`.
 
 Never put a session key, password, API key, or other credential in a `VITE_*`
-variable. Vite values are public bundle content. Authentication tokens are
-obtained at runtime and stored for the browser tab in `sessionStorage`.
+variable. Vite values are public bundle content. The browser session key is
+issued only into a host-only HttpOnly cookie and is never returned to, or
+stored by, browser JavaScript.
 
 ## Authentication flow
 
-1. `POST /api/v1/auth/role-login/` with username, password, platform, and a
-   per-tab device identifier.
-2. Store the returned opaque access key in `sessionStorage`.
-3. `GET /api/v1/users/me/`.
-4. Treat `principal_kind: "staff"` only as a technical precondition, then
+1. `GET /api/v1/auth/session/` to establish the same-origin CSRF cookie and
+   obtain its masked request token.
+2. `POST /api/v1/auth/role-login/` with username, password, platform, a
+   per-tab device identifier, cookie-transport intent, and the CSRF header.
+3. Accept the opaque session only through the backend's host-only HttpOnly
+   cookie; the login JSON contains no access key.
+4. `GET /api/v1/users/me/` in every new tab.
+5. Treat `principal_kind: "staff"` only as a technical precondition, then
    require exactly `director` for CEO or `head_of_dept` for manager.
-5. Require password change when the backend marks the account accordingly.
-6. Invalidate local state after a 401 or logout.
+6. Require password change when the backend marks the account accordingly.
+7. Clear private caches and local UI state after a 401 or logout; non-secret
+   storage events synchronize already-open tabs without copying credentials.
+8. Treat logout as complete only after the service confirms revocation and
+   cookie expiry. If that request fails, keep protected data cleared but show an
+   explicit unconfirmed-session warning and retry action.
 
-The backend currently does not expose the manager's effective grants directly
-in `/users/me/`. That limitation is tracked in `docs/BACKEND_GAPS.md`.
+The hardened companion response exposes deterministic effective permissions,
+branch/department scopes, readable membership names, organization locale, and
+primary currency directly from `/users/me/`. Organization timezone and a
+server-enforced read-only-session flag remain explicit production contract
+gaps in the [backend product requirements](docs/BACKEND_PRODUCT_REQUIREMENTS_2026-08-01.md).
+
+## Data loading and cache
+
+All dashboard, collection, and record-detail reads use TanStack Query. Query
+keys include language, path, and normalized parameters, so identical views share
+in-flight work without mixing pages or translations. Successful reads stay
+fresh for 45 seconds and remain reusable for five minutes; transient 5xx
+failures receive one retry. Reconnect and window focus refresh stale data.
+Changing identity, signing out, or receiving an authenticated 401 clears the
+entire query cache so one session's records cannot reach another.
+
+The executive overview requests one permission-pruned aggregate snapshot for
+its exact headline totals, then starts row-heavy drill-down registers after the
+snapshot settles. Three compatibility reads remain dormant unless an older
+backend genuinely lacks the aggregate operation, so frontend and backend can be
+deployed in either order without duplicating normal traffic.
+
+Route bundles load lazily. Hover, focus, and navigation intent warm only the
+owning route chunk on suitable connections; reduced-data, 2G, and offline
+clients skip this optional work. The large supporting-management chunk is no
+longer downloaded merely because an authenticated session became idle.
+Production assets are content-hashed. Use `npm run analyze` when a bundle
+change needs review; it creates `dist/bundle-report.html` without enabling
+source maps.
 
 ## Commands
 
@@ -150,12 +239,27 @@ in `/users/me/`. That limitation is tracked in `docs/BACKEND_GAPS.md`.
 | `npm test` | Run the Vitest suite once |
 | `npm run test:watch` | Run Vitest in watch mode |
 | `npm run test:coverage` | Run tests and generate V8 coverage |
-| `npm run validate:schema` | Compare every configured GET route with the current live OpenAPI schema |
+| `npm run validate:schema` | Compare every configured GET route with `STARFORGE_SCHEMA_URL` (the live tenant by default) |
 | `npm run build` | Build the static production bundle |
+| `npm run analyze` | Build and write an interactive treemap to `dist/bundle-report.html` |
 | `npm run preview` | Serve a built bundle locally |
 | `npm run audit:all` | Audit application and build dependencies at high severity |
 | `npm run audit:production` | Audit shipped dependencies at high severity |
 | `npm run check` | Run lint, tests, and build sequentially |
+
+The current 2026-08-02 frontend-only snapshot passed `npm run check` with zero
+lint warnings, 38 test files and 319 passing tests, and a 176-module production
+build. Coverage is 57.36% statements, 57.25% branches, 49.43% functions, and
+60.24% lines. Both dependency audits report zero known vulnerabilities;
+signature verification found 217 signed packages and 69 provenance
+attestations. A deterministic-preview browser sweep passed 94 unique routes at
+desktop and phone widths (188 cases), followed by nine focused interaction
+checks. The local route-settle sample measured 118 ms median and 124 ms p95; it
+is a local preview responsiveness signal, not a production latency claim. These
+are frontend checks, not proof that the evolving backend requirements are
+deployed; see the
+[current hardening audit](docs/PRODUCT_HARDENING_AUDIT_2026-07-31.md) for bundle
+sizes, scope, and remaining release gates.
 
 CI runs locked installation, lint, coverage, a live-mode build, the production
 dependency audit, and a hardened container smoke test. Dependabot proposes
@@ -194,11 +298,13 @@ The runtime:
 - preserves tenant routing by forwarding the configured upstream host;
 - forwards request IP and a sanitized original-scheme value;
 - uses a read-only root filesystem and a bounded `/tmp` tmpfs;
+- keeps release assets root-owned and read-only to the serving worker;
 - drops Linux capabilities, bounds process count, and enables
   `no-new-privileges`;
 - serves content-hashed assets with long caching;
-- prevents caching of `index.html`;
-- forces `no-store` on proxied management API responses;
+- prevents caching of `index.html` and every SPA fallback;
+- forces `no-store` on proxied management and WebSocket responses, including
+  errors;
 - emits CSP, clickjacking, MIME-sniffing, referrer, permissions, opener, and
   search-engine exclusion headers;
 - logs request paths, latency, and correlation IDs without query strings or
@@ -217,8 +323,12 @@ HSTS. Do not expose the container port directly to the public internet.
 |   |-- dependabot.yml
 |   `-- workflows/ci.yml
 |-- docs/
+|   |-- BACKEND_AI_PRIVACY_CUTOVER_REQUIREMENTS_2026-08-02.md
+|   |-- BACKEND_PRODUCT_REQUIREMENTS_2026-08-01.md
+|   |-- BACKEND_RELEASE_ACTIONS.md
 |   |-- BACKEND_GAPS.md
 |   |-- DESIGN_FOUNDATION_V1.md
+|   |-- PRODUCT_HARDENING_AUDIT_2026-07-31.md
 |   `-- PRODUCTION_READINESS_AUDIT.md
 |-- public/
 |-- src/
@@ -248,7 +358,8 @@ Before promoting an image:
 1. Run `npm ci`.
 2. Run `npm run lint`.
 3. Run `npm run test:coverage`.
-4. Run `npm run validate:schema` against the target tenant.
+4. Set `STARFORGE_SCHEMA_URL` to the exact pinned candidate's `/api/schema/`
+   endpoint and run `npm run validate:schema`.
 5. Run `npm run build` with `VITE_USE_MOCK=false`.
 6. Run `npm run audit:production`.
 7. Build and start the image with the intended `API_UPSTREAM`.
@@ -259,7 +370,9 @@ Before promoting an image:
    and 401 invalidation.
 11. Verify director and department-head navigation with real accounts.
 12. Verify one paginated list from each enabled backend module.
-13. Verify the edge routes both HTTPS and WSS and supplies HSTS.
-14. Review all unresolved P0/P1 items in both audit documents.
+13. Verify the edge routes both HTTPS and WSS, supplies HSTS, strips inbound
+    forwarding headers, and sets the authoritative public scheme and host.
+14. Review unresolved P0/P1 items in the audit documents and
+    `docs/BACKEND_RELEASE_ACTIONS.md`.
 
 Do not promote a release based only on a successful Vite compilation.

@@ -1,12 +1,44 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { visualizer } from 'rollup-plugin-visualizer';
+
+function validatedProxyTarget(value) {
+  if (!value) return '';
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('VITE_API_PROXY_TARGET must be one valid origin.');
+  }
+  const loopback =
+    ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
+    url.hostname.endsWith('.localhost');
+  const allowedProtocol = url.protocol === 'https:' || (url.protocol === 'http:' && loopback);
+  if (
+    !allowedProtocol ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      'VITE_API_PROXY_TARGET must be one HTTPS origin without a path or credentials (HTTP is allowed only on loopback).',
+    );
+  }
+  return url.origin;
+}
 
 // Vite configuration for the StarForge console SPA.
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, '.', '');
-  const apiProxyTarget = String(env.VITE_API_PROXY_TARGET || '').replace(/\/+$/, '');
+  const apiProxyTarget = validatedProxyTarget(String(env.VITE_API_PROXY_TARGET || '').trim());
   const mockEnabled = ['1', 'true', 'yes', 'on'].includes(
     String(env.VITE_USE_MOCK || '').trim().toLowerCase(),
+  );
+  const browserApiOrigin = String(env.VITE_API_URL || '').trim();
+  const analyzeBundle = ['1', 'true', 'yes', 'on'].includes(
+    String(env.VITE_BUNDLE_REPORT || '').trim().toLowerCase(),
   );
 
   // The fixed presentation demo is useful during local design work, but a
@@ -14,28 +46,44 @@ export default defineConfig(({ command, mode }) => {
   if (command === 'build' && mockEnabled) {
     throw new Error('Production bundles require VITE_USE_MOCK=false.');
   }
+  if (command === 'build' && browserApiOrigin) {
+    throw new Error(
+      'Production bundles require a same-origin API path; leave VITE_API_URL empty.',
+    );
+  }
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      ...(analyzeBundle
+        ? [visualizer({
+            filename: 'dist/bundle-report.html',
+            template: 'treemap',
+            gzipSize: true,
+            brotliSize: true,
+            open: false,
+          })]
+        : []),
+    ],
     // The production console should share its tenant origin with the API. During
     // local development this proxy keeps the browser same-origin, so the tenant
     // API does not need to expose a permissive CORS policy just for Vite.
     server: {
       port: 5173,
-      host: true,
+      host: env.VITE_DEV_HOST || '127.0.0.1',
       ...(apiProxyTarget
         ? {
             proxy: {
               '/api': {
                 target: apiProxyTarget,
                 changeOrigin: true,
-                secure: true,
+                secure: apiProxyTarget.startsWith('https:'),
               },
             },
           }
         : {}),
     },
-    preview: { port: 4173, host: true },
+    preview: { port: 4173, host: env.VITE_DEV_HOST || '127.0.0.1' },
     build: { outDir: 'dist', sourcemap: false },
   };
 });

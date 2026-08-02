@@ -6,7 +6,10 @@ import uz from './locales/uz.json';
 import ru from './locales/ru.json';
 import en from './locales/en.json';
 
-export const LANGUAGES = ['uz', 'ru', 'en'];
+// Executive/resource views are currently complete in English only. Keeping the
+// selector single-language avoids presenting a partially translated product;
+// Uzbek and Russian resources remain staged for a future complete rollout.
+export const LANGUAGES = ['en'];
 
 i18n
   .use(LanguageDetector)
@@ -17,7 +20,7 @@ i18n
       ru: { translation: ru },
       en: { translation: en },
     },
-    fallbackLng: 'uz',
+    fallbackLng: 'en',
     supportedLngs: LANGUAGES,
     interpolation: { escapeValue: false },
     detection: {
@@ -29,8 +32,8 @@ i18n
 
 function syncDocumentLanguage(language) {
   if (typeof document === 'undefined') return;
-  const normalized = String(language || 'uz').split('-')[0];
-  document.documentElement.lang = LANGUAGES.includes(normalized) ? normalized : 'uz';
+  const normalized = String(language || 'en').split('-')[0];
+  document.documentElement.lang = LANGUAGES.includes(normalized) ? normalized : 'en';
 }
 
 i18n.on('languageChanged', syncDocumentLanguage);

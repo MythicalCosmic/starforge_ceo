@@ -59,6 +59,16 @@ jobs:
           fi
           grep -Fq "Production bundles require VITE_USE_MOCK=false." <<<"$output"
 
+      - name: Verify production builds reject cross-origin browser endpoints
+        env:
+          VITE_API_URL: "https://untrusted.example"
+        run: |
+          if output="$(npm run build 2>&1)"; then
+            echo "Cross-origin production build unexpectedly succeeded." >&2
+            exit 1
+          fi
+          grep -Fq "Production bundles require a same-origin API path" <<<"$output"
+
       - name: Build production bundle
         run: npm run build
 
@@ -124,6 +134,7 @@ jobs:
 
           assert_rejected_upstream $'https://starforge.78.111.91.113.nip.io\nworker_processes 1;'
           assert_rejected_upstream 'https://starforge.78.111.91.113.nip.io:65536'
+          assert_rejected_upstream 'https://-invalid.example'
 
           container_id="$(
             docker run --detach \
@@ -133,7 +144,7 @@ jobs:
               --cap-drop ALL \
               --pids-limit 100 \
               --security-opt no-new-privileges:true \
-              --env API_UPSTREAM=https://starforge.78.111.91.113.nip.io \
+              --env API_UPSTREAM=https://127.0.0.1:9 \
               --publish 18080:8080 \
               starforge-console:ci
           )"
@@ -159,22 +170,22 @@ jobs:
           done
 
           test "$(docker exec "$container_id" id -u)" != "0"
+          test "$(docker exec "$container_id" grep -Fc 'proxy_set_header Cookie $http_cookie;' /tmp/nginx.conf)" -eq 2
+          test "$(docker exec "$container_id" grep -Fc 'proxy_pass_header Set-Cookie;' /tmp/nginx.conf)" -eq 2
 
           api_headers="$(
             curl \
               --dump-header - \
-              --fail \
               --output /dev/null \
               --silent \
               --show-error \
-              --retry 3 \
-              --retry-all-errors \
               http://127.0.0.1:18080/api/schema/
           )"
+          grep -qE '^HTTP/[0-9.]+ 502' <<<"$api_headers"
           grep -qi '^Cache-Control: no-store' <<<"$api_headers"
 
           headers="$(curl --fail --silent --show-error --head http://127.0.0.1:18080/index.html)"
-          grep -qi '^Cache-Control: no-cache' <<<"$headers"
+          grep -qi '^Cache-Control: no-store' <<<"$headers"
           grep -qi "^Content-Security-Policy: default-src 'self'" <<<"$headers"
           grep -qi '^Cross-Origin-Resource-Policy: same-origin' <<<"$headers"
           grep -qi '^X-Content-Type-Options: nosniff' <<<"$headers"

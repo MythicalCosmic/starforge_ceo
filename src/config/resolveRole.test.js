@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { managementMembership, resolveRole } from './resolveRole.js';
-import { roleConfigForUser } from './roles.js';
+import { managementScopeSummary, roleConfigForUser } from './roles.js';
 
 const profile = (memberships, principalKind = 'staff') => ({
   principal_kind: principalKind,
@@ -35,14 +35,48 @@ describe('management role resolution', () => {
     expect(resolveRole(profile([membership('head_of_dept', { branch: 7 })]))).toBe('manager');
   });
 
-  it('keeps director-only organization, finance, and access pages out of manager navigation', () => {
+  it('keeps organization-wide directories, finance, and access out of manager navigation', () => {
     const user = profile([membership('head_of_dept', { branch: 7 })]);
     const routeIds = roleConfigForUser('manager', user).nav.map((item) => item.id);
 
-    expect(routeIds).toContain('backendPeople');
-    expect(routeIds).not.toContain('backendOrganization');
-    expect(routeIds).not.toContain('backendFinance');
-    expect(routeIds).not.toContain('backendAccess');
+    expect(routeIds).toContain('students');
+    expect(routeIds).toContain('operations');
+    expect(routeIds).toContain('decisions');
+    expect(routeIds).toContain('content');
+    expect(routeIds).not.toContain('organization');
+    expect(routeIds).not.toContain('finance');
+    expect(routeIds).not.toContain('access');
+  });
+
+  it('fails closed when the released permission field is present but malformed', () => {
+    const user = {
+      ...profile([membership('head_of_dept', { branch: 7 })]),
+      effective_permissions: 'students:read',
+    };
+    const routeIds = roleConfigForUser('manager', user).nav.map((item) => item.id);
+
+    expect(routeIds).toContain('overview');
+    expect(routeIds).not.toContain('students');
+    expect(routeIds).not.toContain('intelligence');
+  });
+
+  it('summarizes multiple manager scopes without implying one campus', () => {
+    const user = {
+      ...profile([
+        membership('head_of_dept', { id: 'one', branch: 1 }),
+        membership('head_of_dept', { id: 'two', branch: 2 }),
+      ]),
+      scopes: [
+        { branch: { id: 1, name: 'Central Campus' }, department: null },
+        { branch: { id: 2, name: 'Riverside Campus' }, department: null },
+      ],
+    };
+
+    expect(managementScopeSummary('manager', user)).toMatchObject({
+      id: 'assigned-scopes',
+      name: '2 assigned leadership scopes',
+      count: 2,
+    });
   });
 
   it('does not promote ordinary or custom staff account types', () => {

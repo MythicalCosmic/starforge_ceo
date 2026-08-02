@@ -23,12 +23,14 @@ RUN test "${VITE_USE_MOCK}" = "false" \
 FROM nginx:1.30.4-alpine3.24@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46 AS runtime
 
 RUN rm -f /etc/nginx/conf.d/default.conf \
-    && mkdir -p /usr/share/nginx/html \
-    && chown -R nginx:nginx /usr/share/nginx/html
+    && mkdir -p /usr/share/nginx/html
 
 COPY nginx.conf /etc/nginx/nginx.conf.template
 COPY --chmod=0555 docker-entrypoint.sh /usr/local/bin/starforge-entrypoint
-COPY --from=build --chown=nginx:nginx /app/dist/ /usr/share/nginx/html/
+# The serving worker only needs read access. Keeping release assets root-owned
+# prevents an Nginx compromise from persisting a modified shell if an operator
+# accidentally starts the image without the documented read-only filesystem.
+COPY --from=build --chown=root:root /app/dist/ /usr/share/nginx/html/
 
 # Nginx runs without root privileges or Linux capabilities. Runtime
 # configuration is rendered into the writable /tmp filesystem.

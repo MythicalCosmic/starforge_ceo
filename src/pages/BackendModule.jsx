@@ -1,14 +1,25 @@
-import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { cloneElement, forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import { DataTable } from '../components/common.jsx';
 import { Icons } from '../components/Icons.jsx';
-import { Modal } from '../components/Modal.jsx';
-import { Button, Pill } from '../components/primitives.jsx';
+import { Button, Pill, SfAvatar } from '../components/primitives.jsx';
 import {
   normalizeApiCollection,
   useApiDetail,
   useApiResource,
 } from '../hooks/useApiResource.js';
+import { useWorkspaceTitle } from '../hooks/useWorkspaceTitle.js';
 import { isMissing, statusTone } from '../lib/resourcePresentation.js';
+import { hasDeclaredAccess } from '../lib/permissions.js';
+import {
+  formatBusinessMoney,
+  formatBusinessNumber,
+  formatOrganizationDate,
+  formatOrganizationTime,
+  toFiniteBusinessNumber,
+} from '../lib/formatters.js';
+import { managementQueryState } from '../lib/managementQuery.js';
+import { safeDocumentUrl } from '../lib/safeExternalUrl.js';
+import '../styles/resource-v2.css';
 
 const EMPTY = '\u2014';
 const SKELETON_ROWS = ['one', 'two', 'three', 'four', 'five'];
@@ -50,34 +61,38 @@ function Glyph({ icon, size = 18, className = '' }) {
   );
 }
 
+const RouteLink = forwardRef(function RouteLink(
+  { route, onFollow, children, ...props },
+  ref,
+) {
+  return (
+    <a
+      {...props}
+      ref={ref}
+      href={`#/${route}`}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        onFollow();
+      }}
+    >
+      {children}
+    </a>
+  );
+});
+
 function formatDate(value, dateOnly = false) {
-  if (!value) return EMPTY;
-  if (dateOnly && /^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
-    const [year, month, day] = String(value).split('-').map(Number);
-    return new Date(year, month - 1, day).toLocaleDateString();
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return dateOnly
-    ? parsed.toLocaleDateString()
-    : parsed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return formatOrganizationDate(value, { dateOnly }) || EMPTY;
 }
 
 function formatMoney(value) {
-  if (value === undefined || value === null || value === '') return EMPTY;
-  const raw = String(value);
-  const match = raw.match(/^(-?)(\d+)(?:\.(\d+))?$/);
-  if (!match) return `${raw} UZS`;
-  const [, sign, whole, decimals = ''] = match;
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const visibleDecimals = decimals.replace(/0+$/, '');
-  return `${sign}${grouped}${visibleDecimals ? `.${visibleDecimals}` : ''} UZS`;
+  return formatBusinessMoney(value) || EMPTY;
 }
 
 function formatBytes(value) {
   if (isMissing(value)) return EMPTY;
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes) || bytes < 0) return EMPTY;
+  const bytes = toFiniteBusinessNumber(value);
+  if (bytes == null || bytes < 0) return EMPTY;
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
   let scaled = bytes / 1024;
@@ -111,8 +126,22 @@ function textValue(value, field, detail) {
   return `${text.slice(0, 87)}\u2026`;
 }
 
-function RenderedValue({ field, row, detail = false, links = true }) {
+export function RenderedValue({ field, row, detail = false, links = true }) {
   const value = getValue(row, field.key);
+
+  if (field.format === 'person') {
+    if (isMissing(value)) return EMPTY;
+    const secondary = getValue(row, field.secondaryKey);
+    return (
+      <span className="rv2-person">
+        <SfAvatar name={String(value)} size={detail ? 38 : 32} decorative />
+        <span>
+          <strong>{String(value)}</strong>
+          {!isMissing(secondary) && <small>{String(secondary)}</small>}
+        </span>
+      </span>
+    );
+  }
 
   if (field.format === 'status') {
     if (value === undefined || value === null || value === '') return EMPTY;
@@ -127,19 +156,26 @@ function RenderedValue({ field, row, detail = false, links = true }) {
   if (field.format === 'money') return <span className="sf-mono">{formatMoney(value)}</span>;
   if (field.format === 'bytes') return <span className="sf-mono">{formatBytes(value)}</span>;
   if (field.format === 'minutes') {
-    return isMissing(value) ? EMPTY : `${value} min`;
+    const numeric = toFiniteBusinessNumber(value);
+    return numeric == null ? EMPTY : `${formatBusinessNumber(numeric)} min`;
   }
   if (field.format === 'percent') {
     if (isMissing(value)) return EMPTY;
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return EMPTY;
-    const scaled = numeric * (field.scale ?? 1);
-    return <span className="sf-mono">{scaled.toFixed(scaled % 1 === 0 ? 0 : 1)}%</span>;
+    const numeric = toFiniteBusinessNumber(value);
+    const scale = toFiniteBusinessNumber(field.scale ?? 1);
+    if (numeric == null || scale == null) return EMPTY;
+    const scaled = numeric * scale;
+    if (!Number.isFinite(scaled)) return EMPTY;
+    const formatted = formatBusinessNumber(scaled, {
+      minimumFractionDigits: scaled % 1 === 0 ? 0 : 1,
+      maximumFractionDigits: 1,
+    });
+    return <span className="sf-mono">{formatted}%</span>;
   }
   if (field.format === 'number') {
     if (value === undefined || value === null || value === '') return EMPTY;
-    const numeric = Number(value);
-    return <span className="sf-mono">{Number.isFinite(numeric) ? numeric.toLocaleString() : String(value)}</span>;
+    const numeric = toFiniteBusinessNumber(value);
+    return <span className="sf-mono">{numeric == null ? EMPTY : formatBusinessNumber(numeric)}</span>;
   }
   if (field.format === 'id') {
     return value === undefined || value === null || value === ''
@@ -152,8 +188,8 @@ function RenderedValue({ field, row, detail = false, links = true }) {
       ? value.length
       : value && typeof value === 'object'
         ? Object.keys(value).length
-        : Number(value);
-    return <span className="sf-mono">{Number.isFinite(count) ? count.toLocaleString() : EMPTY}</span>;
+        : toFiniteBusinessNumber(value);
+    return <span className="sf-mono">{count == null ? EMPTY : formatBusinessNumber(count)}</span>;
   }
   if (field.format === 'mapCount') {
     const count = value && typeof value === 'object' ? Object.keys(value).length : 0;
@@ -175,19 +211,23 @@ function RenderedValue({ field, row, detail = false, links = true }) {
   }
   if (field.format === 'list') return textValue(value, field, detail);
   if (field.format === 'url') {
-    if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return EMPTY;
+    const href = safeDocumentUrl(value);
+    if (!href) return EMPTY;
     if (!links) return 'Document available';
+    const destination = new URL(href).hostname.replace(/^www\./, '');
     return (
       <a
         className="rv2-file-link"
-        href={value}
+        href={href}
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
+        aria-label={`Open document from ${destination} in a new tab`}
+        title={`Opens ${destination} in a new tab`}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
         <Glyph icon={Icons.doc} size={15} />
-        Open document
+        Open document · {destination}
       </a>
     );
   }
@@ -195,17 +235,35 @@ function RenderedValue({ field, row, detail = false, links = true }) {
   return textValue(value, field, detail);
 }
 
-function rowIdentity(resource, row, index = 0) {
+function rowIdentity(resource, row) {
   const value = getValue(row, resource.rowKey || 'id');
-  return String(value ?? row?.id ?? `row-${index}`);
+  const fallback = row?.id;
+  if (value === undefined || value === null || value === '') {
+    return fallback === undefined || fallback === null || fallback === ''
+      ? null
+      : String(fallback);
+  }
+  return String(value);
 }
 
 function recordHeading(resource, row) {
   if (!row) return 'Selected record';
   const fields = [...(resource.detail || []), ...(resource.columns || [])];
-  const preferred = fields.find((field) =>
-    ['name', 'title', 'student_name', 'number', 'code', 'username'].includes(field.key),
-  );
+  const titleKeys = [
+    resource.titleField,
+    'full_name',
+    'name',
+    'title',
+    'student_name',
+    'teacher_name',
+    'parent_name',
+    'number',
+    'code',
+    'username',
+  ].filter(Boolean);
+  const preferred = titleKeys
+    .map((key) => fields.find((field) => field.key === key))
+    .find((field) => field && !isMissing(getValue(row, field.key)));
   const fallback = fields.find((field) => {
     const value = getValue(row, field.key);
     return value !== undefined && value !== null && value !== '';
@@ -217,21 +275,26 @@ function recordHeading(resource, row) {
 function ErrorPanel({ error, onRetry, compact = false }) {
   const forbidden = error?.status === 403;
   const unauthorized = error?.status === 401;
+  const unavailableOnPlan = error?.status === 402;
   const rateLimited = error?.status === 429;
   const title = forbidden
     ? 'This view is outside your access'
     : unauthorized
       ? 'Your session needs a quick refresh'
-      : rateLimited
-        ? 'Updates are briefly paused'
-        : 'This view needs another moment';
+      : unavailableOnPlan
+        ? 'This view is not included yet'
+        : rateLimited
+          ? 'Updates are briefly paused'
+          : 'This view needs another moment';
   const message = forbidden
     ? 'Your current leadership role does not include this area. Nothing has been changed.'
     : unauthorized
       ? 'Sign in again with your CEO or manager account to continue.'
-      : rateLimited
-        ? 'There is a short pause while recent activity settles. Try again in a moment.'
-        : 'We could not bring this information together just now. Your records remain safe.';
+      : unavailableOnPlan
+        ? 'Your organization\'s current plan does not include this information.'
+        : rateLimited
+          ? 'There is a short pause while recent activity settles. Try again in a moment.'
+          : 'We could not bring this information together just now. Your records remain safe.';
 
   return (
     <section
@@ -245,7 +308,9 @@ function ErrorPanel({ error, onRetry, compact = false }) {
         <h3>{title}</h3>
         <p>{message}</p>
       </div>
-      <Button kind="soft" onClick={onRetry}>Try again</Button>
+      {!forbidden && !unauthorized && !unavailableOnPlan && (
+        <Button kind="soft" onClick={onRetry}>Try again</Button>
+      )}
     </section>
   );
 }
@@ -275,6 +340,20 @@ function LoadingPanel({ compact = false, label = 'Preparing your view' }) {
             <i />
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function OfflinePanel({ compact = false }) {
+  return (
+    <section className={`rv2-state rv2-state-error${compact ? ' is-compact' : ''}`} role="status">
+      <span className="rv2-state-icon">
+        <Glyph icon={Icons.flag} size={22} />
+      </span>
+      <div className="rv2-state-copy">
+        <h3>You are offline</h3>
+        <p>Reconnect to prepare this view. No information has been replaced or lost.</p>
       </div>
     </section>
   );
@@ -348,25 +427,22 @@ function PageControls({ label, page = 1, pages = 1, onPage }) {
   );
 }
 
-function MobileRecordCards({ resource, items, onOpen }) {
-  const visibleFields = resource.columns.slice(0, 4);
-
+function MobileRecordCards({ resource, items, onOpen, recordRoute }) {
   return (
     <div className="rv2-mobile-records">
       {items.map((row, index) => {
-        const key = rowIdentity(resource, row, index);
+        const identity = rowIdentity(resource, row, index);
+        const key = identity ?? `unidentified-record-${index}`;
+        const rowCanOpen = Boolean(onOpen && recordRoute && identity);
         const heading = recordHeading(resource, row);
-        return (
-          <button
-            type="button"
-            className="rv2-record-card"
-            key={key}
-            onClick={() => onOpen(row, key)}
-            aria-label={`Open details for ${heading}`}
-          >
+        const visibleFields = resource.columns
+          .filter((field) => String(getValue(row, field.key) ?? '').trim() !== heading)
+          .slice(0, 4);
+        const content = (
+          <>
             <span className="rv2-record-card-head">
               <strong>{heading}</strong>
-              <Glyph icon={Icons.chevR} size={17} />
+              {rowCanOpen && <Glyph icon={Icons.chevR} size={17} />}
             </span>
             <span className="rv2-record-card-grid">
               {visibleFields.map((field) => (
@@ -376,7 +452,19 @@ function MobileRecordCards({ resource, items, onOpen }) {
                 </span>
               ))}
             </span>
-          </button>
+          </>
+        );
+        return rowCanOpen ? (
+          <RouteLink
+            className="rv2-record-card"
+            key={key}
+            route={recordRoute(identity)}
+            onFollow={() => onOpen(row, identity)}
+          >
+            {content}
+          </RouteLink>
+        ) : (
+          <article className="rv2-record-card" key={key}>{content}</article>
         );
       })}
     </div>
@@ -389,7 +477,7 @@ function RelatedCards({ relation, items }) {
   return (
     <div className="rv2-related-cards">
       {items.map((item, index) => (
-        <article key={rowIdentity(relation, item, index)}>
+        <article key={rowIdentity(relation, item) ?? `related-record-${index}`}>
           {visibleFields.map((field) => (
             <div key={field.key}>
               <span>{businessCopy(field.label)}</span>
@@ -431,7 +519,9 @@ function RelatedPanel({ relation, row }) {
     [detail.pagination, page, pageSize, relatedData],
   );
   const total = normalized.pagination.total;
+  const totalKnown = normalized.pagination.totalKnown;
   const pages = normalized.pagination.pages;
+  const hasRelatedData = detail.data !== null && detail.data !== undefined;
 
   return (
     <section className={`rv2-related${opened ? ' is-open' : ''}`}>
@@ -443,7 +533,6 @@ function RelatedPanel({ relation, row }) {
           if (opened) {
             setOpened(false);
           } else {
-            detail.retry();
             setOpened(true);
           }
         }}
@@ -461,16 +550,26 @@ function RelatedPanel({ relation, row }) {
       {opened && (
         <div className="rv2-related-body">
           <div className="rv2-related-actions">
-            <span>Connected to this record</span>
+            <span>{detail.paused ? 'Offline · last available view' : 'Connected to this record'}</span>
             <Button kind="soft" onClick={detail.retry} disabled={detail.loading}>Refresh</Button>
           </div>
 
-          {detail.loading ? (
+          {detail.paused && !hasRelatedData ? (
+            <OfflinePanel compact />
+          ) : detail.loading && !hasRelatedData ? (
             <LoadingPanel compact label="Preparing supporting information" />
-          ) : detail.error ? (
+          ) : detail.error && !hasRelatedData ? (
             <ErrorPanel error={detail.error} onRetry={detail.retry} compact />
           ) : (
             <>
+              {(detail.error || detail.paused) && (
+                <div className="rv2-stale" role="status">
+                  <span>
+                    <Glyph icon={Icons.flag} size={16} />
+                    {detail.paused ? 'Offline · showing the last available view.' : 'Showing the most recent available view.'}
+                  </span>
+                </div>
+              )}
               {relation.summaryFields?.length > 0 && (
                 <div className="rv2-related-summary">
                   {relation.summaryFields.map((field) => (
@@ -488,13 +587,14 @@ function RelatedPanel({ relation, row }) {
                 <>
                   <div className="rv2-related-table">
                     <DataTable
+                      label={`${businessCopy(relation.label)} details`}
                       cols={relation.columns.map((field) => ({
                         ...field,
                         label: businessCopy(field.label),
                       }))}
                     >
                       {normalized.items.map((item, index) => (
-                        <tr key={rowIdentity(relation, item, index)}>
+                        <tr key={rowIdentity(relation, item) ?? `related-row-${index}`}>
                           {relation.columns.map((field) => (
                             <td key={field.key}><RenderedValue field={field} row={item} /></td>
                           ))}
@@ -504,9 +604,9 @@ function RelatedPanel({ relation, row }) {
                   </div>
                   <RelatedCards relation={relation} items={normalized.items} />
                   <div className="rv2-related-foot">
-                    <span>
-                      Showing {normalized.items.length.toLocaleString()} of {Number(total).toLocaleString()}
-                    </span>
+                    <span>{totalKnown
+                      ? `Showing ${formatBusinessNumber(normalized.items.length)} of ${formatBusinessNumber(total)}`
+                      : `Showing ${formatBusinessNumber(normalized.items.length)} · total unavailable`}</span>
                     {paginated && pages > 1 && (
                       <div className="rv2-related-pager">
                         <Button
@@ -537,69 +637,155 @@ function RelatedPanel({ relation, row }) {
   );
 }
 
-function RecordDetailModal({ resource, row, open, onClose }) {
-  const detail = useApiDetail(resource, open ? row : null);
+function RecordBreadcrumb({ resource, listRoute, onBack, current = false }) {
+  return (
+    <nav className="rv2-breadcrumb" aria-label="Breadcrumb">
+      <RouteLink route={listRoute} onFollow={onBack}>
+        <Glyph icon={Icons.chevR} size={15} />
+        {businessCopy(resource.label || 'Directory')}
+      </RouteLink>
+      {current && (
+        <>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Details</span>
+        </>
+      )}
+    </nav>
+  );
+}
+
+function RecordDetailPage({ resource, row, listRoute, onBack, workspaceTitle }) {
+  const detail = useApiDetail(resource, row);
   const data = detail.data || row;
   const fields = resource.detail?.length ? resource.detail : resource.columns;
   const heading = recordHeading(resource, data);
+  useWorkspaceTitle(
+    heading === EMPTY || heading === 'Selected record' ? '' : heading,
+    businessCopy(workspaceTitle),
+    rowIdentity(resource, data) || '',
+  );
+  const statusField = fields.find((field) => field.format === 'status');
+  const statusValue = statusField ? getValue(data, statusField.key) : null;
+  const email = getValue(data, 'email');
+  const phone = getValue(data, 'phone');
+  const visibleFields = fields.filter((field) => {
+    const value = getValue(data, field.key);
+    if (field === statusField || ['email', 'phone'].includes(field.key)) return false;
+    return String(value ?? '').trim() !== heading;
+  });
+  const hasDisplayData = fields.some((field) => {
+    if (field.key === resource.rowKey || field.key === 'id') return false;
+    return !isMissing(getValue(data, field.key));
+  });
+
+  if (!hasDisplayData && detail.paused) {
+    return (
+      <article className="rv2-record-page">
+        <RecordBreadcrumb resource={resource} listRoute={listRoute} onBack={onBack} />
+        <h1 className="rv2-sr-only">{heading === EMPTY ? 'Record details' : heading}</h1>
+        <OfflinePanel />
+      </article>
+    );
+  }
+
+  if (!hasDisplayData && detail.loading) {
+    return (
+      <article className="rv2-record-page">
+        <RecordBreadcrumb resource={resource} listRoute={listRoute} onBack={onBack} />
+        <h1 className="rv2-sr-only">{heading === EMPTY ? 'Record details' : heading}</h1>
+        <LoadingPanel label="Preparing this record" />
+      </article>
+    );
+  }
+
+  if (!hasDisplayData && detail.error) {
+    return (
+      <article className="rv2-record-page">
+        <RecordBreadcrumb resource={resource} listRoute={listRoute} onBack={onBack} />
+        <h1 className="rv2-sr-only">{heading === EMPTY ? 'Record details' : heading}</h1>
+        <ErrorPanel error={detail.error} onRetry={detail.retry} />
+      </article>
+    );
+  }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      eyebrow={businessCopy(resource.label || 'Record details')}
-      title={heading === EMPTY ? 'Record details' : heading}
-      className="rv2-record-modal"
-    >
-      <div className="rv2-modal-status">
-        <span>
-          <Glyph icon={Icons.doc} size={17} />
-          Complete record overview
-        </span>
-        <Pill tone={detail.error ? 'danger' : detail.loading ? 'primary' : 'success'} dot>
-          {detail.error ? 'Needs attention' : detail.loading ? 'Updating' : 'Ready'}
-        </Pill>
-      </div>
+    <article className="rv2-record-page">
+      <RecordBreadcrumb
+        resource={resource}
+        listRoute={listRoute}
+        onBack={onBack}
+        current
+      />
+
+      <header className="rv2-profile-head">
+        <SfAvatar name={heading === EMPTY ? 'Record' : heading} size={62} decorative />
+        <div className="rv2-profile-copy">
+          <span>{businessCopy(resource.label || 'Record')}</span>
+          <h1>{heading === EMPTY ? 'Record details' : heading}</h1>
+          <div className="rv2-profile-meta">
+            {statusValue != null && statusValue !== '' && (
+              <Pill tone={statusTone(statusValue)} dot>
+                {String(statusValue).replaceAll('_', ' ')}
+              </Pill>
+            )}
+            {!isMissing(email) && <span>{String(email)}</span>}
+            {!isMissing(phone) && <span>{String(phone)}</span>}
+          </div>
+        </div>
+        <div className="rv2-profile-actions">
+          <span className="rv2-profile-readiness" aria-live="polite">
+            <i className={detail.loading ? 'is-loading' : detail.error || detail.paused ? 'has-error' : ''} />
+            {detail.paused ? 'Offline · last available view' : detail.error ? 'Needs attention' : detail.loading ? 'Updating' : 'Up to date'}
+          </span>
+          <Button kind="soft" onClick={detail.retry} disabled={detail.loading}>
+            Refresh
+          </Button>
+        </div>
+      </header>
 
       {detail.error && (
-        <div className="rv2-modal-error">
-          <ErrorPanel error={detail.error} onRetry={detail.retry} compact />
+        <div className="rv2-record-error">
+          <ErrorPanel error={detail.error} onRetry={detail.retry} />
         </div>
       )}
 
-      <section className="rv2-detail-section" aria-label="Record information">
+      {detail.loading && !detail.error && Object.keys(data || {}).length <= 1 ? (
+        <LoadingPanel label="Preparing this record" />
+      ) : (
+        <section className="rv2-detail-section" aria-label="Record information">
         <div className="rv2-section-head">
           <h3>Key information</h3>
-          <span>{fields.length.toLocaleString()} details</span>
+          <span>{formatBusinessNumber(visibleFields.length)} details</span>
         </div>
         <div className="rv2-detail-grid">
-          {fields.map((field) => (
+          {visibleFields.map((field) => (
             <div className="rv2-detail-field" key={field.key}>
               <span>{businessCopy(field.label)}</span>
               <strong><RenderedValue field={field} row={data} detail /></strong>
             </div>
           ))}
         </div>
-      </section>
+        </section>
+      )}
 
-      {resource.related?.length > 0 && (
+      {!detail.error && resource.related?.length > 0 && (
         <section className="rv2-detail-section rv2-connected" aria-label="Connected activity">
           <div className="rv2-section-head">
             <h3>Connected activity</h3>
-            <span>{resource.related.length.toLocaleString()} section{resource.related.length === 1 ? '' : 's'}</span>
+            <span>{formatBusinessNumber(resource.related.length)} section{resource.related.length === 1 ? '' : 's'}</span>
           </div>
           <div className="rv2-related-stack">
             {resource.related.map((relation) => (
               <RelatedPanel
                 key={`${relation.id}:${rowIdentity(resource, row)}`}
                 relation={relation}
-                row={row}
+                row={data}
               />
             ))}
           </div>
         </section>
       )}
-    </Modal>
+    </article>
   );
 }
 
@@ -608,11 +794,11 @@ function SummaryBar({ total, visible, page, pages, updatedAt }) {
     <section className="rv2-summary" aria-label="Current view summary">
       <div>
         <span>Total records</span>
-        <strong>{total.toLocaleString()}</strong>
+        <strong>{formatBusinessNumber(total)}</strong>
       </div>
       <div>
         <span>Showing now</span>
-        <strong>{visible.toLocaleString()}</strong>
+        <strong>{formatBusinessNumber(visible)}</strong>
       </div>
       <div>
         <span>Position</span>
@@ -621,65 +807,103 @@ function SummaryBar({ total, visible, page, pages, updatedAt }) {
       <div>
         <span>Last refreshed</span>
         <strong>
-          {updatedAt
-            ? updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : EMPTY}
+          {updatedAt ? formatOrganizationTime(updatedAt) : EMPTY}
         </strong>
       </div>
     </section>
   );
 }
 
-function ResourceWorkspace({ resource }) {
-  const [draftSearch, setDraftSearch] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [cursor, setCursor] = useState(null);
-  const [selectedKey, setSelectedKey] = useState(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState(null);
+function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailBase }) {
+  const initial = managementQueryState(query);
+  const routeStateRef = useRef(initial);
+  const [draftSearch, setDraftSearch] = useState(initial.search);
+  const [search, setSearch] = useState(initial.search);
+  const [page, setPage] = useState(initial.page);
+  const [cursor, setCursor] = useState(initial.cursor);
+  const resultsRef = useRef(null);
+  const pendingResultNavigation = useRef(false);
 
   useEffect(() => {
+    const next = managementQueryState(query);
+    const previous = routeStateRef.current;
+    if (
+      next.search === previous.search &&
+      next.page === previous.page &&
+      next.cursor === previous.cursor
+    ) return;
+    routeStateRef.current = next;
+    setDraftSearch(next.search);
+    setSearch(next.search);
+    setPage(next.page);
+    setCursor(next.cursor);
+  }, [query]);
+
+  useEffect(() => {
+    if (draftSearch.trim() === search) return undefined;
     const timer = setTimeout(() => {
-      setSearch(draftSearch.trim());
+      const nextSearch = draftSearch.trim();
+      setSearch(nextSearch);
       setPage(1);
       setCursor(null);
-      setSelectedKey(null);
-      setDetailOpen(false);
-    }, 350);
+      routeStateRef.current = { search: nextSearch, page: 1, cursor: null };
+      onRouteState?.({ search: nextSearch, page: 1, cursor: null });
+    }, 250);
     return () => clearTimeout(timer);
-  }, [draftSearch]);
+  }, [draftSearch, onRouteState, search]);
 
   const collection = useApiResource(resource, { search, page, cursor });
-  const selectedRow = useMemo(
-    () => collection.items.find(
-      (row, index) => rowIdentity(resource, row, index) === selectedKey,
-    ) || null,
-    [collection.items, resource, selectedKey],
-  );
   const pagination = collection.pagination;
-  const total = Number(pagination.total) || 0;
+  const total = pagination.totalKnown ? pagination.total : null;
   const currentPage = Number(pagination.page) || page || 1;
   const totalPages = Number(pagination.pages) || 1;
-  const resultLabel = `${total.toLocaleString()} record${total === 1 ? '' : 's'}`;
+  const resultLabel = pagination.totalKnown
+    ? `${formatBusinessNumber(total)} record${total === 1 ? '' : 's'}`
+    : `${formatBusinessNumber(collection.items.length)} shown · total unavailable`;
 
   useEffect(() => {
-    if (!collection.loading && !collection.error) setUpdatedAt(new Date());
-  }, [collection.error, collection.loading]);
-
-  function openRecord(row, key) {
-    setSelectedKey(key);
-    setDetailOpen(true);
-  }
+    if (!pendingResultNavigation.current || collection.loading) return;
+    pendingResultNavigation.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      resultsRef.current?.focus({ preventScroll: true });
+      resultsRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [collection.loading, collection.updatedAt]);
 
   function changePage(nextPage) {
+    pendingResultNavigation.current = true;
     setPage(nextPage);
-    setSelectedKey(null);
-    setDetailOpen(false);
+    setCursor(null);
+    routeStateRef.current = { search, page: nextPage, cursor: null };
+    onRouteState?.({ search, page: nextPage, cursor: null }, { replace: false });
   }
 
+  function changeCursor(nextCursor) {
+    pendingResultNavigation.current = true;
+    setCursor(nextCursor);
+    setPage(1);
+    routeStateRef.current = { search, page: 1, cursor: nextCursor };
+    onRouteState?.({ search, page: 1, cursor: nextCursor }, { replace: false });
+  }
+
+  const canOpen = Boolean(resource.detailPath && onOpen);
+  const recordRoute = canOpen && detailBase
+    ? (identity) => `${detailBase}/${encodeURIComponent(identity)}${query ? `?${query}` : ''}`
+    : null;
+  const missingIdentityCount = canOpen
+    ? collection.items.filter((row) => rowIdentity(resource, row) == null).length
+    : 0;
+  const showCollection = collection.items.length > 0;
+  const showStaleWarning = Boolean(collection.error && showCollection);
+
   return (
-    <div className="rv2-workspace">
+    <div
+      className="rv2-workspace"
+      ref={resultsRef}
+      tabIndex="-1"
+      aria-label={`${businessCopy(resource.label || 'Records')} results`}
+    >
       <section className="rv2-toolbar" aria-label="Review tools">
         {resource.searchParam !== false ? (
           <div className="rv2-search">
@@ -704,8 +928,18 @@ function ResourceWorkspace({ resource }) {
         )}
         <div className="rv2-toolbar-actions">
           <span className="rv2-freshness" aria-live="polite">
-            <i className={collection.loading ? 'is-loading' : ''} />
-            {collection.loading ? 'Refreshing' : 'Up to date'}
+            <i className={collection.loading ? 'is-loading' : collection.error ? 'has-error' : ''} />
+            {collection.loading
+              ? 'Refreshing'
+              : collection.paused
+                ? showCollection ? 'Offline · last available view' : 'Offline'
+              : collection.error && showCollection
+                ? 'Showing last available view'
+                : collection.error
+                  ? 'Needs attention'
+                  : collection.updatedAt
+                    ? 'Up to date'
+                    : 'Preparing'}
           </span>
           <Button kind="soft" onClick={collection.retry} disabled={collection.loading}>
             <Glyph icon={Icons.trend} size={16} />
@@ -714,22 +948,71 @@ function ResourceWorkspace({ resource }) {
         </div>
       </section>
 
-      {!collection.error && (
+      {collection.updatedAt && (!collection.error || showCollection) && (
         <SummaryBar
           total={total}
           visible={collection.items.length}
           page={resource.pagination === 'cursor' ? null : currentPage}
           pages={totalPages}
-          updatedAt={updatedAt}
+          updatedAt={collection.updatedAt}
         />
       )}
 
-      {collection.error ? (
+      {showStaleWarning && (
+        <section className="rv2-stale" role="status">
+          <span>
+            <Glyph icon={Icons.flag} size={17} />
+            Showing the most recent available view.
+          </span>
+          <Button kind="soft" onClick={collection.retry}>Try again</Button>
+        </section>
+      )}
+
+      {collection.warnings?.length > 0 && (
+        <section className="rv2-stale" role="status">
+          <span>
+            <Glyph icon={Icons.flag} size={17} />
+            Some supporting information is temporarily unavailable.
+          </span>
+        </section>
+      )}
+
+      {collection.paused && showCollection && (
+        <section className="rv2-stale" role="status">
+          <span>
+            <Glyph icon={Icons.flag} size={17} />
+            Offline · showing the last available view.
+          </span>
+        </section>
+      )}
+
+      {missingIdentityCount > 0 && (
+        <section className="rv2-stale" role="status">
+          <span>
+            <Glyph icon={Icons.flag} size={17} />
+            {missingIdentityCount === 1 ? 'One record' : `${missingIdentityCount} records`} cannot be opened because identifying information is incomplete.
+          </span>
+        </section>
+      )}
+
+      {collection.paused && !showCollection ? (
+        <OfflinePanel />
+      ) : collection.error && !showCollection ? (
         <ErrorPanel error={collection.error} onRetry={collection.retry} />
-      ) : collection.loading && !collection.items.length ? (
+      ) : collection.loading && !showCollection ? (
         <LoadingPanel />
-      ) : !collection.items.length ? (
-        <EmptyPanel searched={Boolean(search)} />
+      ) : !showCollection ? (
+        <>
+          <EmptyPanel searched={Boolean(search)} />
+          {resource.pagination === 'page' && currentPage > 1 && (
+            <PageControls
+              label="No records on this page"
+              page={currentPage}
+              pages={Math.max(currentPage, totalPages)}
+              onPage={changePage}
+            />
+          )}
+        </>
       ) : (
         <section className="rv2-register">
           <header className="rv2-register-head">
@@ -738,48 +1021,45 @@ function ResourceWorkspace({ resource }) {
               <h2>{businessCopy(resource.label || 'Records')}</h2>
             </div>
             <div>
-              <strong>{collection.items.length.toLocaleString()} shown</strong>
-              <small>Open any record for full details</small>
+              <strong>{formatBusinessNumber(collection.items.length)} shown</strong>
+              <small>{canOpen ? 'Open any record for full details' : 'Complete current view'}</small>
             </div>
           </header>
 
           <div className="rv2-desktop-table">
             <DataTable
+              label={`${businessCopy(resource.label || 'Records')} register`}
               cols={[
                 ...resource.columns.map((field) => ({
                   ...field,
                   label: businessCopy(field.label),
                 })),
-                { key: '__details', label: 'Details', align: 'right' },
+                ...(canOpen ? [{ key: '__details', label: 'Details', align: 'right' }] : []),
               ]}
-              selectable
+              selectable={canOpen}
             >
               {collection.items.map((row, index) => {
-                const key = rowIdentity(resource, row, index);
-                const selected = key === selectedKey;
+                const identity = rowIdentity(resource, row, index);
+                const key = identity ?? `unidentified-record-${index}`;
+                const rowCanOpen = Boolean(canOpen && identity);
                 return (
-                  <tr
-                    key={key}
-                    className={selected ? 'is-selected' : undefined}
-                    onClick={() => openRecord(row, key)}
-                  >
+                  <tr key={key}>
                     {resource.columns.map((field) => (
                       <td key={field.key}><RenderedValue field={field} row={row} /></td>
                     ))}
-                    <td className="rv2-row-action-cell">
-                      <button
-                        type="button"
-                        className="rv2-row-action"
-                        aria-label={`Open details for ${recordHeading(resource, row)}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openRecord(row, key);
-                        }}
-                      >
-                        View
-                        <Glyph icon={Icons.chevR} size={14} />
-                      </button>
-                    </td>
+                    {canOpen && <td className="rv2-row-action-cell">
+                      {rowCanOpen ? (
+                        <RouteLink
+                          className="rv2-row-action"
+                          aria-label={`Open details for ${recordHeading(resource, row)}`}
+                          route={recordRoute(identity)}
+                          onFollow={() => onOpen(row, identity)}
+                        >
+                          View
+                          <Glyph icon={Icons.chevR} size={14} />
+                        </RouteLink>
+                      ) : <span aria-label="Details unavailable">—</span>}
+                    </td>}
                   </tr>
                 );
               })}
@@ -789,7 +1069,8 @@ function ResourceWorkspace({ resource }) {
           <MobileRecordCards
             resource={resource}
             items={collection.items}
-            onOpen={openRecord}
+            onOpen={canOpen ? onOpen : undefined}
+            recordRoute={recordRoute}
           />
 
           {resource.pagination === 'none' ? (
@@ -801,22 +1082,14 @@ function ResourceWorkspace({ resource }) {
                 <Button
                   kind="soft"
                   disabled={!pagination.hasPrevious || collection.loading}
-                  onClick={() => {
-                    setCursor(pagination.previousCursor || null);
-                    setSelectedKey(null);
-                    setDetailOpen(false);
-                  }}
+                  onClick={() => changeCursor(pagination.previousCursor || null)}
                 >
                   Previous
                 </Button>
                 <Button
                   kind="soft"
                   disabled={!pagination.hasNext || !pagination.nextCursor || collection.loading}
-                  onClick={() => {
-                    setCursor(pagination.nextCursor);
-                    setSelectedKey(null);
-                    setDetailOpen(false);
-                  }}
+                  onClick={() => changeCursor(pagination.nextCursor)}
                 >
                   Next
                 </Button>
@@ -833,31 +1106,104 @@ function ResourceWorkspace({ resource }) {
         </section>
       )}
 
-      <RecordDetailModal
-        key={`${resource.id}:${selectedKey || 'closed'}`}
-        resource={resource}
-        row={selectedRow}
-        open={detailOpen && Boolean(selectedRow)}
-        onClose={() => {
-          setDetailOpen(false);
-          setSelectedKey(null);
-        }}
-      />
     </div>
   );
 }
 
-export function BackendModule({ module }) {
-  const [activeTabId, setActiveTabId] = useState(module.tabs[0].id);
-  const activeTab = module.tabs.find((item) => item.id === activeTabId) || module.tabs[0];
+function routeRow(resource, encodedId) {
+  if (!resource.detailPath || !encodedId) return null;
+  let value;
+  try {
+    value = decodeURIComponent(encodedId);
+  } catch {
+    return null;
+  }
+  const keys = [...resource.detailPath.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
+  if (!keys.length) return null;
+  return keys.reduce((row, key) => ({ ...row, [key]: value }), {
+    [resource.rowKey || 'id']: value,
+  });
+}
+
+function stateQuery({ search, page, cursor }) {
+  const params = new URLSearchParams();
+  if (search) params.set('q', search);
+  if (page > 1) params.set('page', String(page));
+  if (cursor) params.set('cursor', cursor);
+  return params.toString();
+}
+
+export function BackendModule({ module, basePath, route, onNavigate, capabilities }) {
+  const [path, query = ''] = String(route || basePath).split('?', 2);
+  const segments = useMemo(() => path.split('/').filter(Boolean), [path]);
+  const requestedTabId = segments[1];
+  const [selectedSeed, setSelectedSeed] = useState(null);
+  const activeTabRef = useRef(null);
+  const capabilitySet = useMemo(
+    () => (Array.isArray(capabilities) ? new Set(capabilities) : null),
+    [capabilities],
+  );
+  const visibleTabs = useMemo(() => {
+    if (!capabilitySet) return module.tabs;
+    return module.tabs.filter((item) =>
+      hasDeclaredAccess(item.permission || module.permission, capabilitySet));
+  }, [capabilitySet, module.permission, module.tabs]);
+  const noVisibleTabs = Boolean(capabilitySet && visibleTabs.length === 0);
+  const activeTab = visibleTabs.find((item) => item.id === requestedTabId) || visibleTabs[0] || module.tabs[0];
   const activeResource = useMemo(
-    () => ({ ...activeTab, permission: activeTab.permission || module.permission }),
-    [activeTab, module.permission],
+    () => ({
+      ...activeTab,
+      permission: activeTab.permission || module.permission,
+      related: (activeTab.related || []).filter((relation) =>
+        hasDeclaredAccess(relation.permission, capabilitySet)),
+    }),
+    [activeTab, capabilitySet, module.permission],
+  );
+  const listPath = `${basePath}/${activeTab.id}`;
+  const detailId = requestedTabId === activeTab.id ? segments[2] : null;
+  const routedDetailRow = useMemo(
+    () => routeRow(activeResource, detailId),
+    [activeResource, detailId],
+  );
+  const detailRow = useMemo(() => {
+    if (!routedDetailRow || selectedSeed?.tabId !== activeTab.id) return routedDetailRow;
+    const routedKey = rowIdentity(activeResource, routedDetailRow);
+    return selectedSeed.key === routedKey
+      ? { ...routedDetailRow, ...selectedSeed.row }
+      : routedDetailRow;
+  }, [activeResource, activeTab.id, routedDetailRow, selectedSeed]);
+  const querySuffix = query ? `?${query}` : '';
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
+  }, [activeTab.id]);
+
+  useEffect(() => {
+    if (requestedTabId && requestedTabId !== activeTab.id) {
+      onNavigate(listPath, { replace: true, scroll: false });
+    } else if (detailId && !routedDetailRow) {
+      onNavigate(`${listPath}${querySuffix}`, { replace: true, scroll: false });
+    } else if (segments.length > 3) {
+      const canonical = detailId
+        ? `${listPath}/${segments[2]}${querySuffix}`
+        : `${listPath}${querySuffix}`;
+      onNavigate(canonical, { replace: true, scroll: false });
+    }
+  }, [activeTab.id, detailId, listPath, onNavigate, querySuffix, requestedTabId, routedDetailRow, segments]);
+
+  const updateRouteState = useMemo(
+    () => ({ search, page, cursor }, { replace = true } = {}) => {
+      const nextQuery = stateQuery({ search, page, cursor });
+      onNavigate(nextQuery ? `${listPath}?${nextQuery}` : listPath, {
+        replace,
+        scroll: false,
+      });
+    },
+    [listPath, onNavigate],
   );
 
   return (
     <div className="rv2-page">
-      <header className="rv2-page-head">
+      {!detailRow && <header className="rv2-page-head">
         <span className="rv2-page-icon">
           <Glyph icon={Icons.folder} size={20} />
         </span>
@@ -866,30 +1212,78 @@ export function BackendModule({ module }) {
           <h1>{businessCopy(module.title)}</h1>
           <p>{businessCopy(module.description)}</p>
         </div>
-      </header>
+      </header>}
 
-      <section className="rv2-view-selector">
-        <div>
-          <span className="rv2-view-label">Choose a view</span>
-          <strong>{businessCopy(activeTab.label)}</strong>
-          <small>{module.tabs.length.toLocaleString()} available section{module.tabs.length === 1 ? '' : 's'}</small>
-        </div>
-        <label className="rv2-select">
-          <span className="rv2-sr-only">Current view</span>
+      {visibleTabs.length > 1 && (
+        <div className="rv2-view-picker">
+          <label htmlFor={`${basePath}-view`}>Current view</label>
           <select
+            id={`${basePath}-view`}
             value={activeTab.id}
-            onChange={(event) => setActiveTabId(event.target.value)}
+            onChange={(event) => onNavigate(`${basePath}/${event.target.value}`)}
           >
-            {module.tabs.map((item) => (
+            {visibleTabs.map((item) => (
               <option value={item.id} key={item.id}>{businessCopy(item.label)}</option>
             ))}
           </select>
-          <Glyph icon={Icons.chevR} size={18} />
-        </label>
-      </section>
+        </div>
+      )}
 
-      <div className="rv2-view" key={activeTab.id}>
-        <ResourceWorkspace resource={activeResource} />
+      <div className={`rv2-module-layout${visibleTabs.length > 1 ? ' has-section-rail' : ''}`}>
+        {visibleTabs.length > 1 && (
+          <aside className="rv2-section-rail" aria-label={`${businessCopy(module.title)} sections`}>
+            <span>Explore</span>
+            <nav>
+              {visibleTabs.map((item) => (
+                <RouteLink
+                  key={item.id}
+                  ref={item.id === activeTab.id ? activeTabRef : undefined}
+                  className={item.id === activeTab.id ? 'is-active' : ''}
+                  aria-current={item.id === activeTab.id ? 'page' : undefined}
+                  route={`${basePath}/${item.id}`}
+                  onFollow={() => onNavigate(`${basePath}/${item.id}`)}
+                >
+                  <Glyph icon={item.id === activeTab.id ? Icons.chevR : Icons.doc} size={15} />
+                  <span>{businessCopy(item.label)}</span>
+                </RouteLink>
+              ))}
+            </nav>
+          </aside>
+        )}
+
+        <div className="rv2-module-main">
+          <div className="rv2-view" key={`${activeTab.id}:${detailRow ? 'detail' : 'list'}`}>
+            {noVisibleTabs ? (
+              <ErrorPanel error={{ status: 403 }} />
+            ) : detailRow ? (
+              <RecordDetailPage
+                resource={activeResource}
+                row={detailRow}
+                workspaceTitle={module.title}
+                listRoute={`${listPath}${querySuffix}`}
+                onBack={() => {
+                  if (selectedSeed?.tabId === activeTab.id) {
+                    setSelectedSeed(null);
+                    window.history.back();
+                  } else {
+                    onNavigate(`${listPath}${querySuffix}`, { replace: true });
+                  }
+                }}
+              />
+            ) : (
+              <ResourceWorkspace
+                resource={activeResource}
+                query={query}
+                detailBase={listPath}
+                onRouteState={updateRouteState}
+                onOpen={activeResource.detailPath ? (row, key) => {
+                  setSelectedSeed({ tabId: activeTab.id, key, row });
+                  onNavigate(`${listPath}/${encodeURIComponent(key)}${querySuffix}`);
+                } : undefined}
+              />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

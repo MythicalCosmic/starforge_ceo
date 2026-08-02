@@ -12,6 +12,9 @@ import {
 } from '../context/preferenceOptions.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { LANGUAGES } from '../i18n/index.js';
+import { managementMembership } from '../config/resolveRole.js';
+import { managementScopeSummary } from '../config/roles.js';
+import '../styles/settings-v2.css';
 
 function SectionHeading({ icon, eyebrow, title, description }) {
   return (
@@ -56,11 +59,8 @@ export function SettingsPage({ role, user, onNav }) {
   const toast = useToast();
 
   const language = (i18n.resolvedLanguage || 'en').split('-')[0];
-  const membership = user?.role_memberships?.find((item) =>
-    role === 'ceo'
-      ? item.account_type_slug === 'director'
-      : item.account_type_slug === 'head_of_dept',
-  );
+  const membership = managementMembership(user, role);
+  const scope = managementScopeSummary(role, user);
   const name = user?.full_name || user?.username || t('settings.managementAccount');
   const roleLabel =
     membership?.account_type_name ||
@@ -70,9 +70,7 @@ export function SettingsPage({ role, user, onNav }) {
   const scopeLabel =
     role === 'ceo'
       ? t('settings.organizationWide')
-      : membership?.department_name ||
-        membership?.branch_name ||
-        t('settings.assignedScope');
+      : scope.name || t('settings.assignedScope');
 
   const notify = (title, message) =>
     toast.push({
@@ -131,7 +129,7 @@ export function SettingsPage({ role, user, onNav }) {
       </header>
 
       <section className="sf-settings-account">
-        <SfAvatar name={name} size={52} />
+        <SfAvatar name={name} size={52} decorative />
         <div>
           <span>{t('settings.signedInAs')}</span>
           <strong>{name}</strong>
@@ -141,7 +139,7 @@ export function SettingsPage({ role, user, onNav }) {
         </div>
         {!API_CONFIG.useMock ? (
           <div className="sf-settings-account-actions">
-            <Button kind="soft" onClick={() => onNav('backendAccount')}>
+            <Button kind="soft" onClick={() => onNav('account')}>
               {t('settings.openProfile')}
             </Button>
             <Button kind="ghost" onClick={logout}>
@@ -287,7 +285,7 @@ export function SettingsPage({ role, user, onNav }) {
           </div>
         </section>
 
-        <section className="sf-settings-section">
+        {LANGUAGES.length > 1 && <section className="sf-settings-section">
           <SectionHeading
             icon={Icons.globe}
             eyebrow={t('settings.languageEyebrow')}
@@ -320,7 +318,7 @@ export function SettingsPage({ role, user, onNav }) {
               })}
             </div>
           </div>
-        </section>
+        </section>}
 
         <section className="sf-settings-section">
           <SectionHeading

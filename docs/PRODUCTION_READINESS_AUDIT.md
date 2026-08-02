@@ -1,5 +1,11 @@
 # StarForge CEO / Manager Console Production-Readiness Audit
 
+> Current frontend verification snapshot: 2026-08-02. The original audit date
+> and historical backend findings remain below, but current test, bundle,
+> dependency, and rendered-browser evidence has been reconciled to this
+> worktree. It is not evidence that the evolving backend requirements are in
+> production.
+
 Audit date: 2026-07-26  
 Frontend repository: `starforge_ceo`  
 Backend repository inspected: `starforge_edu`  
@@ -32,37 +38,38 @@ work landed:
 
 | Check | Result |
 | --- | --- |
-| `npm ci --no-fund` | Passed; 185 packages installed from the lockfile |
-| `npm run lint` | Passed with zero errors and zero warnings |
-| `npm test` | Passed; 7 files and 32 tests |
-| `npm run test:coverage` | Passed across 9 instrumented files: 68.37% statements, 59.64% branches, 62.02% functions, and 74.31% lines; the instrumented API layer reached 92.53% line coverage |
-| Fixture-mode `npm run build` | Rejected with the required nonzero exit and explicit live-build error |
-| Live-mode `npm run build` | Passed with Vite 6.4.3; 93 modules produced 16 files totaling 761,552 bytes with no source maps |
-| Repeated live build | Passed; consecutive artifact manifests had the same SHA-256 fingerprint, `c9b539d93c430fe41b75d9355223f992717a8a13c8fd827057babbf4b0f8ab71` |
-| `npm run check` after coverage generation | Passed; generated reports are excluded from source linting |
-| `npm audit` | Passed; 0 known vulnerabilities |
+| `npm run check` | Passed: ESLint reported zero warnings, 38 Vitest files ran 319 passing tests, and the production build transformed 176 modules |
+| `npm run test:coverage` | Passed: 57.36% statements (3,799/6,622), 57.25% branches (5,409/9,447), 49.43% functions (1,086/2,197), and 60.24% lines (3,284/5,451) |
+| Production bundle | Passed: initial JavaScript 367.02 KB raw / 114.59 KB gzip; StarAI 18.63 / 6.17 KB; Executive dashboard 29.05 / 9.50 KB; Teachers 31.11 / 8.89 KB; Students 31.19 / 8.99 KB; Exams 42.61 / 11.71 KB; Groups 52.51 / 14.38 KB; Finance 57.74 / 14.20 KB; Branches 76.38 / 19.72 KB; restored management catalog 102.66 / 25.18 KB |
+| `npm run analyze` | Passed; the interactive bundle treemap was generated without source maps |
+| `npm run audit:all` | Passed; 0 known vulnerabilities |
 | `npm run audit:production` | Passed; 0 known vulnerabilities |
+| `npm audit signatures` | Passed; 217 signed packages and 69 provenance attestations verified |
 | `npm ls --depth=0` | Passed; declared top-level dependency tree is consistent |
-| CI and Compose YAML parse | Passed |
-| Entrypoint syntax and invalid-origin cases | Passed; CR/LF injection, credentials, paths, port 0, and port 65536 were rejected before template rendering |
 | `git diff --check` | Passed |
-| `npm run validate:schema` | Passed against the live schema: 342 paths, 524 HTTP operations, 20 modules, 104 tabs, and 200 configured GETs with zero missing or duplicate routes |
-| Local API proxy route | Empty POST reached `/api/v1/auth/role-login/` through port 5173 and returned the expected validation response, HTTP 422 rather than a frontend 404 |
-| Localhost-origin live preflight | HTTP 200 without `Access-Control-Allow-Origin`, confirming the same-origin proxy requirement |
-| Manual browser layout and access smoke | Passed for CEO navigation (22 entries), manager navigation (19 entries), forbidden ordinary staff, desktop detail views, a 390-pixel viewport, and paginated related records |
+| Live schema snapshot | Passed read-only validation: 342 paths, 524 operations, 20 modules, 104 tabs, 200 configured GET paths, no missing GETs, and no duplicates |
+| Broad rendered-browser sweep | Passed 94 unique routes at desktop and phone widths: 188 route/viewport cases with zero detected issues |
+| Targeted interaction QA | Passed nine dashboard, chart, branch comparison, filter, StarAI, relationship-link, and mobile navigation scenarios |
+| Local route-settle sample | 118 ms median, 124 ms p95, 127 ms maximum across the 188 deterministic-preview cases; not a production latency result |
+| Hardened image smoke | Passed: 26,545,201-byte image, healthy UID/GID 101 runtime, read-only root, all capabilities dropped, no-new-privileges, PID limit 100, root-owned release shell, no source maps, valid rendered Nginx configuration, security headers, no-store private paths, and immutable hashed assets |
 
-The thirty-two tests exercise the endpoint catalog, supported collection
-envelopes, transport/session behavior, and strict CEO/manager membership
-boundary, but they do not justify a broad product-quality claim. The missing
-suites listed later remain required follow-up.
+The 319 tests exercise transport, cookie-session state, cross-tab invalidation,
+roles, routing, URL pagination, formatting, fixtures, caching, strict hostile
+dashboard-filter normalization, missing-money evidence states, and presentation
+contracts, but they do not justify a bug-free or production-ready claim.
+Coverage is a trend signal for the files reached by the suite; no global
+minimum threshold is enforced.
 
-Those percentages describe only the nine files imported by the current unit
-suite, not the entire application tree. Vitest does not yet use an include-all
-coverage configuration or enforce a minimum threshold.
-
-Docker and Nginx are unavailable on this workstation, so no local image build
-or `nginx -t` result is claimed. The checked-in CI container job is the required
-execution gate for those artifacts.
+The browser checks above used deterministic design-preview data. They found no
+blank or error-boundary page, generic document title, root horizontal overflow,
+runtime or console error, duplicate ID, unnamed visible control/table/dialog,
+raw underscored service state, technical placeholder wording, missing image
+alternative, or excessive DOM in the 188-case broad sweep. The moving backend
+was deliberately not migrated, seeded, or treated as an immutable contract.
+The live schema check records only the response observed during this audit;
+cookie authentication, authorization, real-data journeys, and production
+integration remain release gates after the backend owner confirms the exact
+candidate revision.
 
 ## Scope and method
 
@@ -116,14 +123,14 @@ excluded. The root package and lockfile are now the only dependency manifest.
 | Critical | `?role=ceo` could select the privileged UI | Resolved in live mode: role comes from authenticated memberships |
 | High | Wrong generic login endpoint for the CEO/manager audience | Resolved: role-native login then `/users/me/` bootstrap |
 | High | Optional bearer token could be bundled through `VITE_API_TOKEN` | Resolved: build-time token support removed |
-| High | Bearer token persisted indefinitely in `localStorage` | Resolved: tab/session-scoped storage and legacy-token removal |
+| High | Bearer token persisted indefinitely in `localStorage` | Resolved: host-only HttpOnly cookie; no session key in JavaScript storage or login JSON |
 | High | Generic legacy forms could send incompatible live DTOs | Resolved: Store, CRUD client, adapters, and forms removed |
 | High | Missing backend modules created false product completeness | Improved: supported read-only modules added; true gaps documented |
 | High | No reliable manager capability discovery | Backend gap: conservative department-head surface required |
 | High | Unpinned/non-reproducible container install | Resolved: exact images, lockfile-only `npm ci` |
 | High | Root Nginx container with a writable filesystem | Resolved in Compose: unprivileged, read-only, no capabilities |
 | Medium | Direct browser API calls fail deployed CORS policy | Resolved operationally by same-origin Vite/Nginx proxy |
-| Medium | No tests, coverage command, or CI | Resolved at baseline; browser E2E remains a release follow-up |
+| Medium | No tests, coverage command, or CI | Resolved locally with coverage, CI, and real-browser session checks; immutable-candidate E2E remains a release gate |
 | Medium | No response security headers | Resolved in Nginx; HSTS remains the HTTPS edge's responsibility |
 | Medium | No protected error boundary or stale-request control | Resolved in application infrastructure |
 | Medium | Repository noise obscured review and deployment root | Resolved by flattening and ignore rules |
@@ -178,7 +185,8 @@ management workstation.
 
 #### Remediation
 
-- Login uses `POST /api/v1/auth/role-login/`.
+- Login first establishes CSRF state through `GET /api/v1/auth/session/`, then
+  uses cookie transport on `POST /api/v1/auth/role-login/`.
 - The client then requests `GET /api/v1/users/me/`.
 - `director` maps to the CEO console.
 - `head_of_dept` alone maps to the manager console.
@@ -187,17 +195,23 @@ management workstation.
 - Ordinary/custom staff and all non-staff principals are rejected.
 - Query/environment role selection exists only in explicit fixture development.
 - No token is accepted from `VITE_*`.
-- The opaque credential is stored in `sessionStorage`.
-- A 401 clears the browser session and notifies the auth provider.
-- Logout clears local state even if server logout fails.
-- Password-change responses rotate the stored credential.
+- The opaque credential is returned only in a host-only HttpOnly SameSite
+  cookie and is omitted from JSON; legacy JavaScript storage is removed.
+- Every unsafe cookie-authenticated request requires Django's CSRF
+  cookie/header pair. Existing explicit Bearer clients remain compatible.
+- A 401 clears private query data and notifies the auth provider in every tab.
+- A confirmed logout revokes the current credential and removes the cookie.
+  Every logout attempt clears local protected state; if confirmation is
+  unavailable, the interface explicitly warns that the opaque browser session
+  may remain active and offers a retry instead of claiming success.
+- Password-change responses rotate the HttpOnly cookie.
 
 #### Residual risk
 
-The backend does not expose a department head's effective permissions through
-an authorization-safe self endpoint. Manager navigation therefore uses a
-conservative role-level surface while the server remains authoritative. A
-visible page is not proof that an endpoint is authorized.
+The local backend candidate exposes effective permissions and scope through the
+current-user response, but this remains a production deployment gate. A visible
+page is never proof that an operation is authorized; the backend remains
+authoritative for every request.
 
 #### Acceptance test
 
@@ -360,24 +374,27 @@ The shared application shell and new module infrastructure now provide:
   text across all light and dark palettes;
 - consistent design tokens and narrow-screen layout rules.
 
-Manual browser QA confirmed that the redesigned dashboard remained within a
-390-pixel viewport (`scrollWidth` equaled `clientWidth`) and expanded to a
-long-form leadership workspace rather than an empty first screen. Desktop and
-mobile catalog views use a full register or record cards respectively, while
-details open in a centered desktop dialog or full-screen mobile dialog. CEO
-navigation contained 22 entries; manager navigation contained 19 without
-Organization, Finance, or Access. An ordinary accountant received the forbidden
-state with no navigation. A paginated related section requested its own pages
-without changing the parent register.
+Current rendered-browser QA covered 94 unique routes at desktop and phone
+widths, for 188 route/viewport cases. The sweep verified meaningful content,
+specific document titles, overflow containment, runtime and console health,
+non-technical product language, humanized states, unique IDs, named controls
+and tables, and bounded DOM size. Nine follow-up interaction scenarios covered
+routed executive selectors, chart drill-down, live branch comparison, advanced
+student filters, StarAI preview replies, connected-record navigation, and
+mobile navigation focus isolation and restoration. The leadership shell exposes
+24 visible CEO destinations, while permissions still reduce the surface for
+scoped managers.
 
 #### Residual risk
 
-No automated browser accessibility or visual-regression suite exists yet.
-Before public rollout, exercise the keyboard path at 320, 768, 1280, and
-1920-pixel widths and run an automated accessibility scan plus manual screen
-reader spot checks. The error boundary contains a render failure but no
-privacy-reviewed browser telemetry sink is configured, so production incident
-reporting must add one or supply an equivalent operator workflow.
+These are local scripted sweeps, not a durable CI accessibility or
+visual-regression suite and not an authenticated production-backend journey.
+Before public rollout, promote the critical paths into CI, exercise the complete
+keyboard path at the reference widths, and run an automated accessibility scan
+plus manual screen-reader spot checks. The error boundary contains a render
+failure but no privacy-reviewed browser telemetry sink is configured, so
+production incident reporting must add one or supply an equivalent operator
+workflow.
 
 The shell, sign-in flow, and Settings surface have matching English, Russian,
 and Uzbek catalogs. The long dashboard and shared catalog presenter still
@@ -444,21 +461,19 @@ The repository now includes:
 
 #### Residual risk
 
-The current tests are a meaningful infrastructure baseline, not comprehensive
-product coverage. In particular, collection normalization is tested while the
-rendered hook loading/retry/stale-response transitions are not. Missing suites
-include:
+The current tests and local rendered-browser sweeps are a meaningful frontend
+baseline, not comprehensive product coverage. Remaining suites include:
 
-- auth-provider login/logout/session-expiry integration;
-- role-to-navigation matrix;
-- each new module's actual tenant presenter shape;
-- detail selection and keyboard interaction;
-- responsive browser snapshots;
-- full browser login and critical read-only journeys;
-- backend/console contract tests executed together.
+- cookie-authenticated login, logout, session-expiry, and cross-scope journeys
+  against the frozen production candidate;
+- durable CI keyboard, accessibility, and visual-regression checks at the
+  reference viewport widths;
+- offline, stale-data, retry, and 401 behavior in a rendered browser;
+- backend/console contract tests executed together against the exact release
+  images.
 
-Add an include-all coverage policy and reviewed non-regression thresholds only
-after the missing component/browser suites make those numbers representative.
+Adopt reviewed coverage non-regression thresholds only after the missing
+authenticated and rendered-browser suites make those numbers representative.
 
 ### 8. Container and HTTP runtime
 
@@ -506,13 +521,24 @@ The current runtime:
 
 TLS termination and HSTS belong at the external HTTPS ingress. The container
 cannot safely emit HSTS when it does not own the public TLS boundary. The edge
-must also prevent clients from spoofing trusted forwarding headers.
+must strip and set forwarding headers itself. The current scheme forwarding
+honors an exact inbound `X-Forwarded-Proto: https`, so the container must remain
+loopback/private behind that trusted edge; direct public exposure would let a
+client spoof the secure scheme. The upstream `Host` remains the verified service
+origin for routing and TLS, while `X-Forwarded-Host` preserves the browser-facing
+host for any future explicitly tested absolute-URL contract.
 
 #### Local validation limit
 
-Docker/Nginx are not installed in the audit workstation environment. Their
-configuration is therefore checked by the CI image-build and container-smoke
-job rather than claimed as locally executed.
+The final local image was rebuilt after the current source freeze and
+smoke-tested at 26,545,201 bytes. It ran healthy as UID/GID 101 with a read-only
+root, all Linux capabilities dropped, no-new-privileges, PID limit 100,
+root-owned `0644` release assets, a private `0600` rendered configuration, and
+no source maps. Root and deep SPA routes returned `no-store`; hashed assets were
+immutable; API and WebSocket error responses remained `no-store`; and the
+configured upstream hostname, without its custom port, was used for TLS name
+verification. Rebuild and repeat these checks for the exact published image in
+CI; the public HTTPS edge still requires deployment-environment verification.
 
 The current workflow does not generate an SBOM, scan the complete image, or
 sign/publish its digest. The production registry pipeline must supply those
@@ -616,6 +642,8 @@ For both director and department head:
 - set `API_UPSTREAM` to the intended tenant HTTPS origin with no path or
   trailing slash;
 - terminate TLS at the managed edge and enable HSTS there;
+- keep the console container private/loopback, and prove the edge strips client
+  forwarding headers before setting the authoritative public scheme and host;
 - restrict the console to intended operators/network policy;
 - restrict container egress to the intended API origin and required DNS;
 - verify CSP against any actual production font/asset hosts;

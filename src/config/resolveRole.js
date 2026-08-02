@@ -12,24 +12,22 @@ function isActiveStaffMembership(membership) {
   return !accountKind || accountKind === 'staff';
 }
 
-export function managementMembership(profile, role) {
+export function managementMemberships(profile, role) {
   const memberships = Array.isArray(profile?.role_memberships) ? profile.role_memberships : [];
-  if (role === 'ceo') {
-    return (
-      memberships.find(
-        (membership) =>
-          isActiveStaffMembership(membership) &&
-          membershipSlug(membership) === 'director',
-      ) || null
-    );
-  }
-  return (
-    memberships.find(
-      (membership) =>
-        isActiveStaffMembership(membership) &&
-        membershipSlug(membership) === 'head_of_dept',
-    ) || null
+  const slug = role === 'ceo' ? 'director' : 'head_of_dept';
+  return memberships.filter(
+    (membership) =>
+      isActiveStaffMembership(membership) &&
+      membershipSlug(membership) === slug,
   );
+}
+
+export function managementMembership(profile, role) {
+  const memberships = managementMemberships(profile, role);
+  if (role === 'ceo') {
+    return memberships[0] || null;
+  }
+  return memberships[0] || null;
 }
 
 function resolveMockRole() {

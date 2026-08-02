@@ -1,26 +1,15 @@
-import { cloneElement } from 'react';
+import { cloneElement, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
-import {
-  NAVIGATION_LAYOUTS,
-  PALETTES,
-  PALETTE_SWATCHES,
-} from '../context/preferenceOptions.js';
 import { LANGUAGES } from '../i18n/index.js';
 import { usePopover } from '../hooks/useOutsideClick.js';
 
-export function PreferencesMenu() {
+export function PreferencesMenu({ onOpenSettings }) {
   const { t, i18n } = useTranslation();
-  const {
-    theme,
-    setTheme,
-    palette,
-    setPalette,
-    navigationLayout,
-    setNavigationLayout,
-  } = usePreferences();
+  const { theme, setTheme } = usePreferences();
   const pop = usePopover(false);
+  const panelId = useId();
 
   return (
     <div className="ad-pop ad-preferences" ref={pop.ref}>
@@ -32,12 +21,14 @@ export function PreferencesMenu() {
         aria-label={t('shell.preferences', { defaultValue: 'Display preferences' })}
         aria-haspopup="dialog"
         aria-expanded={pop.open}
+        aria-controls={pop.open ? panelId : undefined}
       >
         {cloneElement(theme === 'dark' ? Icons.moon : Icons.sun, { size: 16 })}
       </button>
 
       {pop.open && (
         <div
+          id={panelId}
           className="ad-preferences-panel"
           role="dialog"
           aria-label={t('shell.preferences', { defaultValue: 'Display preferences' })}
@@ -57,34 +48,6 @@ export function PreferencesMenu() {
               {cloneElement(Icons.x, { size: 15 })}
             </button>
           </header>
-
-          <section className="ad-preference-section">
-            <h2>{t('shell.navigationLayout', { defaultValue: 'Navigation layout' })}</h2>
-            <div className="ad-layout-options">
-              {NAVIGATION_LAYOUTS.map((layout) => {
-                const selected = navigationLayout === layout;
-                return (
-                  <button
-                    type="button"
-                    key={layout}
-                    className={selected ? 'is-selected' : ''}
-                    onClick={() => setNavigationLayout(layout)}
-                    aria-pressed={selected}
-                  >
-                    {cloneElement(layout === 'sidebar' ? Icons.doc : Icons.globe, {
-                      size: 16,
-                    })}
-                    <span>
-                      {layout === 'sidebar'
-                        ? t('shell.sidebarNavigation', { defaultValue: 'Sidebar' })
-                        : t('shell.topNavigation', { defaultValue: 'Top navigation' })}
-                    </span>
-                    {selected && cloneElement(Icons.check, { size: 13 })}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
 
           <section className="ad-preference-section">
             <h2>{t('shell.theme', { defaultValue: 'Theme' })}</h2>
@@ -110,34 +73,7 @@ export function PreferencesMenu() {
             </div>
           </section>
 
-          <section className="ad-preference-section">
-            <h2>{t('shell.palette', { defaultValue: 'Palette' })}</h2>
-            <div className="ad-palette-options">
-              {PALETTES.map((name) => (
-                <button
-                  type="button"
-                  key={name}
-                  className={palette === name ? 'is-selected' : ''}
-                  onClick={() => setPalette(name)}
-                  aria-pressed={palette === name}
-                >
-                  <span className="ad-palette-dots" aria-hidden="true">
-                    {PALETTE_SWATCHES[name].map((color) => (
-                      <i key={color} style={{ background: color }} />
-                    ))}
-                  </span>
-                  <span>
-                    {t(`shell.pal${name.charAt(0).toUpperCase()}${name.slice(1)}`, {
-                      defaultValue: name,
-                    })}
-                  </span>
-                  {palette === name && cloneElement(Icons.check, { size: 13 })}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="ad-preference-section">
+          {LANGUAGES.length > 1 && <section className="ad-preference-section">
             <h2>{t('shell.language', { defaultValue: 'Language' })}</h2>
             <div className="ad-language-options">
               {LANGUAGES.map((language) => {
@@ -156,7 +92,24 @@ export function PreferencesMenu() {
                 );
               })}
             </div>
-          </section>
+          </section>}
+
+          {onOpenSettings && (
+            <button
+              type="button"
+              className="ad-open-settings"
+              onClick={() => {
+                pop.close(false);
+                onOpenSettings();
+              }}
+            >
+              <span>
+                <strong>{t('shell.workspacePreferences', { defaultValue: 'All preferences' })}</strong>
+                <small>{t('shell.personalizeView', { defaultValue: 'Layout, color and density' })}</small>
+              </span>
+              {cloneElement(Icons.chevR, { size: 15 })}
+            </button>
+          )}
         </div>
       )}
     </div>
