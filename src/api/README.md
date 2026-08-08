@@ -113,14 +113,14 @@ must remain disabled, and source maps remain off.
 
 ## Complete leadership navigation and read catalog
 
-`catalog.js` declares 20 management domains, 104 collection GETs, 79 detail
-GETs, and 17 selected-record relations. All 200 unique configured reads have a
+`catalog.js` declares 22 management domains, 112 collection GETs, 83 detail
+GETs, and 26 selected-record relations. All 221 unique configured reads have a
 route-backed product path; no catalog tab is silently discarded.
 
 `backendPages.jsx` presents the catalog as grouped, full-page leadership
 workspaces with clean route IDs and executive-facing copy. Students and
 Teachers also have dedicated focused entry points. The CEO navigation exposes
-22 visible destinations including Overview; the manager navigation excludes
+24 visible destinations including Overview; the manager navigation excludes
 the organization-wide directory, Finance, and Access & roles by default. If
 `/users/me/` supplies `effective_permissions`, `roles.js` removes destinations
 and `BackendModule` removes tabs the current session cannot read.

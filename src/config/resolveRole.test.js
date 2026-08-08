@@ -60,6 +60,26 @@ describe('management role resolution', () => {
     expect(routeIds).not.toContain('intelligence');
   });
 
+  it('adds CRM and payroll only for the exact effective grants', () => {
+    const crmOnly = {
+      ...profile([membership('head_of_dept', { branch: 7 })]),
+      effective_permissions: ['crm:read'],
+    };
+    const compensationOnly = {
+      ...profile([membership('head_of_dept', { branch: 7 })]),
+      effective_permissions: ['compensation:read'],
+    };
+
+    expect(roleConfigForUser('manager', crmOnly).directoryNav.map((item) => item.id))
+      .toContain('crm');
+    expect(roleConfigForUser('manager', crmOnly).directoryNav.map((item) => item.id))
+      .not.toContain('payroll');
+    expect(roleConfigForUser('manager', compensationOnly).directoryNav.map((item) => item.id))
+      .toContain('payroll');
+    expect(roleConfigForUser('manager', compensationOnly).directoryNav.map((item) => item.id))
+      .not.toContain('crm');
+  });
+
   it('summarizes multiple manager scopes without implying one campus', () => {
     const user = {
       ...profile([

@@ -9,6 +9,14 @@ const omittedTeacherEvidence = vi.hoisted(() => ({ cohort: false, signal: false 
 const teacherSignalOverride = vi.hoisted(() => ({ value: null }));
 const studentInvoices = vi.hoisted(() => []);
 const attendanceOverride = vi.hoisted(() => ({ rows: null }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), danger: vi.fn() }));
+
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}));
+
+vi.mock('../context/ToastContext.jsx', () => ({ useToast: () => toast }));
 
 const student = {
   id: 44,
@@ -437,6 +445,29 @@ describe('People workspace redesign', () => {
     const expanded = renderToStaticMarkup(<TeachersPage route="teachers/directory?substitute=false" onNav={vi.fn()} user={user} />);
     expect(expanded).toContain('aria-expanded="true"');
     expect(expanded).toContain('Teaching arrangement');
+  });
+
+  it('uses compensation authority, not customer-finance authority, for pay filters and payout controls', () => {
+    const financeOnly = { effective_permissions: ['teachers:read', 'finance:read'] };
+    const financeHtml = renderToStaticMarkup(<TeachersPage route="teachers/directory?salary=monthly" onNav={vi.fn()} user={financeOnly} />);
+    const financeRequest = workspaceCalls.find((call) => call.path === '/api/v1/teachers/');
+
+    expect(financeRequest.params.salary_type).toBeUndefined();
+    expect(financeHtml).not.toContain('Pay profile');
+
+    workspaceCalls.splice(0);
+    const compensationReader = { effective_permissions: ['teachers:read', 'compensation:read'] };
+    const compensationHtml = renderToStaticMarkup(<TeachersPage route="teachers/directory?salary=monthly" onNav={vi.fn()} user={compensationReader} />);
+    const compensationRequest = workspaceCalls.find((call) => call.path === '/api/v1/teachers/');
+
+    expect(compensationRequest.params.salary_type).toBe('monthly');
+    expect(compensationHtml).toContain('Pay profile');
+
+    workspaceCalls.splice(0);
+    const writeHtml = renderToStaticMarkup(<TeachersPage route="teachers/9/compensation" onNav={vi.fn()} user={{ effective_permissions: ['teachers:read', 'compensation:read', 'compensation:write'] }} />);
+    expect(writeHtml).toContain('Authoritative payout rule');
+    expect(writeHtml).toContain('Save payout rule');
+    expect(workspaceCalls.filter((call) => call.enabled && call.path === '/api/v1/teachers/9/payout-policy/')).toHaveLength(1);
   });
 
   it('requests and exposes the URL-backed teacher page with an honest page-only export', () => {

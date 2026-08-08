@@ -10,6 +10,8 @@ describe('route module loading', () => {
     expect(routeModuleIdsFor('students/directory')).toEqual(['students']);
     expect(routeModuleIdsFor('backendPeople/students/42')).toEqual(['students']);
     expect(routeModuleIdsFor('finance/invoices/9?status=issued')).toEqual(['finance']);
+    expect(routeModuleIdsFor('crm/leads/9')).toEqual(['crm']);
+    expect(routeModuleIdsFor('backendPayroll/periods/9')).toEqual(['payroll']);
     expect(routeModuleIdsFor('reports/library')).toEqual(['reports']);
     expect(routeModuleIdsFor('missing/page')).toEqual([]);
   });

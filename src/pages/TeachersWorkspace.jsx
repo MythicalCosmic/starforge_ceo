@@ -166,7 +166,10 @@ function TeacherDirectory({ route, onNav, branchId, user }) {
   const canViewGroups = canUseCapability(user, 'cohorts:read');
   const canViewStudents = canUseCapability(user, 'students:read');
   const canViewIntelligence = canUseCapability(user, 'intelligence:read');
-  const canViewFinance = canUseCapability(user, 'finance:read');
+  // Staff compensation is deliberately separate from customer finance.  A
+  // finance grant must never become a salary-disclosure grant (and a scoped
+  // compensation operator can use this filter without being given finance).
+  const canViewCompensation = canUseCapability(user, 'compensation:read');
   const teachers = useWorkspaceData('/api/v1/teachers/', {
     page_size: DIRECTORY_PAGE_SIZE,
     page,
@@ -176,7 +179,7 @@ function TeacherDirectory({ route, onNav, branchId, user }) {
     is_substitute: filters.substitute || undefined,
     is_active: filters.active || undefined,
     subject: filters.subject || undefined,
-    salary_type: canViewFinance ? filters.salary || undefined : undefined,
+    salary_type: canViewCompensation ? filters.salary || undefined : undefined,
     hired_after: filters.hired_after || undefined,
     hired_before: filters.hired_before || undefined,
     ordering: filters.ordering || undefined,
@@ -198,7 +201,7 @@ function TeacherDirectory({ route, onNav, branchId, user }) {
   const visible = teachers.rows.filter((teacher) => {
     if (filters.active && String(Boolean(teacher.is_active)) !== filters.active) return false;
     if (filters.subject && !(teacher.subjects || []).some((subject) => String(subject).toLowerCase() === filters.subject.toLowerCase())) return false;
-    if (canViewFinance && filters.salary && teacher.salary_type !== filters.salary) return false;
+    if (canViewCompensation && filters.salary && teacher.salary_type !== filters.salary) return false;
     if (filters.hired_after && String(teacher.hire_date || '') < filters.hired_after) return false;
     if (filters.hired_before && String(teacher.hire_date || '') > filters.hired_before) return false;
     return true;
@@ -247,7 +250,7 @@ function TeacherDirectory({ route, onNav, branchId, user }) {
       advanced={<>
         {canViewOrganization && <FilterField label="Department"><select value={filters.department} onChange={(event) => routeFilter(filters, 'department', event.target.value, base, onNav)}><option value="">All departments</option><UnloadedSelectionOption value={filters.department} options={departments.rows} label="department" />{departments.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></FilterField>}
         <FilterField label="Teaching arrangement"><select value={filters.substitute} onChange={(event) => routeFilter(filters, 'substitute', event.target.value, base, onNav)}><option value="">All arrangements</option><option value="true">Substitute</option><option value="false">Regular</option></select></FilterField>
-        {canViewFinance && <FilterField label="Pay profile"><select value={filters.salary} onChange={(event) => routeFilter(filters, 'salary', event.target.value, base, onNav)}><option value="">Any visible type</option><option value="monthly">Monthly</option><option value="hourly">Hourly</option></select></FilterField>}
+        {canViewCompensation && <FilterField label="Pay profile"><select value={filters.salary} onChange={(event) => routeFilter(filters, 'salary', event.target.value, base, onNav)}><option value="">Any visible type</option><option value="monthly">Monthly</option><option value="hourly">Hourly</option></select></FilterField>}
         <FilterField label="Hired after"><input type="date" value={filters.hired_after} max={filters.hired_before || undefined} onChange={(event) => routeFilter(filters, 'hired_after', event.target.value, base, onNav)} /></FilterField>
         <FilterField label="Hired before"><input type="date" value={filters.hired_before} min={filters.hired_after || undefined} onChange={(event) => routeFilter(filters, 'hired_before', event.target.value, base, onNav)} /></FilterField>
         <FilterField label="Sort"><select value={filters.ordering} onChange={(event) => routeFilter(filters, 'ordering', event.target.value, base, onNav)}><option value="">Recently added</option><option value="hire_date">Earliest hire</option><option value="-hire_date">Latest hire</option></select></FilterField>
@@ -358,8 +361,8 @@ function CompensationPanel({ id, canManage }) {
       toast.danger(message, { title: 'Payout rule not saved' });
     },
   });
-  if (policy.error?.status === 403) return <DetailSection eyebrow="Restricted" title="Compensation"><div className="fw-safety-block">Compensation is available only to leadership accounts with both faculty and finance responsibility.</div></DetailSection>;
-  return <DetailSection eyebrow="Controlled finance" title="Authoritative payout rule" description="Salary preparation uses this rule—not the legacy profile rate.">
+  if (policy.error?.status === 403) return <DetailSection eyebrow="Restricted" title="Compensation"><div className="fw-safety-block">Compensation needs a scoped compensation grant. Customer-finance access does not reveal staff pay.</div></DetailSection>;
+  return <DetailSection eyebrow="Controlled compensation" title="Authoritative payout rule" description="Salary preparation uses this rule—not the legacy profile rate.">
     <div className="fw-compensation-grid">
       <label>Method<select disabled={!canManage} value={source.method || 'flat_monthly'} onChange={(event) => setDraft({ ...source, method: event.target.value })}><option value="flat_monthly">Flat monthly</option><option value="hourly">Hourly</option><option value="percent_of_collected_tuition">Share of collected tuition</option></select></label>
       {source.method === 'flat_monthly' && <label>Monthly amount (UZS)<input disabled={!canManage} type="number" inputMode="decimal" min="0" step="0.01" value={source.flat_amount_uzs || ''} onChange={(event) => setDraft({ ...source, flat_amount_uzs: event.target.value })} /></label>}
@@ -375,15 +378,15 @@ function CompensationPanel({ id, canManage }) {
 
 function TeacherProfile({ id, section, onNav, user, branchId }) {
   const canEdit = canUseCapability(user, 'teachers:write');
-  const canFinance = canUseCapability(user, 'finance:read');
-  const canManageFinance = canUseCapability(user, 'finance:write') && canEdit;
+  const canViewCompensation = canUseCapability(user, 'compensation:read');
+  const canManageCompensation = canUseCapability(user, 'compensation:write');
   const canViewGroups = canUseCapability(user, 'cohorts:read');
   const canViewStudents = canUseCapability(user, 'students:read');
   const canViewIntelligence = canUseCapability(user, 'intelligence:read');
   const availableSections = PROFILE_SECTIONS.filter((item) => {
     if (item.id === 'groups') return canViewGroups || canViewStudents;
     if (item.id === 'activity') return canViewIntelligence;
-    if (item.id === 'compensation') return canFinance;
+    if (item.id === 'compensation') return canViewCompensation;
     return true;
   });
   const active = availableSections.some((item) => item.id === section) ? section : 'overview';
@@ -469,7 +472,7 @@ function TeacherProfile({ id, section, onNav, user, branchId }) {
         { label: 'Lessons delivered', value: nonNegativeMetric(signal?.lessons_delivered) }, { label: 'Students reached', value: nonNegativeMetric(signal?.students_reached) },
         { label: 'Marks sampled', value: nonNegativeMetric(signal?.marks_sampled) },
       ]} /></ChartCard></>}
-      {active === 'compensation' && canFinance && <CompensationPanel id={id} canManage={canManageFinance} />}
+      {active === 'compensation' && canViewCompensation && <CompensationPanel id={id} canManage={canManageCompensation} />}
       {active === 'employment' && <DetailSection eyebrow="Employment" title="Account and role context"><DetailGrid columns={3} fields={[
         { label: 'Active account', value: data.is_active ? 'Yes' : 'No' }, { label: 'Password reset required', value: data.must_change_password ? 'Yes' : 'No' },
         { label: 'Teaching arrangement', value: data.is_substitute ? 'Substitute' : 'Regular' }, { label: 'Hire date', value: formatOrganizationDate(data.hire_date, { dateOnly: true }) },

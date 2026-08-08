@@ -139,6 +139,16 @@ const MODULES = Object.freeze({
     eyebrow: 'Admissions assessment',
     description: 'Review placement tests, attempts, scoring, and proposed cohort decisions.',
   }),
+  crm: catalogModule('backendCRM', {
+    title: 'Admissions CRM',
+    eyebrow: 'Pipeline and follow-through',
+    description: 'Review leads, ownership, follow-ups, acquisition context, and duplicate candidates within the exact CRM scope returned by the service.',
+    tabLabels: {
+      followUps: 'Follow-up register',
+      campaigns: 'Acquisition campaigns',
+      duplicates: 'Duplicate candidates',
+    },
+  }),
   recognition: catalogModule('backendRecognition', {
     title: 'Recognition & conduct',
     eyebrow: 'Culture and safeguards',
@@ -235,6 +245,15 @@ const MODULES = Object.freeze({
       sales: 'Sales records',
     },
   }),
+  payroll: catalogModule('backendPayroll', {
+    title: 'Payroll',
+    eyebrow: 'Compensation oversight',
+    description: 'Review immutable payroll evidence and adjustments only when the current session has the dedicated compensation grant.',
+    tabLabels: {
+      periods: 'Payroll periods',
+      adjustments: 'Compensation adjustments',
+    },
+  }),
   'ai-governance': catalogModule('backendAI', {
     title: 'Responsible AI',
     eyebrow: 'Use and oversight',
@@ -281,7 +300,11 @@ export function managementModuleFor(moduleId, role, user) {
     : moduleId;
   const roleModule = MODULES[scopedModuleId];
   const containsTeacherDirectory = ['teachers', 'people'].includes(moduleId);
-  const mayViewCompensation = role !== 'manager' && hasEffectivePermission(user, 'finance:read');
+  // Compensation is its own server-enforced capability.  Do not infer access
+  // from a leadership label or from customer-finance authority: both would
+  // either hide an authorized compensation operator or disclose staff pay to
+  // the wrong account.
+  const mayViewCompensation = hasEffectivePermission(user, 'compensation:read');
   return containsTeacherDirectory && !mayViewCompensation
     ? withoutTeacherCompensation(roleModule)
     : roleModule;
@@ -333,6 +356,10 @@ export function PlacementPage(props) {
   return <ModulePage {...props} moduleId="placement" />;
 }
 
+export function CRMPage(props) {
+  return <ModulePage {...props} moduleId="crm" />;
+}
+
 export function RecognitionPage(props) {
   return <ModulePage {...props} moduleId="recognition" />;
 }
@@ -379,6 +406,10 @@ export function MessagingPage(props) {
 
 export function FinancePage(props) {
   return <ModulePage {...props} moduleId="finance" />;
+}
+
+export function PayrollPage(props) {
+  return <ModulePage {...props} moduleId="payroll" />;
 }
 
 export function AIGovernancePage(props) {

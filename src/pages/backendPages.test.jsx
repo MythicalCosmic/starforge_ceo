@@ -7,7 +7,7 @@ function teacherView(module) {
 }
 
 describe('restored management page boundaries', () => {
-  it('keeps all 104 catalog views reachable through complete workspaces', () => {
+  it('keeps all 112 catalog views reachable through complete workspaces', () => {
     const routeIds = [
       'account',
       'people',
@@ -20,7 +20,9 @@ describe('restored management page boundaries', () => {
       'assignments',
       'intelligence',
       'decisions',
+      'crm',
       'finance',
+      'payroll',
       'reports',
       'audit',
       'operations',
@@ -35,7 +37,7 @@ describe('restored management page boundaries', () => {
         effective_permissions: ['*:*'],
       }).tabs);
 
-    expect(tabs).toHaveLength(104);
+    expect(tabs).toHaveLength(112);
   });
 
   it('adds explicit grants to shared people directories', () => {
@@ -58,7 +60,7 @@ describe('restored management page boundaries', () => {
     const routeIds = [
       'account', 'people', 'organization', 'schedule', 'messaging',
       'ai-governance', 'attendance', 'academics', 'assignments',
-      'intelligence', 'decisions', 'finance', 'reports', 'audit',
+      'intelligence', 'decisions', 'crm', 'finance', 'payroll', 'reports', 'audit',
       'operations', 'engagement', 'content', 'placement', 'recognition', 'access',
     ];
 
@@ -75,7 +77,7 @@ describe('restored management page boundaries', () => {
   });
 
   it.each(['people', 'teachers'])(
-    'removes compensation from the %s view without finance access',
+    'removes compensation from the %s view without compensation access',
     (moduleId) => {
       const tab = teacherView(managementModuleFor(moduleId, 'ceo', {
         effective_permissions: ['teachers:read'],
@@ -86,7 +88,7 @@ describe('restored management page boundaries', () => {
     },
   );
 
-  it('never exposes compensation to a scoped manager through presentation metadata', () => {
+  it('does not mistake customer-finance access for staff-compensation access', () => {
     const tab = teacherView(managementModuleFor('people', 'manager', {
       effective_permissions: ['teachers:read', 'finance:read'],
     }));
@@ -95,12 +97,36 @@ describe('restored management page boundaries', () => {
     expect((tab.related || []).map((relation) => relation.id)).not.toContain('payoutPolicy');
   });
 
-  it('retains compensation metadata only for a director with the finance grant', () => {
+  it('retains compensation metadata for any role with the explicit scoped grant', () => {
     const tab = teacherView(managementModuleFor('people', 'ceo', {
-      effective_permissions: ['teachers:read', 'finance:read'],
+      effective_permissions: ['teachers:read', 'compensation:read'],
     }));
 
     expect(tab.detail.map((field) => field.key)).toContain('salary_type');
     expect((tab.related || []).map((relation) => relation.id)).toContain('payoutPolicy');
+    expect((tab.related || []).find((relation) => relation.id === 'payoutPolicy').permission).toBe('compensation:read');
+  });
+
+  it('does not hide a manager whose effective grants explicitly include compensation', () => {
+    const tab = teacherView(managementModuleFor('people', 'manager', {
+      effective_permissions: ['teachers:read', 'compensation:read'],
+    }));
+
+    expect(tab.detail.map((field) => field.key)).toContain('salary_type');
+    expect((tab.related || []).map((relation) => relation.id)).toContain('payoutPolicy');
+  });
+
+  it('exposes CRM and payroll only when their dedicated grants are present', () => {
+    const crmReader = managementModuleFor('crm', 'manager', {
+      effective_permissions: ['crm:read'],
+    });
+    const compensationReader = managementModuleFor('payroll', 'manager', {
+      effective_permissions: ['compensation:read'],
+    });
+
+    expect(crmReader.tabs.map((tab) => tab.path)).toContain('/api/v1/crm/leads/');
+    expect(compensationReader.tabs.map((tab) => tab.path)).toContain('/api/v1/payroll/periods/');
+    expect(compensationReader.tabs.flatMap((tab) => tab.related || []).map((relation) => relation.path))
+      .not.toContain('/api/v1/payroll/periods/{id}/run/');
   });
 });

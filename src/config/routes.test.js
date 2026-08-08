@@ -13,7 +13,9 @@ const RESTORED_MODULES = {
   backendAssignments: 'assignments',
   backendIntelligence: 'intelligence',
   backendApprovals: 'decisions',
+  backendCRM: 'crm',
   backendFinance: 'finance',
+  backendPayroll: 'payroll',
   backendReports: 'reports',
   backendAudit: 'audit',
   backendOperations: 'operations',
@@ -39,6 +41,10 @@ describe('restored management routes', () => {
       .toEqual(['recognition', 'achievements', '8']);
     expect(resolveLegacySegments(['backendFinance', 'providerConfigs', '17']))
       .toEqual(['finance', 'providerConfigs', '17']);
+    expect(resolveLegacySegments(['backendCRM', 'leads', '8']))
+      .toEqual(['crm', 'leads', '8']);
+    expect(resolveLegacySegments(['backendPayroll', 'periods', '6']))
+      .toEqual(['payroll', 'periods', '6']);
     expect(resolveLegacySegments(['backendOperations', 'loans', '3']))
       .toEqual(['operations', 'loans', '3']);
   });

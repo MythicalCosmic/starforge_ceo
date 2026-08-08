@@ -34,8 +34,10 @@ describe('leadership page registry', () => {
       'star-ai',
       'content',
       'recognition',
+      'crm',
       'operations',
       'finance',
+      'payroll',
       'ai-governance',
       'access',
     ]));

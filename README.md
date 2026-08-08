@@ -49,32 +49,28 @@ director-only by default. When `effective_permissions` is present on the
 current-user response, navigation and tabs are reduced further to match the
 session's actual grants. The backend remains authoritative for every request.
 
-All 104 catalog views are route-backed. Student and teacher records use focused
+All 112 catalog views are route-backed. Student and teacher records use focused
 full-page profiles instead of stacked dialogs; broad workspaces retain setup,
 reference, and supporting views under horizontally scrollable tabs. Former
 module hashes and record links resolve to the matching clean route without
 discarding their record identifier.
 
-The read-only contract inventory in `src/api/catalog.js` contains 20 domains,
-104 collection GETs, 79 detail GETs, and 17 selected-record relations—200 unique
+The read-only contract inventory in `src/api/catalog.js` contains 22 domains,
+112 collection GETs, 83 detail GETs, and 26 selected-record relations—221 unique
 configured reads. Lists stay service-paginated and related information loads
 only for the selected record.
 
-The schema audited for backend commit 416f607 contains 230 canonical GET paths.
-The remaining 30
-are deliberately not generic management tabs: five require mandatory selectors,
-ten are self-service views, eight are export/download/token workflows, four are
-duplicates or nested operations already represented elsewhere, and three are
-unsafe or misdocumented. In particular, a wallet "GET" creates a missing wallet,
-while achievement approve/reject routes are advertised as GET even though the
-backend accepts POST only. See [Backend gaps](docs/BACKEND_GAPS.md) for the
-route-by-route disposition.
+The catalog intentionally excludes selector-bound aggregates, exports and
+signed-download routes, and every state-changing action. For example, the CRM
+funnel requires an explicit bounded date window, while payroll run, approval,
+reconciliation, export, and download operations require dedicated workflows.
+See [Backend gaps](docs/BACKEND_GAPS.md) for the route-by-route disposition.
 
 The old Store, mock CRUD database, generic resource client, response adapters,
 and presentation-only mutation forms have been removed. Production pages use
-explicit GET endpoints and declared response fields. Leads and payroll still do
-not have complete backend products; do not recreate them with browser-local
-state or generic writes.
+explicit GET endpoints and declared response fields. CRM and payroll write
+operations remain outside this generic catalog; do not recreate them with
+browser-local state or generic writes.
 
 ## Requirements
 

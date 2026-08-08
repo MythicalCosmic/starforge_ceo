@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const workspaceCalls = vi.hoisted(() => []);
+const mutationOptions = vi.hoisted(() => []);
+const httpRequest = vi.hoisted(() => vi.fn(() => Promise.resolve({})));
 const toast = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), danger: vi.fn() }));
 const cohortRegister = vi.hoisted(() => ({ complete: true }));
 const examResults = vi.hoisted(() => []);
@@ -10,8 +12,13 @@ vi.mock('../context/ToastContext.jsx', () => ({ useToast: () => toast }));
 
 vi.mock('@tanstack/react-query', async (importOriginal) => ({
   ...(await importOriginal()),
-  useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useMutation: vi.fn((options) => {
+    mutationOptions.push(options);
+    return { mutate: vi.fn(), isPending: false };
+  }),
 }));
+
+vi.mock('../api/http.js', () => ({ httpRequest }));
 
 vi.mock('../hooks/useWorkspaceData.js', () => ({
   workspaceRoute(route) {
@@ -37,6 +44,8 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
       weight: '1.000',
       is_published: false,
       published_at: null,
+      version: 4,
+      requires_republish: false,
     };
     let data = { count: 0, results: [] };
     if (path === '/api/v1/academics/exams/7/') data = exam;
@@ -47,6 +56,10 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
     if (path === '/api/v1/cohorts/99/') data = { id: 99, name: 'South Stars', branch: 3 };
     if (path === '/api/v1/cohorts/12/members/') data = [{ id: 1, student: 44, student_name: 'Mohira Olimova' }];
     if (path === '/api/v1/academics/exams/7/results/') data = { count: examResults.length, results: examResults };
+    if (path === '/api/v1/academics/exams/7/readiness/') data = { exam: 7, version: 4, eligible: 1, graded: 1, missing: 0, excluded: 0, coverage_fraction: 1, ready: true, generated_at: '2026-05-02T08:00:00Z' };
+    if (path === '/api/v1/academics/exams/7/history/') data = { count: 1, results: [{ id: 10, event_type: 'published', exam_version: 4, reason: '', actor_name: 'Amina Karimova', created_at: '2026-05-03T05:00:00Z' }] };
+    if (path === '/api/v1/academics/exams/9/history/') data = { count: 1, results: [{ id: 11, event_type: 'published', exam_version: 4, reason: '', actor_name: 'Amina Karimova', created_at: '2026-05-03T05:00:00Z' }] };
+    if (path === '/api/v1/academics/subjects/') data = { count: 1, results: [{ id: 3, code: 'ENG', name: 'English', description: 'Language', is_active: true }] };
     if (path === '/api/v1/cohorts/' && String(params?.branch || '') === '2') {
       data = { count: 1, results: [{ id: 12, name: 'North Stars' }] };
     }
@@ -82,6 +95,8 @@ function loadedPaths() {
 describe('Exams route-backed workflows', () => {
   beforeEach(() => {
     workspaceCalls.splice(0);
+    mutationOptions.splice(0);
+    httpRequest.mockClear();
     cohortRegister.complete = true;
     examResults.splice(0);
     Object.values(toast).forEach((mock) => mock.mockClear());
@@ -139,12 +154,62 @@ describe('Exams route-backed workflows', () => {
     expect(html).toContain('href="#/branches/2/exams/exams/7/import"');
   });
 
-  it('does not offer a dead-end edit action for a published assessment', () => {
+  it('sends published assessments to the controlled correction and history workflow', () => {
     const html = renderToStaticMarkup(<ExamsPage route="exams/exams/9" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:write', 'cohorts:read'] }} />);
 
     expect(html).toContain('Published assessment');
-    expect(html).toContain('read-only here after publication');
+    expect(html).toContain('Published definitions and results can only change through the correction workflow');
+    expect(html).toContain('Publication and correction history');
+    expect(html).toContain('href="#/exams/exams/9/correct"');
     expect(html).not.toContain('href="#/exams/exams/9/edit"');
+    expect(html).not.toContain('href="#/exams/exams/9/import"');
+  });
+
+  it('loads the readiness snapshot and publishes the exact reviewed version with explicit confirmation', async () => {
+    const html = renderToStaticMarkup(<ExamsPage route="exams/exams/7" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:write', 'cohorts:read'] }} />);
+
+    expect(loadedPaths()).toContain('/api/v1/academics/exams/7/readiness/');
+    expect(loadedPaths()).toContain('/api/v1/academics/exams/7/history/');
+    expect(html).toContain('Readiness review');
+    expect(html).toContain('>ready<');
+    expect(html).toContain('Publish exam');
+
+    await mutationOptions[0].mutationFn();
+    expect(httpRequest).toHaveBeenCalledWith('POST', '/api/v1/academics/exams/7/publish/', {
+      body: { expected_version: 4, confirmed: true },
+    });
+  });
+
+  it('only exposes catalogue mutations to the organization-wide catalogue grant', () => {
+    const academicWriter = renderToStaticMarkup(<ExamsPage route="exams/subjects" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:write'] }} />);
+    expect(academicWriter).not.toContain('Add subject');
+    expect(academicWriter).not.toContain('>Edit<');
+    expect(academicWriter).not.toContain('>Remove<');
+
+    const catalogueManager = renderToStaticMarkup(<ExamsPage route="exams/subjects" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:catalogue'] }} />);
+    expect(catalogueManager).toContain('Add subject');
+    expect(catalogueManager).toContain('>Edit<');
+    expect(catalogueManager).toContain('>Remove<');
+
+    const directWriterRoute = renderToStaticMarkup(<ExamsPage route="exams/subjects/new" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:write'] }} />);
+    expect(directWriterRoute).not.toContain('Academic configuration');
+  });
+
+  it('opens a dedicated correction form only for published exams', async () => {
+    const html = renderToStaticMarkup(<ExamsPage route="exams/exams/9/correct" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:write', 'cohorts:read'] }} />);
+
+    expect(html).toContain('Correct Published assessment');
+    expect(html).toContain('Correction reason');
+    expect(html).toContain('Record correction');
+
+    const payload = {
+      expected_version: 4,
+      reason: 'Correcting a transcribed score.',
+      changes: { title: 'Corrected assessment title' },
+      results: [],
+    };
+    await mutationOptions[0].mutationFn(payload);
+    expect(httpRequest).toHaveBeenCalledWith('POST', '/api/v1/academics/exams/9/correct/', { body: payload });
   });
 
   it('opens results and CSV import as dedicated pages for writers', () => {

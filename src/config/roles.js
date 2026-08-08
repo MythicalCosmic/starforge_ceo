@@ -49,6 +49,9 @@ const assignments = nav('assignments', Icons.folder, 'people', 'Assignments', {
 const placement = nav('placement', Icons.flag, 'people', 'Placement', {
   capabilities: ['placement:read'],
 });
+const crm = nav('crm', Icons.flag, 'people', 'Admissions CRM', {
+  capabilities: ['crm:read'],
+});
 const recognition = nav('recognition', Icons.brand, 'people', 'Recognition & conduct', {
   capabilities: ['achievements:read', 'rewards:read', 'card:read', 'compliance:read', 'penalty:read'],
 });
@@ -87,6 +90,10 @@ const finance = nav('finance', Icons.trend, 'finance', 'Finance', {
   accent: 'var(--sf-success)',
   capabilities: ['finance:read', 'payments:read', 'sale:read'],
 });
+const payroll = nav('payroll', Icons.doc, 'finance', 'Payroll', {
+  accent: 'var(--sf-success)',
+  capabilities: ['compensation:read'],
+});
 const aiGovernance = nav('ai-governance', Icons.ai, 'governance', 'Responsible AI', {
   capabilities: ['ai:read'],
 });
@@ -113,6 +120,7 @@ const coreManagement = [
   academics,
   assignments,
   placement,
+  crm,
   recognition,
   schedule,
   operations,
@@ -123,6 +131,7 @@ const coreManagement = [
   audit,
   engagement,
   messaging,
+  payroll,
   starAI,
   aiGovernance,
 ];
@@ -139,6 +148,7 @@ const directorManagement = [
   academics,
   assignments,
   placement,
+  crm,
   recognition,
   organization,
   schedule,
@@ -151,6 +161,7 @@ const directorManagement = [
   engagement,
   messaging,
   finance,
+  payroll,
   starAI,
   aiGovernance,
   access,

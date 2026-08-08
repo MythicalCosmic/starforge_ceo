@@ -64,9 +64,9 @@ describe('backend management catalog', () => {
       });
     });
 
-    expect(listPaths).toHaveLength(104);
+    expect(listPaths).toHaveLength(112);
     expect(new Set(allPaths).size).toBe(allPaths.length);
-    expect(allPaths).toHaveLength(200);
+    expect(allPaths).toHaveLength(221);
   });
 
   it('does not issue a false GET for access assignment detail', () => {
@@ -89,5 +89,29 @@ describe('backend management catalog', () => {
     expect(configuredPaths).not.toContain('/api/v1/cards/wallets/{id}/');
     expect(configuredPaths).not.toContain('/api/v1/achievements/{id}/approve/');
     expect(configuredPaths).not.toContain('/api/v1/achievements/{id}/reject/');
+  });
+
+  it('uses only clear GET contracts for CRM and payroll and excludes unsafe generic workflows', () => {
+    const crm = BACKEND_CATALOG.backendCRM;
+    const payroll = BACKEND_CATALOG.backendPayroll;
+    const configuredPaths = [...crm.tabs, ...payroll.tabs].flatMap((resource) => [
+      resource.path,
+      ...(resource.detailPath ? [resource.detailPath] : []),
+      ...(resource.related || []).map((relation) => relation.path),
+    ]);
+
+    expect(crm.permission).toBe('crm:read');
+    expect(payroll.permission).toBe('compensation:read');
+    expect(configuredPaths).toEqual(expect.arrayContaining([
+      '/api/v1/crm/leads/',
+      '/api/v1/crm/leads/{id}/stage-history/',
+      '/api/v1/payroll/periods/',
+      '/api/v1/payroll/periods/{id}/lines/',
+      '/api/v1/payroll/adjustments/',
+    ]));
+    expect(configuredPaths).not.toContain('/api/v1/crm/funnel/');
+    expect(configuredPaths).not.toContain('/api/v1/payroll/periods/{id}/run/');
+    expect(configuredPaths).not.toContain('/api/v1/payroll/periods/{id}/approve/');
+    expect(configuredPaths).not.toContain('/api/v1/payroll/periods/{id}/exports/');
   });
 });

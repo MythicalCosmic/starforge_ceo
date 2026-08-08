@@ -65,6 +65,36 @@ function validExamScore(value, maximum) {
     : null;
 }
 
+function positiveVersion(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function equivalentNumber(left, right) {
+  const first = finiteScore(left);
+  const second = finiteScore(right);
+  return first != null && second != null && first === second;
+}
+
+function publicationStatus(exam) {
+  if (exam?.requires_republish) return 'Correction pending';
+  return exam?.is_published ? 'Published' : 'Draft';
+}
+
+function correctionChanges(exam, source) {
+  const changes = {};
+  const title = String(source?.title || '').trim();
+  const examDate = String(source?.exam_date || '').trim();
+  const maxScore = String(source?.max_score ?? '').trim();
+  const weight = String(source?.weight ?? '').trim();
+
+  if (title !== String(exam?.title || '')) changes.title = title;
+  if (examDate !== String(exam?.exam_date || '')) changes.exam_date = examDate;
+  if (!equivalentNumber(maxScore, exam?.max_score)) changes.max_score = maxScore;
+  if (!equivalentNumber(weight, exam?.weight)) changes.weight = weight;
+  return changes;
+}
+
 function relationParam(params, key) {
   const value = String(params.get(key) || '');
   return /^\d{1,20}$/.test(value) ? value : '';
@@ -288,7 +318,7 @@ function ExamEditor({ id, onNav, branchId }) {
   } }), onSuccess: (saved) => { setError(''); queryClient.invalidateQueries({ queryKey: ['api'] }); toast.success(editing ? 'Exam changes saved.' : 'Exam created.', { title: 'Assessment saved' }); onNav(examRecordPath(branchId, saved.id || id)); }, onError: (failure) => { const message = mutationMessage(failure, 'The exam could not be saved.'); setError(message); toast.danger(message, { title: 'Assessment not saved' }); } });
   if (editing && (record.pending || record.error || !record.data)) return <div className="fw-page"><WorkspaceHeader eyebrow="Academic assessment" title="Edit exam" description="Preparing the assessment definition and its current publication state." actions={<LinkButton to={detailPath} onNav={onNav}>Cancel</LinkButton>} /><WorkspaceState state={record} empty={!record.pending && !record.error && !record.data} emptyTitle="Exam not found" emptyBody="This assessment may be outside your current responsibilities." /></div>;
   if (editing && branchScope.required && (branchScope.pending || !branchScope.allowed)) return <div className="fw-page"><WorkspaceHeader eyebrow="Branch assessment" title="Assessment verification" description="Confirming that this assessment belongs to the selected branch before opening edit controls." /><BranchExamBoundary scope={branchScope} branchId={branchId} onNav={onNav} /></div>;
-  if (record.data?.is_published) return <div className="fw-page"><WorkspaceHeader eyebrow="Published assessment" title="Editing is held for review" description="Released assessment definitions stay unchanged here because altering their group, subject, weighting, or maximum score can invalidate visible outcomes." actions={<><LinkButton to={`${detailPath}/results`} onNav={onNav}>Review results</LinkButton><LinkButton to={detailPath} onNav={onNav}>Back to exam</LinkButton></>} /><div className="fw-safety-block">A published-record correction needs a controlled revision path. That path is not available yet, so this workspace keeps the released definition read-only.</div></div>;
+  if (record.data?.is_published || record.data?.requires_republish) return <div className="fw-page"><WorkspaceHeader eyebrow={record.data?.requires_republish ? 'Correction pending' : 'Published assessment'} title="Editing is held for review" description="Released assessment definitions stay unchanged here because altering their group, subject, weighting, or maximum score can invalidate visible outcomes." actions={<><LinkButton to={`${detailPath}/results`} onNav={onNav}>Review results</LinkButton>{record.data?.is_published && <LinkButton to={`${detailPath}/correct`} onNav={onNav} tone="danger">Correct published exam</LinkButton>}<LinkButton to={detailPath} onNav={onNav}>Back to exam</LinkButton></>} /><div className="fw-safety-block">{record.data?.requires_republish ? 'This correction is awaiting a current readiness review and explicit republish. Further edits remain closed.' : 'Use the controlled correction workflow to preserve the prior publication, its audit trail, and the required republish review.'}</div></div>;
   const structuralLocked = editing && (results.pending || Boolean(results.error) || results.total > 0);
   return <div className="fw-page"><WorkspaceHeader eyebrow="Academic assessment" title={editing ? 'Edit exam' : 'Create exam'} description="Create a complete assessment record on its own page; result entry and publishing remain controlled actions." actions={<LinkButton to={detailPath} onNav={onNav}>Cancel</LinkButton>} />{structuralLocked && <div className="fw-data-note">{results.pending ? 'Checking the result register before structural fields can be changed.' : results.error ? 'Result coverage could not be confirmed, so structural fields remain protected.' : `${formatBusinessNumber(results.total)} result record${results.total === 1 ? '' : 's'} already exist. Group, subject, term, weighting, and maximum score remain protected.`}</div>}<form className="fw-form" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>{error && <div className="fw-form-error" role="alert">{error}</div>}<section className="fw-form-section"><header><h2>Exam definition</h2><p>These fields make up the organization’s official assessment record.</p></header>
     <label className="is-wide">Title<input required maxLength="200" value={source.title || ''} onChange={(event) => change('title', event.target.value)} /></label>
@@ -305,34 +335,69 @@ function ExamEditor({ id, onNav, branchId }) {
 function ExamDetail({ id, onNav, canWrite, branchId }) {
   const exam = useWorkspaceData(`/api/v1/academics/exams/${id}/`);
   const branchScope = useBranchExamScope(exam, branchId);
+  const branchDataAllowed = !branchId || (branchScope.required && !branchScope.pending && branchScope.allowed);
+  const readiness = useWorkspaceData(
+    canWrite && exam.data && !exam.data.is_published ? `/api/v1/academics/exams/${id}/readiness/` : null,
+    undefined,
+    { enabled: Boolean(canWrite && exam.data && !exam.data.is_published && branchDataAllowed) },
+  );
+  const history = useWorkspaceData(
+    canWrite && exam.data ? `/api/v1/academics/exams/${id}/history/` : null,
+    { page_size: 25 },
+    { enabled: Boolean(canWrite && exam.data && branchDataAllowed) },
+  );
   useWorkspaceTitle(exam.data?.title, 'Exams', `exam-${id}`);
   const [publishError, setPublishError] = useState('');
   const [publishArmed, setPublishArmed] = useState(false);
   const toast = useToast();
   const recordPath = examRecordPath(branchId, id);
+  const readinessData = readiness.data && typeof readiness.data === 'object' ? readiness.data : null;
+  const recordVersion = positiveVersion(exam.data?.version);
+  const readinessVersion = positiveVersion(readinessData?.version);
+  const readinessCurrent = Boolean(readinessData && readinessVersion && recordVersion && readinessVersion === recordVersion);
+  const readyToPublish = Boolean(readinessCurrent && readinessData.ready === true);
+  const correctionPending = Boolean(exam.data?.requires_republish);
+  const publicationLocked = Boolean(exam.data?.is_published || correctionPending);
+  const publishLabel = correctionPending ? 'Republish correction' : 'Publish exam';
   const publish = useMutation({
-    mutationFn: () => httpRequest('POST', `/api/v1/academics/exams/${id}/publish/`),
+    mutationFn: () => httpRequest('POST', `/api/v1/academics/exams/${id}/publish/`, {
+      body: { expected_version: readinessVersion, confirmed: true },
+    }),
     onSuccess: () => {
       setPublishError('');
       setPublishArmed(false);
       queryClient.invalidateQueries({ queryKey: ['api'] });
       toast.success('The assessment and its recorded outcomes are now published.', { title: 'Assessment published' });
     },
-    onError: (failure) => { const message = mutationMessage(failure, 'The exam could not be published.'); setPublishArmed(false); setPublishError(message); toast.danger(message, { title: 'Assessment not published' }); },
+    onError: (failure) => { const message = mutationMessage(failure, 'The exam could not be published.'); setPublishArmed(false); setPublishError(message); queryClient.invalidateQueries({ queryKey: ['api'] }); toast.danger(message, { title: 'Assessment not published' }); },
   });
   if (branchScope.required && (branchScope.pending || !branchScope.allowed)) return <BranchExamBoundary scope={branchScope} branchId={branchId} onNav={onNav} />;
   const publishStatus = publishError
     ? <span className="fw-form-error" role="alert">{publishError}</span>
     : publishArmed
-      ? <span className="fw-data-note" role="status">Publishing releases the recorded outcomes and cannot be reversed in this workflow.</span>
-      : null;
-  return <WorkspaceState state={exam} empty={!exam.data} emptyTitle="Exam not found" emptyBody="This assessment may be outside your current responsibilities.">{exam.data && <><WorkspaceHeader eyebrow="Exam record" title={exam.data.title} description="Assessment definition, connected learning context, and publication controls." status={publishStatus} actions={<><LinkButton to={examDirectoryPath(branchId)} onNav={onNav}>Back</LinkButton>{canWrite && <LinkButton to={`${recordPath}/results`} onNav={onNav}>Review results</LinkButton>}{canWrite && <LinkButton to={`${recordPath}/import`} onNav={onNav}>Import CSV</LinkButton>}{canWrite && !exam.data.is_published && !publishArmed && <LinkButton to={`${recordPath}/edit`} onNav={onNav}>Edit</LinkButton>}{canWrite && !exam.data.is_published && (publishArmed ? <><ActionButton tone="ghost" onClick={() => setPublishArmed(false)} disabled={publish.isPending}>Cancel</ActionButton><ActionButton tone="danger" onClick={() => publish.mutate()} disabled={publish.isPending}>{publish.isPending ? 'Publishing…' : 'Confirm publish'}</ActionButton></> : <ActionButton tone="primary" onClick={() => { setPublishError(''); setPublishArmed(true); }}>Publish exam</ActionButton>)}</>} />
+      ? <span className="fw-data-note" role="status">You reviewed the current readiness snapshot. Confirming releases the recorded outcomes and records this exact version.</span>
+      : canWrite && !exam.data?.is_published && readiness.pending
+        ? <span className="fw-data-note" role="status">Checking publication readiness before release controls are opened.</span>
+        : canWrite && !exam.data?.is_published && readiness.error
+          ? <span className="fw-form-error" role="alert">Publication stays blocked until its readiness snapshot can be verified.</span>
+          : canWrite && !exam.data?.is_published && !readinessCurrent
+            ? <span className="fw-form-error" role="alert">Publication stays blocked until the current assessment version has a readiness snapshot.</span>
+            : canWrite && !exam.data?.is_published && !readyToPublish
+              ? <span className="fw-data-note" role="status">Publication stays blocked while candidates, grades, or group coverage are incomplete.</span>
+              : null;
+  return <WorkspaceState state={exam} empty={!exam.data} emptyTitle="Exam not found" emptyBody="This assessment may be outside your current responsibilities.">{exam.data && <><WorkspaceHeader eyebrow="Exam record" title={exam.data.title} description="Assessment definition, connected learning context, and publication controls." status={publishStatus} actions={<><LinkButton to={examDirectoryPath(branchId)} onNav={onNav}>Back</LinkButton>{canWrite && <LinkButton to={`${recordPath}/results`} onNav={onNav}>Review results</LinkButton>}{canWrite && !publicationLocked && <LinkButton to={`${recordPath}/import`} onNav={onNav}>Import CSV</LinkButton>}{canWrite && exam.data.is_published && <LinkButton to={`${recordPath}/correct`} onNav={onNav} tone="danger">Correct published exam</LinkButton>}{canWrite && !publicationLocked && !publishArmed && <LinkButton to={`${recordPath}/edit`} onNav={onNav}>Edit</LinkButton>}{canWrite && !exam.data.is_published && readyToPublish && (publishArmed ? <><ActionButton tone="ghost" onClick={() => setPublishArmed(false)} disabled={publish.isPending}>Cancel</ActionButton><ActionButton tone="danger" onClick={() => publish.mutate()} disabled={publish.isPending}>{publish.isPending ? 'Publishing…' : `Confirm ${publishLabel.toLowerCase()}`}</ActionButton></> : <ActionButton tone="primary" onClick={() => { setPublishError(''); setPublishArmed(true); }}>{publishLabel}</ActionButton>)}</>} />
     <div className="fw-summary-grid">
-      <div className="fw-summary-card"><span>Publication</span><strong><StatusPill value={exam.data.is_published ? 'Published' : 'Draft'} /></strong><small>{exam.data.published_at ? `Released ${formatOrganizationDate(exam.data.published_at)}` : 'Not released to outcomes yet'}</small></div>
+      <div className="fw-summary-card"><span>Publication</span><strong><StatusPill value={publicationStatus(exam.data)} /></strong><small>{correctionPending ? 'Correction is awaiting a new readiness review and republish.' : exam.data.published_at ? `Released ${formatOrganizationDate(exam.data.published_at)}` : 'Not released to outcomes yet'}</small></div>
       <div className="fw-summary-card"><span>Assessment date</span><strong>{formatOrganizationDate(exam.data.exam_date, { dateOnly: true }) || '—'}</strong><small>{exam.data.term_name || 'Term not recorded'}</small></div>
       <div className="fw-summary-card"><span>Maximum score</span><strong>{formatBusinessNumber(exam.data.max_score)}</strong><small>Highest permitted result</small></div>
       <div className="fw-summary-card"><span>Weight</span><strong>{formatBusinessNumber(exam.data.weight, { maximumFractionDigits: 3 })}</strong><small>Recorded grade contribution</small></div>
     </div>
+    {canWrite && !exam.data.is_published && <DetailSection eyebrow="Publication gate" title="Readiness review" description="The backend validates this snapshot again when you publish, using the version you reviewed."><div className="fw-summary-grid">
+      <div className="fw-summary-card"><span>Eligible candidates</span><strong>{readiness.pending || readiness.error ? '—' : formatBusinessNumber(readinessData?.eligible)}</strong><small>{readiness.pending ? 'Calculating current group coverage' : readiness.error ? 'Readiness is unavailable' : 'Current active group members'}</small></div>
+      <div className="fw-summary-card"><span>Graded</span><strong>{readiness.pending || readiness.error ? '—' : formatBusinessNumber(readinessData?.graded)}</strong><small>{readiness.pending ? 'Calculating result coverage' : readiness.error ? 'Publication remains blocked' : `${formatBusinessNumber(readinessData?.missing)} missing`}</small></div>
+      <div className="fw-summary-card"><span>Outside group</span><strong>{readiness.pending || readiness.error ? '—' : formatBusinessNumber(readinessData?.excluded)}</strong><small>{readiness.pending ? 'Checking roster alignment' : readiness.error ? 'Publication remains blocked' : 'Recorded results outside current group'}</small></div>
+      <div className="fw-summary-card"><span>Readiness</span><strong><StatusPill value={readiness.pending ? 'Checking' : readyToPublish ? 'Ready' : 'Not ready'} /></strong><small>{readinessData?.generated_at ? `Reviewed ${formatOrganizationDate(readinessData.generated_at)}` : 'No current snapshot'}</small></div>
+    </div></DetailSection>}
     <DetailSection eyebrow="Connected learning record" title="Assessment context" description="Use these links to continue into the group or a filtered assessment register."><DetailGrid columns={3} fields={[
       { label: 'Subject', value: <RouteLink to={`${examRegisterPath(branchId)}?subject=${exam.data.subject}`} onNav={onNav}>{exam.data.subject_name || 'Subject not recorded'}</RouteLink> },
       { label: 'Group', value: exam.data.cohort ? <RouteLink to={`${branchId ? `branches/${branchId}/groups` : 'groups'}/${exam.data.cohort}/exams`} onNav={onNav}>{exam.data.cohort_name || 'Open group'}</RouteLink> : exam.data.cohort_name },
@@ -340,7 +405,134 @@ function ExamDetail({ id, onNav, canWrite, branchId }) {
       { label: 'Exam type', value: exam.data.exam_type ? <RouteLink to={`${examRegisterPath(branchId)}?type=${exam.data.exam_type}`} onNav={onNav}>{exam.data.exam_type_detail?.name || 'Assessment type'}</RouteLink> : exam.data.exam_type_detail?.name },
       { label: 'Assessment date', value: formatOrganizationDate(exam.data.exam_date, { dateOnly: true }) },
       { label: 'Published at', value: formatOrganizationDate(exam.data.published_at) },
-    ]} /></DetailSection>{exam.data.is_published && canWrite && <div className="fw-safety-block">This definition and its result-entry controls are read-only here after publication. The current workflow has no reversible correction or revision approval path.</div>}</>}</WorkspaceState>;
+      { label: 'Assessment version', value: recordVersion || '—' },
+    ]} /></DetailSection>
+    {canWrite && <DetailSection eyebrow="Audit trail" title="Publication and correction history" description="Lifecycle events are append-only evidence for this assessment version."><CoverageBar state={history} label="assessment history" /><WorkspaceState state={history} empty={!history.pending && !history.error && !history.rows.length} emptyTitle="No lifecycle events yet" emptyBody="This assessment has not been published or corrected yet."><WorkspaceTable label="Assessment history" rows={history.rows} columns={[
+      { key: 'event_type', label: 'Event', render: (row) => <StatusPill value={row.event_type} /> },
+      { key: 'exam_version', label: 'Version' }, { key: 'reason', label: 'Reason' }, { key: 'actor_name', label: 'Actor' },
+      { key: 'created_at', label: 'Recorded', render: (row) => formatOrganizationDate(row.created_at) },
+    ]} /></WorkspaceState></DetailSection>}
+    {exam.data.is_published && canWrite && <div className="fw-safety-block">Published definitions and results can only change through the correction workflow. A successful correction withdraws the publication, preserves its history, and requires a fresh readiness-confirmed republish.</div>}
+    {correctionPending && canWrite && <div className="fw-safety-block">This corrected assessment is held until its current readiness snapshot is complete and explicitly republished. Further edits and imports remain closed.</div>}
+  </>}</WorkspaceState>;
+}
+
+function ExamCorrection({ id, onNav, branchId }) {
+  const exam = useWorkspaceData(`/api/v1/academics/exams/${id}/`);
+  const branchScope = useBranchExamScope(exam, branchId);
+  const branchDataAllowed = !branchId || (branchScope.required && !branchScope.pending && branchScope.allowed);
+  const results = useWorkspaceData(
+    exam.data ? `/api/v1/academics/exams/${id}/results/` : null,
+    { page_size: 100 },
+    { enabled: Boolean(exam.data && branchDataAllowed) },
+  );
+  const [form, setForm] = useState(null);
+  const [reason, setReason] = useState('');
+  const [resultDrafts, setResultDrafts] = useState({});
+  const [saveError, setSaveError] = useState(null);
+  const toast = useToast();
+  const recordPath = examRecordPath(branchId, id);
+  const source = form || exam.data || {};
+  const resultsByStudent = new Map(results.rows.map((row) => [String(row.student), row]));
+  const change = (key, value) => setForm((current) => ({ ...(current || source), [key]: value }));
+  const setResultDraft = (student, key, value) => setResultDrafts((current) => ({
+    ...current,
+    [student]: { ...(current[student] || {}), [key]: value },
+  }));
+  const mutation = useMutation({
+    mutationFn: (payload) => httpRequest('POST', `/api/v1/academics/exams/${id}/correct/`, { body: payload }),
+    onSuccess: () => {
+      setSaveError(null);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.success('The correction was recorded. Review readiness before republishing.', { title: 'Assessment corrected' });
+      onNav(recordPath);
+    },
+    onError: (failure) => {
+      setSaveError(failure);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.danger(mutationMessage(failure, 'The assessment correction could not be recorded.'), { title: 'Correction not recorded' });
+    },
+  });
+  const submit = (event) => {
+    event.preventDefault();
+    setSaveError(null);
+    const normalizedReason = reason.trim();
+    const maximum = finiteScore(source.max_score);
+    const weight = finiteScore(source.weight);
+    const expectedVersion = positiveVersion(exam.data?.version);
+    if (!normalizedReason) {
+      const message = 'Explain why this published assessment needs correction.';
+      setSaveError({ safeMessage: message });
+      toast.warning(message, { title: 'Correction reason required' });
+      return;
+    }
+    if (normalizedReason.length > 500) {
+      const message = 'Keep the correction reason to 500 characters or fewer.';
+      setSaveError({ safeMessage: message });
+      toast.warning(message, { title: 'Correction reason is too long' });
+      return;
+    }
+    if (maximum == null || maximum <= 0 || weight == null || weight <= 0 || !expectedVersion) {
+      const message = 'The corrected maximum score, weight, or assessment version is invalid.';
+      setSaveError({ safeMessage: message });
+      toast.warning(message, { title: 'Correction not ready' });
+      return;
+    }
+    const changedResults = Object.entries(resultDrafts).flatMap(([student, draft]) => {
+      const current = resultsByStudent.get(String(student));
+      if (!current) return [];
+      const score = String(draft.score ?? current.score ?? '').trim();
+      const note = String(draft.note ?? current.note ?? '').trim();
+      const unchanged = equivalentNumber(score, current.score) && note === String(current.note || '');
+      return unchanged ? [] : [{ student: Number(student), score, note }];
+    });
+    if (changedResults.some((row) => validExamScore(row.score, maximum) == null)) {
+      const message = `Every corrected score must be a number from 0 to ${source.max_score}.`;
+      setSaveError({ safeMessage: message });
+      toast.warning(message, { title: 'Check corrected scores' });
+      return;
+    }
+    const changes = correctionChanges(exam.data, source);
+    if (!Object.keys(changes).length && !changedResults.length) {
+      const message = 'Change an assessment field or recorded result before submitting a correction.';
+      setSaveError({ safeMessage: message });
+      toast.warning(message, { title: 'Nothing to correct' });
+      return;
+    }
+    mutation.mutate({
+      expected_version: expectedVersion,
+      reason: normalizedReason,
+      changes,
+      results: changedResults,
+    });
+  };
+  const errorLines = readableValidationDetails(saveError);
+  if (branchScope.required && (branchScope.pending || !branchScope.allowed)) return <div className="fw-page"><WorkspaceHeader eyebrow="Branch assessment" title="Correction verification" description="Confirming the selected branch before a published assessment can be corrected." /><BranchExamBoundary scope={branchScope} branchId={branchId} onNav={onNav} /></div>;
+  return <div className="fw-page"><WorkspaceState state={exam} empty={!exam.data} emptyTitle="Exam not found" emptyBody="This assessment may be outside your current responsibilities.">{exam.data && <>
+    {!exam.data.is_published || exam.data.requires_republish ? <><WorkspaceHeader eyebrow="Assessment correction" title="Correction is not available" description="Only a currently published assessment can begin a correction workflow." actions={<LinkButton to={recordPath} onNav={onNav}>Back to exam</LinkButton>} /><div className="fw-safety-block">{exam.data.requires_republish ? 'This assessment already has a correction awaiting republish. Review its current readiness from the exam record.' : 'Draft assessments can be edited directly; published assessments need this controlled correction path.'}</div></> : <><WorkspaceHeader eyebrow="Published assessment" title={`Correct ${exam.data.title}`} description="Record the reason and exact changes. This withdraws the current publication, preserves the lifecycle history, and requires a fresh readiness-confirmed republish." actions={<><LinkButton to={`${recordPath}/results`} onNav={onNav}>Review results</LinkButton><LinkButton to={recordPath} onNav={onNav}>Cancel</LinkButton></>} />
+      <form className="fw-form" onSubmit={submit}>
+        {saveError && <div className="fw-form-error" role="alert"><strong>{mutationMessage(saveError, 'The assessment correction could not be recorded.')}</strong>{errorLines.length ? <ul>{errorLines.map((line) => <li key={line}>{line}</li>)}</ul> : null}</div>}
+        <section className="fw-form-section"><header><h2>Correction reason</h2><p>This reason is retained in the immutable assessment lifecycle history.</p></header>
+          <label className="is-wide">Reason<textarea required maxLength="500" value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+        </section>
+        <section className="fw-form-section"><header><h2>Assessment definition</h2><p>Only changed fields are sent. Group, subject, term, and type remain protected here because moving released evidence needs a separately reviewed workflow.</p></header>
+          <label className="is-wide">Title<input required maxLength="200" value={source.title || ''} onChange={(event) => change('title', event.target.value)} /></label>
+          <label>Date<input required type="date" value={source.exam_date || ''} onChange={(event) => change('exam_date', event.target.value)} /></label>
+          <label>Maximum score<input required type="number" inputMode="decimal" min="0.01" max="9999.99" step="0.01" value={source.max_score || ''} onChange={(event) => change('max_score', event.target.value)} /></label>
+          <label>Weight<input required type="number" inputMode="decimal" min="0.001" max="9.999" step="0.001" value={source.weight || ''} onChange={(event) => change('weight', event.target.value)} /></label>
+        </section>
+        <section className="fw-form-section"><header><h2>Recorded outcomes</h2><p>Update only the released results that need correction. Every submitted score is checked against the corrected maximum.</p></header>
+          <CoverageBar state={results} label="recorded results" />
+          <WorkspaceState state={results} empty={!results.pending && !results.error && !results.rows.length} emptyTitle="No recorded outcomes" emptyBody="You can still correct the assessment definition with a documented reason.">{results.rows.length ? <div className="fw-table-wrap"><table><caption>Published result corrections</caption><thead><tr><th>Student</th><th>Released score</th><th>Corrected score</th><th>Corrected note</th></tr></thead><tbody>{results.rows.map((result) => {
+            const key = String(result.student);
+            const draft = resultDrafts[key] || {};
+            return <tr key={key}><td><span className="fw-person-cell"><strong>{result.student_name || 'Student'}</strong><small>{result.student_code || `Student ${result.student}`}</small></span></td><td>{formatBusinessNumber(result.score, { maximumFractionDigits: 2 }) || '—'}</td><td><input aria-label={`Corrected score for ${result.student_name || 'student'}`} type="number" inputMode="decimal" min="0" max={source.max_score || undefined} step="0.01" disabled={mutation.isPending} value={Object.prototype.hasOwnProperty.call(draft, 'score') ? draft.score : result.score ?? ''} onChange={(event) => setResultDraft(key, 'score', event.target.value)} /></td><td><input aria-label={`Corrected note for ${result.student_name || 'student'}`} maxLength="255" disabled={mutation.isPending} value={Object.prototype.hasOwnProperty.call(draft, 'note') ? draft.note : result.note ?? ''} onChange={(event) => setResultDraft(key, 'note', event.target.value)} /></td></tr>;
+          })}</tbody></table></div> : null}</WorkspaceState>
+        </section>
+        <div className="fw-safety-block">Submitting records the correction against version {positiveVersion(exam.data.version) || '—'}, withdraws publication, and makes the corrected assessment read-only until it is ready and explicitly republished.</div>
+        <div className="fw-form-actions"><ActionButton type="submit" tone="danger" disabled={mutation.isPending}>{mutation.isPending ? 'Recording correction…' : 'Record correction'}</ActionButton></div>
+      </form>
+    </>}</>}</WorkspaceState></div>;
 }
 
 function ExamResults({ id, onNav, branchId, canViewCohorts }) {
@@ -438,7 +630,7 @@ function ExamResults({ id, onNav, branchId, canViewCohorts }) {
     </div>
     <CoverageBar state={results} label="exam results" />
     {canViewCohorts ? <CoverageBar state={members} label="current group members" /> : <div className="fw-data-note">The current group roster is outside this role’s responsibilities. Existing results remain reviewable, but new candidates cannot be added from this page.</div>}
-    {exam.data.is_published ? <div className="fw-safety-block">Published results are review-only here. Corrections require an explicit, auditable revision path so a released score is never silently overwritten.</div> : <div className="fw-data-note">Saving is all-or-nothing: if any changed row is invalid, no score in that batch is recorded. Scores must be between 0 and {exam.data.max_score}.</div>}
+    {(exam.data.is_published || exam.data.requires_republish) ? <div className="fw-safety-block">{exam.data.requires_republish ? 'This correction is awaiting republish, so results remain held for review.' : 'Published results are review-only here. Use the explicit, auditable correction workflow so a released score is never silently overwritten.'}</div> : <div className="fw-data-note">Saving is all-or-nothing: if any changed row is invalid, no score in that batch is recorded. Scores must be between 0 and {exam.data.max_score}.</div>}
     {saveError && <div className="fw-form-error" role="alert"><strong>{mutationMessage(saveError, 'The changed results could not be saved.')}</strong>{errorLines.length ? <ul>{errorLines.map((line) => <li key={line}>{line}</li>)}</ul> : null}</div>}
     {saved && <div className="fw-form-success">Saved {formatBusinessNumber(saved.created)} new and {formatBusinessNumber(saved.updated)} updated result records.</div>}
     <WorkspaceState state={results} empty={!results.pending && !results.error && !roster.length} emptyTitle="No candidates are available" emptyBody={canViewCohorts ? 'The group has no current members and no earlier result records.' : 'No result records are currently available.'}>{!results.pending && !results.error && roster.length ? <form className="fw-form" onSubmit={saveResults}><div className="fw-table-wrap"><table><caption>Exam result entry</caption><thead><tr><th>Student</th><th>Recorded score</th><th>Score</th><th>Note</th><th>Last updated</th></tr></thead><tbody>{roster.map((row) => {
@@ -447,8 +639,8 @@ function ExamResults({ id, onNav, branchId, canViewCohorts }) {
       const recordedScore = validExamScore(row.result?.score, exam.data.max_score);
       const score = Object.prototype.hasOwnProperty.call(draft, 'score') ? draft.score : recordedScore == null ? '' : String(row.result.score);
       const note = Object.prototype.hasOwnProperty.call(draft, 'note') ? draft.note : row.result?.note || '';
-      return <tr key={key}><td><span className="fw-person-cell"><strong>{row.student_name || 'Student'}</strong><small>{row.current ? 'Current group member' : 'Earlier result record'}</small></span></td><td>{recordedScore == null ? '—' : formatBusinessNumber(recordedScore, { maximumFractionDigits: 2 })}</td><td><input aria-label={`Score for ${row.student_name || 'student'}`} type="number" inputMode="decimal" min="0" max={exam.data.max_score} step="0.01" disabled={exam.data.is_published || mutation.isPending} value={score} onChange={(event) => setDraft(key, 'score', event.target.value)} /></td><td><input aria-label={`Note for ${row.student_name || 'student'}`} maxLength="255" disabled={exam.data.is_published || mutation.isPending} value={note} onChange={(event) => setDraft(key, 'note', event.target.value)} /></td><td>{formatOrganizationDate(row.result?.graded_at) || '—'}</td></tr>;
-    })}</tbody></table></div>{!exam.data.is_published && <div className="fw-form-actions"><ActionButton type="submit" tone="primary" disabled={!changedCount || mutation.isPending}>{mutation.isPending ? 'Saving…' : `Save ${formatBusinessNumber(changedCount)} changed row${changedCount === 1 ? '' : 's'}`}</ActionButton></div>}</form> : null}</WorkspaceState>
+      return <tr key={key}><td><span className="fw-person-cell"><strong>{row.student_name || 'Student'}</strong><small>{row.current ? 'Current group member' : 'Earlier result record'}</small></span></td><td>{recordedScore == null ? '—' : formatBusinessNumber(recordedScore, { maximumFractionDigits: 2 })}</td><td><input aria-label={`Score for ${row.student_name || 'student'}`} type="number" inputMode="decimal" min="0" max={exam.data.max_score} step="0.01" disabled={exam.data.is_published || exam.data.requires_republish || mutation.isPending} value={score} onChange={(event) => setDraft(key, 'score', event.target.value)} /></td><td><input aria-label={`Note for ${row.student_name || 'student'}`} maxLength="255" disabled={exam.data.is_published || exam.data.requires_republish || mutation.isPending} value={note} onChange={(event) => setDraft(key, 'note', event.target.value)} /></td><td>{formatOrganizationDate(row.result?.graded_at) || '—'}</td></tr>;
+    })}</tbody></table></div>{!exam.data.is_published && !exam.data.requires_republish && <div className="fw-form-actions"><ActionButton type="submit" tone="primary" disabled={!changedCount || mutation.isPending}>{mutation.isPending ? 'Saving…' : `Save ${formatBusinessNumber(changedCount)} changed row${changedCount === 1 ? '' : 's'}`}</ActionButton></div>}</form> : null}</WorkspaceState>
   </>}</WorkspaceState></div>;
 }
 
@@ -524,7 +716,7 @@ function ExamResultsImport({ id, onNav, branchId }) {
   const errorLines = readableValidationDetails(importError);
   if (branchScope.required && (branchScope.pending || !branchScope.allowed)) return <div className="fw-page"><WorkspaceHeader eyebrow="Branch assessment" title="Import verification" description="Confirming the selected branch before any score file can be processed." /><BranchExamBoundary scope={branchScope} branchId={branchId} onNav={onNav} /></div>;
   return <div className="fw-page"><WorkspaceState state={exam} empty={!exam.data} emptyTitle="Exam not found" emptyBody="This assessment may be outside your current responsibilities.">{exam.data && <><WorkspaceHeader eyebrow="Result import" title={exam.data.title} description={`Import scores for ${exam.data.cohort_name || 'this group'} from a validated, all-or-nothing CSV file.`} actions={<><LinkButton to={`${recordPath}/results`} onNav={onNav}>Review results</LinkButton><LinkButton to={recordPath} onNav={onNav}>Back to exam</LinkButton></>} />
-    {exam.data.is_published ? <div className="fw-safety-block">Imports are held after publication because the current workflow cannot create an explicit correction revision. Existing results remain available for review.</div> : <form className="fw-form" onSubmit={submit}>
+    {(exam.data.is_published || exam.data.requires_republish) ? <div className="fw-safety-block">{exam.data.requires_republish ? 'Imports remain held while this correction awaits republish.' : 'Imports are held after publication. Use the explicit correction workflow so released outcomes are never silently overwritten.'} Existing results remain available for review.</div> : <form className="fw-form" onSubmit={submit}>
       {importError && <div className="fw-form-error" role="alert"><strong>{mutationMessage(importError, 'The results could not be imported.')}</strong>{errorLines.length ? <ul>{errorLines.map((line) => <li key={line}>{line}</li>)}</ul> : null}</div>}
       {summary && <div className="fw-form-success">Import complete: {formatBusinessNumber(summary.created)} new and {formatBusinessNumber(summary.updated)} updated result records.</div>}
       <section className="fw-form-section"><header><h2>CSV file</h2><p>Use UTF-8 CSV with the required student_id and score columns. note is optional. Student IDs are the public codes shown in the student directory.</p></header>
@@ -557,7 +749,7 @@ function DefinitionEditor({ kind, id, onNav, branchId }) {
   </section><div className="fw-form-actions"><ActionButton type="submit" tone="primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : `Save ${label.toLowerCase()}`}</ActionButton></div></form></div>;
 }
 
-function DefinitionList({ kind, onNav, canWrite, branchId }) {
+function DefinitionList({ kind, onNav, canManageCatalogue, branchId }) {
   const subject = kind === 'subjects';
   const api = subject ? '/api/v1/academics/subjects/' : '/api/v1/academics/exam-types/';
   const label = subject ? 'Subject' : 'Exam type';
@@ -567,14 +759,14 @@ function DefinitionList({ kind, onNav, canWrite, branchId }) {
   const base = `${branchId ? `branches/${branchId}/exams` : 'exams'}/${kind}`;
   const remove = useMutation({ mutationFn: (id) => httpRequest('DELETE', `${api}${id}/`), onSuccess: () => { setPendingRemoval(null); queryClient.invalidateQueries({ queryKey: ['api'] }); toast.success(`${subject ? 'Subject' : 'Exam type'} removed.`); }, onError: (failure) => { setPendingRemoval(null); toast.danger(mutationMessage(failure, `This ${label.toLowerCase()} could not be removed.`)); } });
   const rowActions = (row) => <span className="fw-row-actions"><LinkButton to={`${base}/${row.id}/edit`} onNav={onNav}>Edit</LinkButton>{String(pendingRemoval) === String(row.id) ? <><ActionButton tone="ghost" disabled={remove.isPending} onClick={() => setPendingRemoval(null)}>Cancel</ActionButton><ActionButton tone="danger" disabled={remove.isPending} onClick={() => remove.mutate(row.id)} aria-label={`Confirm removal of ${row.name}`}>{remove.isPending ? 'Removing…' : 'Confirm remove'}</ActionButton></> : <ActionButton tone="danger" disabled={remove.isPending} onClick={() => setPendingRemoval(row.id)} aria-label={`Remove ${row.name}`}>Remove</ActionButton>}</span>;
-  return <><div className="fw-inline-actions">{canWrite && <LinkButton to={`${base}/new`} onNav={onNav} tone="primary" icon={Icons.doc}>Add {subject ? 'subject' : 'exam type'}</LinkButton>}</div><CoverageBar state={state} label={subject ? 'subjects' : 'exam types'} /><WorkspaceState state={state} empty={!state.rows.length}><WorkspaceTable label={subject ? 'Subjects' : 'Exam types'} rows={state.rows} columns={subject ? [
+  return <><div className="fw-inline-actions">{canManageCatalogue && <LinkButton to={`${base}/new`} onNav={onNav} tone="primary" icon={Icons.doc}>Add {subject ? 'subject' : 'exam type'}</LinkButton>}</div><CoverageBar state={state} label={subject ? 'subjects' : 'exam types'} /><WorkspaceState state={state} empty={!state.rows.length}><WorkspaceTable label={subject ? 'Subjects' : 'Exam types'} rows={state.rows} columns={subject ? [
     { key: 'code', label: 'Code' }, { key: 'name', label: 'Subject' }, { key: 'department', label: 'Department reference' },
     { key: 'description', label: 'Description' }, { key: 'is_active', label: 'Status', render: (row) => <StatusPill value={row.is_active ? 'Active' : 'Inactive'} /> },
-    ...(canWrite ? [{ key: 'actions', label: 'Actions', render: rowActions }] : []),
+    ...(canManageCatalogue ? [{ key: 'actions', label: 'Actions', render: rowActions }] : []),
   ] : [
     { key: 'name', label: 'Exam type' }, { key: 'slug', label: 'Slug' }, { key: 'color', label: 'Color', render: (row) => <span className="fw-color"><i style={{ background: row.color }} />{row.color || '\u2014'}</span> },
     { key: 'is_active', label: 'Status', render: (row) => <StatusPill value={row.is_active ? 'Active' : 'Inactive'} /> },
-    ...(canWrite ? [{ key: 'actions', label: 'Actions', render: rowActions }] : []),
+    ...(canManageCatalogue ? [{ key: 'actions', label: 'Actions', render: rowActions }] : []),
   ]} /></WorkspaceState></>;
 }
 
@@ -594,22 +786,24 @@ export function ExamsPage({ route, onNav, user, branchId }) {
   const routed = workspaceRoute(route);
   const relative = branchId ? routed.segments.slice(3) : routed.segments.slice(1);
   const canWrite = canUseCapability(user, 'academics:write');
+  const canManageCatalogue = canUseCapability(user, 'academics:catalogue');
   const canViewCohorts = canUseCapability(user, 'cohorts:read');
   if (relative[0] === 'exams' && relative[1] === 'new' && canWrite) return <ExamEditor onNav={onNav} branchId={branchId} />;
   const examId = relative[0] === 'exams' ? pathId(relative[1]) : null;
   if (examId && relative[2] === 'edit' && canWrite) return <ExamEditor id={examId} onNav={onNav} branchId={branchId} />;
+  if (examId && relative[2] === 'correct' && canWrite) return <ExamCorrection id={examId} onNav={onNav} branchId={branchId} />;
   if (examId && relative[2] === 'results' && canWrite) return <ExamResults id={examId} onNav={onNav} branchId={branchId} canViewCohorts={canViewCohorts} />;
   if (examId && relative[2] === 'import' && canWrite) return <ExamResultsImport id={examId} onNav={onNav} branchId={branchId} />;
   if (examId) return <div className="fw-page"><ExamDetail id={examId} onNav={onNav} canWrite={canWrite} branchId={branchId} /></div>;
-  if (!branchId && canWrite && ['subjects', 'types'].includes(relative[0]) && (relative[1] === 'new' || (pathId(relative[1]) && relative[2] === 'edit'))) return <DefinitionEditor kind={relative[0]} id={pathId(relative[1])} onNav={onNav} branchId={branchId} />;
+  if (!branchId && canManageCatalogue && ['subjects', 'types'].includes(relative[0]) && (relative[1] === 'new' || (pathId(relative[1]) && relative[2] === 'edit'))) return <DefinitionEditor kind={relative[0]} id={pathId(relative[1])} onNav={onNav} branchId={branchId} />;
   const availableSections = branchId ? new Set(['overview', 'exams']) : new Set(SECTIONS.map((item) => item.id));
   const section = availableSections.has(relative[0]) ? relative[0] : 'overview';
   const base = branchId ? `branches/${branchId}/exams` : 'exams';
   return <div className="fw-page">{!branchId && <WorkspaceHeader eyebrow="Learning outcomes" title="Exams" description="Create and review assessments, manage subjects and exam types, and follow published outcomes in a clear academic workspace." actions={canWrite && <LinkButton to={`${examDirectoryPath(branchId)}/new`} onNav={onNav} tone="primary" icon={Icons.doc}>Create exam</LinkButton>} />}<WorkspaceLayout navigation={!branchId ? <SectionNav label="Exams" items={SECTIONS} active={section} basePath={base} onNav={onNav} /> : null}>
     {section === 'overview' && <ExamsOverview onNav={onNav} branchId={branchId} />}
     {section === 'exams' && <ExamList route={route} onNav={onNav} canWrite={canWrite} branchId={branchId} />}
-    {section === 'subjects' && <DefinitionList kind="subjects" onNav={onNav} canWrite={canWrite} branchId={branchId} />}
-    {section === 'types' && <DefinitionList kind="types" onNav={onNav} canWrite={canWrite} branchId={branchId} />}
+    {section === 'subjects' && <DefinitionList kind="subjects" onNav={onNav} canManageCatalogue={canManageCatalogue} branchId={branchId} />}
+    {section === 'types' && <DefinitionList kind="types" onNav={onNav} canManageCatalogue={canManageCatalogue} branchId={branchId} />}
     {section === 'grades' && <SimpleAcademicList kind="grades" />}
     {section === 'transcripts' && <SimpleAcademicList kind="transcripts" />}
   </WorkspaceLayout></div>;
