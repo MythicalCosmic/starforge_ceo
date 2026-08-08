@@ -2,9 +2,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const workspaceMode = vi.hoisted(() => ({ failed: false }));
+const workspaceCalls = vi.hoisted(() => []);
 
 vi.mock('../hooks/useWorkspaceData.js', () => ({
-  useWorkspaceData(path) {
+  useWorkspaceData(path, params, options = {}) {
+    workspaceCalls.push({ path, params, enabled: options.enabled ?? true });
     if (workspaceMode.failed && ['/api/v1/students/', '/api/v1/finance/invoices/'].includes(path)) {
       return { data: null, rows: [], total: 0, pending: false, error: { status: 503 }, paused: false, complete: false };
     }
@@ -62,7 +64,10 @@ function leadershipContext(overrides = {}) {
 }
 
 describe('StarAI conversation-first layout', () => {
-  beforeEach(() => { workspaceMode.failed = false; });
+  beforeEach(() => {
+    workspaceMode.failed = false;
+    workspaceCalls.length = 0;
+  });
 
   it('keeps the chat dominant and moves evidence into a compact disclosure', () => {
     const html = renderToStaticMarkup(<StarAIPage user={{ id: 1, username: 'admin' }} onNav={vi.fn()} />);
@@ -84,6 +89,30 @@ describe('StarAI conversation-first layout', () => {
     expect(html).toContain('<dt>Students</dt><dd>—</dd>');
     expect(html).toContain('<dt>Invoices loaded</dt><dd>—</dd>');
     expect(html).not.toContain('0 people and group records ready');
+  });
+
+  it('does not request leadership registers outside the exact permission set', () => {
+    renderToStaticMarkup(
+      <StarAIPage
+        user={{
+          id: 4,
+          username: 'scoped-manager',
+          effective_permissions: ['ai:read', 'students:read'],
+        }}
+        onNav={vi.fn()}
+      />,
+    );
+
+    const enabledByPath = Object.fromEntries(
+      workspaceCalls.map((call) => [call.path, call.enabled]),
+    );
+    expect(enabledByPath['/api/v1/students/']).toBe(true);
+    expect(enabledByPath['/api/v1/org/branches/']).toBe(false);
+    expect(enabledByPath['/api/v1/teachers/']).toBe(false);
+    expect(enabledByPath['/api/v1/cohorts/']).toBe(false);
+    expect(enabledByPath['/api/v1/finance/invoices/']).toBe(false);
+    expect(enabledByPath['/api/v1/payments/']).toBe(false);
+    expect(enabledByPath['/api/v1/intelligence/risk/']).toBe(false);
   });
 
   it('leaves issued billing unstated when an invoice total is missing', () => {

@@ -3,6 +3,11 @@ import { Icons } from '../components/Icons.jsx';
 import { ActionButton, RouteLink } from '../components/WorkspacePrimitives.jsx';
 import { useWorkspaceData } from '../hooks/useWorkspaceData.js';
 import { formatBusinessNumber, toFiniteBusinessNumber } from '../lib/formatters.js';
+import {
+  effectiveCapabilities,
+  effectiveCapabilitiesForBranch,
+  hasCapability,
+} from '../lib/permissions.js';
 import { financeBrief } from '../lib/starAIFinanceBrief.js';
 import '../styles/focused-v3.css';
 import '../styles/star-ai-v3.css';
@@ -98,14 +103,21 @@ function scopedRisks(context, branchId) {
   return resolved;
 }
 
-function useLeadershipContext(branchId) {
-  const branches = useWorkspaceData('/api/v1/org/branches/', PAGE_100);
-  const students = useWorkspaceData('/api/v1/students/', { ...PAGE_100, branch: branchId || undefined });
-  const teachers = useWorkspaceData('/api/v1/teachers/', { ...PAGE_100, branch: branchId || undefined });
-  const cohorts = useWorkspaceData('/api/v1/cohorts/', { ...PAGE_100, branch: branchId || undefined });
-  const invoices = useWorkspaceData('/api/v1/finance/invoices/', { ...PAGE_100, branch: branchId || undefined });
-  const payments = useWorkspaceData('/api/v1/payments/', { ...PAGE_100, branch: branchId || undefined });
-  const risks = useWorkspaceData('/api/v1/intelligence/risk/', PAGE_100);
+function useLeadershipContext(user, branchId) {
+  const unionCapabilities = effectiveCapabilities(user);
+  const scopedCapabilities = effectiveCapabilitiesForBranch(user, branchId);
+  // An absent permission field is retained only for compatibility with older
+  // profiles. A present array is authoritative and prevents speculative 403s,
+  // unnecessary fan-out, and accidental requests for sensitive registers.
+  const allowsUnion = (permission) => unionCapabilities === null || hasCapability(unionCapabilities, permission);
+  const allowsScope = (permission) => scopedCapabilities === null || hasCapability(scopedCapabilities, permission);
+  const branches = useWorkspaceData('/api/v1/org/branches/', PAGE_100, { enabled: allowsUnion('org:read') });
+  const students = useWorkspaceData('/api/v1/students/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('students:read') });
+  const teachers = useWorkspaceData('/api/v1/teachers/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('teachers:read') });
+  const cohorts = useWorkspaceData('/api/v1/cohorts/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('cohorts:read') });
+  const invoices = useWorkspaceData('/api/v1/finance/invoices/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('finance:read') });
+  const payments = useWorkspaceData('/api/v1/payments/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('payments:read') });
+  const risks = useWorkspaceData('/api/v1/intelligence/risk/', PAGE_100, { enabled: allowsScope('intelligence:read') });
   return { branches, students, teachers, cohorts, invoices, payments, risks };
 }
 
@@ -289,7 +301,7 @@ export function StarAIPage({ user, onNav }) {
   const [activeId, setActiveId] = useState(initial[0].id);
   const [input, setInput] = useState('');
   const [branchId, setBranchId] = useState('');
-  const context = useLeadershipContext(branchId);
+  const context = useLeadershipContext(user, branchId);
   const active = conversations.find((item) => item.id === activeId) || conversations[0];
   const branchName = context.branches.rows.find((item) => String(item.id) === branchId)?.name || '';
   const preparing = Object.values(context).some((state) => state.pending);

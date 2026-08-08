@@ -3,6 +3,7 @@ import {
   refreshWorkspaceStates,
   resolveWorkspaceCoverage,
   spreadsheetCell,
+  visibleWorkspaceEnvelope,
 } from './useWorkspaceData.js';
 
 describe('workspace collection coverage', () => {
@@ -140,5 +141,26 @@ describe('workspace refresh scoping', () => {
 
     expect(active).toHaveBeenCalledOnce();
     expect(dormant).not.toHaveBeenCalled();
+  });
+});
+
+describe('permission-pruned workspace cache visibility', () => {
+  it('returns no data, pagination, or warnings from a disabled cached query', () => {
+    const cached = {
+      data: { results: [{ id: 7, amount_uzs: '990000.00' }] },
+      pagination: { total: 1 },
+      warnings: [{ code: 'stale_finance' }],
+    };
+
+    expect(visibleWorkspaceEnvelope(cached, false)).toEqual({
+      payload: null,
+      pagination: null,
+      warnings: [],
+    });
+    expect(visibleWorkspaceEnvelope(cached, true)).toEqual({
+      payload: cached.data,
+      pagination: cached.pagination,
+      warnings: cached.warnings,
+    });
   });
 });

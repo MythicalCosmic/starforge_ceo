@@ -3,6 +3,7 @@ import {
   declaredPermissions,
   canUseCapability,
   effectiveCapabilities,
+  effectiveCapabilitiesForBranch,
   hasCapability,
   hasDeclaredAccess,
 } from './permissions.js';
@@ -19,6 +20,29 @@ describe('effective permission presentation', () => {
     expect(hasCapability(['students:*'], 'students:read')).toBe(true);
     expect(hasCapability(['*:*'], 'finance:read')).toBe(true);
     expect(hasCapability(['students:read'], 'finance:read')).toBe(false);
+  });
+
+  it('resolves disjoint branch grants without borrowing from the tenant union', () => {
+    const user = {
+      effective_permissions: ['students:read', 'finance:read'],
+      scopes: [
+        {
+          branch: { id: 1, name: 'North' },
+          department: null,
+          effective_permissions: ['finance:read'],
+        },
+        {
+          branch: { id: 2, name: 'South' },
+          department: null,
+          effective_permissions: ['students:read'],
+        },
+      ],
+    };
+
+    expect(effectiveCapabilitiesForBranch(user, 1)).toEqual(['finance:read']);
+    expect(effectiveCapabilitiesForBranch(user, '2')).toEqual(['students:read']);
+    expect(effectiveCapabilitiesForBranch(user, '')).toEqual(user.effective_permissions);
+    expect(effectiveCapabilitiesForBranch({ ...user, scopes: null }, 1)).toEqual([]);
   });
 
   it('keeps legacy accounts usable but fails closed for declared malformed grants', () => {

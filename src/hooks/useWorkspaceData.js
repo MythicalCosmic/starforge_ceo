@@ -81,6 +81,17 @@ export function resolveWorkspaceCoverage(payload, pagination, rows = collectionR
   };
 }
 
+export function visibleWorkspaceEnvelope(response, enabled) {
+  if (!enabled) {
+    return { payload: null, pagination: null, warnings: [] };
+  }
+  return {
+    payload: response?.data ?? null,
+    pagination: response?.pagination ?? null,
+    warnings: Array.isArray(response?.warnings) ? response.warnings : [],
+  };
+}
+
 export function useWorkspaceData(path, params, options = {}) {
   const { i18n } = useTranslation();
   const language = i18n.resolvedLanguage || i18n.language || 'en';
@@ -100,11 +111,17 @@ export function useWorkspaceData(path, params, options = {}) {
     }),
   });
 
-  const payload = query.data?.data ?? null;
+  // TanStack may retain cached data for a disabled query. Never let a permission
+  // or scope downgrade turn that cache into a presentation channel.
+  const envelope = useMemo(
+    () => visibleWorkspaceEnvelope(query.data, enabled),
+    [query.data, enabled],
+  );
+  const { payload, pagination, warnings } = envelope;
   const rows = useMemo(() => collectionRows(payload), [payload]);
   const coverage = useMemo(
-    () => resolveWorkspaceCoverage(payload, query.data?.pagination, rows),
-    [payload, query.data?.pagination, rows],
+    () => resolveWorkspaceCoverage(payload, pagination, rows),
+    [payload, pagination, rows],
   );
 
   return {
@@ -113,13 +130,13 @@ export function useWorkspaceData(path, params, options = {}) {
     rows,
     total: coverage.total,
     totalKnown: coverage.totalKnown,
-    pagination: query.data?.pagination ?? null,
-    warnings: query.data?.warnings ?? [],
+    pagination,
+    warnings,
     loading: enabled && query.fetchStatus !== 'paused' && (query.isPending || query.isFetching),
     pending: enabled && query.isPending,
-    paused: query.fetchStatus === 'paused',
-    error: query.error || null,
-    updatedAt: query.dataUpdatedAt ? new Date(query.dataUpdatedAt) : null,
+    paused: enabled && query.fetchStatus === 'paused',
+    error: enabled ? query.error || null : null,
+    updatedAt: enabled && query.dataUpdatedAt ? new Date(query.dataUpdatedAt) : null,
     retry: query.refetch,
     complete: Boolean(
       enabled &&
