@@ -77,6 +77,15 @@ describe('backend management catalog', () => {
     expect(assignments.detailPath).toBeUndefined();
   });
 
+  it('uses the audit endpoint cursor contract without unsupported search or page parameters', () => {
+    const events = BACKEND_CATALOG.backendAudit.tabs.find((tab) => tab.id === 'events');
+    expect(events).toMatchObject({
+      path: '/api/v1/audit/',
+      pagination: 'cursor',
+      searchParam: false,
+    });
+  });
+
   it('does not turn side-effecting or falsely documented GET routes into read panels', () => {
     const configuredPaths = Object.values(BACKEND_CATALOG).flatMap((module) =>
       module.tabs.flatMap((resource) => [

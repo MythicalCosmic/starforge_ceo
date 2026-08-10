@@ -289,7 +289,7 @@ describe('executive dashboard snapshot', () => {
     expect(html).not.toContain('Checking selected branch…');
   });
 
-  it('defers row-heavy chart registers until the headline snapshot settles', () => {
+  it('starts independent chart registers while a cold headline snapshot settles', () => {
     summaryPending.value = true;
     renderToStaticMarkup(
       <ExecutiveDashboardPage route="overview" onNav={vi.fn()} user={{ first_name: 'Demo' }} />,
@@ -305,8 +305,30 @@ describe('executive dashboard snapshot', () => {
       '/api/v1/finance/invoices/',
     ];
     deferredPaths.forEach((path) => {
-      expect(requests.find((request) => request.path === path)?.options.enabled).toBe(false);
+      expect(requests.find((request) => request.path === path)?.options.enabled).toBe(true);
     });
+  });
+
+  it('keeps below-fold chart registers dormant until their browser section approaches the viewport', () => {
+    vi.stubGlobal('IntersectionObserver', class IntersectionObserver {});
+    try {
+      renderToStaticMarkup(
+        <ExecutiveDashboardPage route="overview" onNav={vi.fn()} user={{ first_name: 'Demo' }} />,
+      );
+      [
+        '/api/v1/students/',
+        '/api/v1/students/comparison/',
+        '/api/v1/intelligence/branches/',
+        '/api/v1/intelligence/teachers/',
+        '/api/v1/intelligence/risk/',
+        '/api/v1/attendance/records/',
+        '/api/v1/finance/invoices/',
+      ].forEach((path) => {
+        expect(requests.find((request) => request.path === path)?.options.enabled).toBe(false);
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('activates compatibility registers only when an older deployment lacks the snapshot', () => {
@@ -332,8 +354,8 @@ describe('executive dashboard snapshot', () => {
     expect(html).toContain('Outstanding balance</span><strong>\u2014</strong>');
     expect(html).toContain('The consolidated invoice view is temporarily unavailable');
     expect(html).toContain('Attendance evidence is temporarily unavailable');
-    expect(html).toContain('Billing-period detail is temporarily unavailable');
-    expect(html).toContain('Student-to-group occupancy is temporarily unavailable');
+    expect(html).toContain('This chart could not reach the live service');
+    expect(html).toContain('No zero or empty result has been inferred');
     expect(html).toContain('Priority coverage is incomplete, so an all-clear cannot be confirmed.');
     expect(html).not.toContain('No priority exceptions are recorded');
     expect(html).not.toContain('Issued billing in view</span><strong>UZS\u00a00</strong>');

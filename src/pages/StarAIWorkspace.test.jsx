@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const workspaceMode = vi.hoisted(() => ({ failed: false }));
+const workspaceMode = vi.hoisted(() => ({ failed: false, aiFailed: false }));
 const workspaceCalls = vi.hoisted(() => []);
 
 vi.mock('../hooks/useWorkspaceData.js', () => ({
@@ -9,6 +9,9 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
     workspaceCalls.push({ path, params, enabled: options.enabled ?? true });
     if (workspaceMode.failed && ['/api/v1/students/', '/api/v1/finance/invoices/'].includes(path)) {
       return { data: null, rows: [], total: 0, pending: false, error: { status: 503 }, paused: false, complete: false };
+    }
+    if (workspaceMode.aiFailed && path === '/api/v1/ai/requests/') {
+      return { data: null, rows: [], total: 0, pending: false, error: { status: 503, code: 'service_unavailable' }, paused: false, complete: false, retry: vi.fn() };
     }
     const rowsByPath = {
       '/api/v1/org/branches/': [{ id: 2, name: 'North Branch' }],
@@ -63,22 +66,24 @@ function leadershipContext(overrides = {}) {
   };
 }
 
-describe('StarAI conversation-first layout', () => {
+describe('StarAI verified briefing layout', () => {
   beforeEach(() => {
     workspaceMode.failed = false;
+    workspaceMode.aiFailed = false;
     workspaceCalls.length = 0;
   });
 
-  it('keeps the chat dominant and moves evidence into a compact disclosure', () => {
+  it('uses bounded evidence briefings instead of pretending to be a free-form chat', () => {
     const html = renderToStaticMarkup(<StarAIPage user={{ id: 1, username: 'admin' }} onNav={vi.fn()} />);
 
-    expect(html).toContain('class="ai-shell"');
-    expect(html).toContain('class="ai-evidence"');
-    expect(html).toContain('role="log"');
-    expect(html).toContain('aria-relevant="additions text"');
-    expect(html).toContain('3 records');
+    expect(html).toContain('ai-brief-workspace');
+    expect(html).toContain('Truthful by design');
+    expect(html).toContain('Verified leadership brief');
+    expect(html).toContain('3 people and group records loaded');
+    expect(html).not.toContain('role="log"');
+    expect(html).not.toContain('ai-composer');
+    expect(html).not.toContain('ai-history');
     expect(html).not.toContain('class="fw-head"');
-    expect(html).not.toContain('class="ai-context"');
   });
 
   it('marks unavailable evidence as partial instead of presenting confident zeroes', () => {
@@ -89,6 +94,15 @@ describe('StarAI conversation-first layout', () => {
     expect(html).toContain('<dt>Students</dt><dd>—</dd>');
     expect(html).toContain('<dt>Invoices loaded</dt><dd>—</dd>');
     expect(html).not.toContain('0 people and group records ready');
+  });
+
+  it('closes the briefing surface when the backend AI app is disabled', () => {
+    workspaceMode.aiFailed = true;
+    const html = renderToStaticMarkup(<StarAIPage user={{ id: 1, username: 'admin' }} onNav={vi.fn()} />);
+
+    expect(html).toContain('StarAI is turned off');
+    expect(html).toContain('No records were requested and no changes were made');
+    expect(html).not.toContain('What needs a closer look?');
   });
 
   it('does not request leadership registers outside the exact permission set', () => {
@@ -113,6 +127,7 @@ describe('StarAI conversation-first layout', () => {
     expect(enabledByPath['/api/v1/finance/invoices/']).toBe(false);
     expect(enabledByPath['/api/v1/payments/']).toBe(false);
     expect(enabledByPath['/api/v1/intelligence/risk/']).toBe(false);
+    expect(enabledByPath['/api/v1/ai/requests/']).toBe(true);
   });
 
   it('leaves issued billing unstated when an invoice total is missing', () => {

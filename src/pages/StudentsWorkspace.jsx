@@ -1,4 +1,5 @@
-import { cloneElement, useEffect } from 'react';
+import { cloneElement, useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { ChartCard, DonutBreakdown, RankedBars } from '../components/ExecutiveCharts.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
@@ -24,10 +25,15 @@ import {
   WorkspaceTabs,
 } from '../components/PeopleWorkspacePrimitives.jsx';
 import { downloadSpreadsheet, useWorkspaceData, workspaceRoute } from '../hooks/useWorkspaceData.js';
+import { httpRequest } from '../api/http.js';
+import { queryClient } from '../api/queryClient.js';
+import { useToast } from '../context/ToastContext.jsx';
 import { useWorkspaceTitle } from '../hooks/useWorkspaceTitle.js';
 import { formatBusinessMoney, formatBusinessNumber, formatGender, formatOrganizationDate, isValidDateInput, organizationDateInput } from '../lib/formatters.js';
 import { canUseCapability } from '../lib/permissions.js';
 import { studentStatusPresentation } from '../lib/peoplePresentation.js';
+import { userFacingError } from '../lib/userFacingError.js';
+import { readableValidationDetails } from '../lib/validationPresentation.js';
 import { DIRECTORY_PAGE_SIZE, directoryPageCount, directoryRoute, readDirectoryPage } from '../lib/directoryPagination.js';
 import '../styles/focused-v3.css';
 
@@ -51,6 +57,10 @@ const DETAIL_SECTIONS = Object.freeze([
 const COLORS = ['var(--sf-primary)', 'var(--sf-success)', 'var(--sf-accent)', 'var(--sf-warn)', '#7389b6', '#9a82ba'];
 const STUDENT_STATUS_FILTERS = Object.freeze(['lead', 'application', 'accepted', 'enrolled', 'active', 'graduated', 'withdrawn']);
 const STUDENT_ORDERING_FILTERS = Object.freeze(['student_id', 'enrollment_date', '-enrollment_date']);
+
+function mutationMessage(error, fallback) {
+  return readableValidationDetails(error)[0] || userFacingError(error, { fallback });
+}
 
 function cleanId(value) {
   const candidate = value && typeof value === 'object' && !Array.isArray(value) ? value.id : value;
@@ -295,6 +305,7 @@ function StudentDirectory({ route, onNav, branchId, user }) {
   const canViewBranches = canUseCapability(user, 'org:read');
   const canViewGroups = canUseCapability(user, 'cohorts:read');
   const canViewTeachers = canUseCapability(user, 'teachers:read');
+  const canWrite = canUseCapability(user, 'students:write');
   const students = useWorkspaceData('/api/v1/students/', listParams(filters, branchId, page));
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: 100 }, { enabled: canViewBranches && !branchId });
   const cohorts = useWorkspaceData('/api/v1/cohorts/', { page_size: 100, branch: branchId || filters.branch || undefined }, { enabled: canViewGroups });
@@ -334,7 +345,7 @@ function StudentDirectory({ route, onNav, branchId, user }) {
       <ProgressiveFilters
         title="Find students"
         advancedActiveCount={advancedCount}
-        actions={<><ActionButton tone="ghost" onClick={clear} disabled={!activeCount}>Clear all</ActionButton><ActionButton onClick={exportRows} disabled={correctingPage || !students.rows.length} title={`Downloads the ${students.rows.length} loaded students on this page only`}>{cloneElement(Icons.doc, { size: 14 })} Download this page</ActionButton></>}
+        actions={<>{canWrite && <LinkButton tone="primary" to={branchId ? `branches/${branchId}/students/new` : 'students/new'} onNav={onNav} icon={Icons.plus}>Create student</LinkButton>}<ActionButton tone="ghost" onClick={clear} disabled={!activeCount}>Clear all</ActionButton><ActionButton onClick={exportRows} disabled={correctingPage || !students.rows.length} title={`Downloads the ${students.rows.length} loaded students on this page only`}>{cloneElement(Icons.doc, { size: 14 })} Download this page</ActionButton></>}
         primary={<>
           <FilterField label="Search"><DeferredFilterInput type="search" maxLength={120} value={filters.q} placeholder="Name, phone, or student ID" onCommit={(value) => setRouteFilter(filters, 'q', value, basePath, onNav, { replace: true })} /></FilterField>
           {!branchId && canViewBranches && <FilterField label="Branch"><select value={filters.branch} onChange={(event) => setRouteFilter(filters, 'branch', event.target.value, basePath, onNav)}><option value="">All branches</option><UnloadedSelectionOption value={filters.branch} options={branches.rows} label="branch" />{branches.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></FilterField>}
@@ -369,6 +380,236 @@ function StudentDirectory({ route, onNav, branchId, user }) {
   );
 }
 
+function StudentEditor({ id, route, onNav, branchId }) {
+  const editing = Boolean(id);
+  const routed = workspaceRoute(route);
+  const requestedBranch = cleanId(branchId || routed.params.get('branch')) || '';
+  const requestedCohort = cleanId(routed.params.get('cohort')) || '';
+  const record = useWorkspaceData(editing ? `/api/v1/students/${id}/` : null, undefined, { enabled: editing });
+  const [form, setForm] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const toast = useToast();
+  const initial = {
+    branch: requestedBranch,
+    cohort: requestedCohort,
+    username: '',
+    phone: '',
+    email: '',
+    first_name: '',
+    last_name: '',
+    middle_name: '',
+    birthdate: '',
+    gender: '',
+    status: 'lead',
+    academic_level: '',
+    location: '',
+    previous_school: '',
+  };
+  const source = form || record.data || initial;
+  const effectiveBranch = cleanId(branchId || source.branch) || '';
+  const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: 100, ordering: 'name' }, { enabled: !branchId });
+  const cohorts = useWorkspaceData('/api/v1/cohorts/', { page_size: 100, branch: effectiveBranch || undefined, is_archived: false, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && !editing });
+  const cancelPath = editing ? contextualPath(branchId, 'students', id) : branchId ? `branches/${branchId}/students` : 'students/directory';
+  useWorkspaceTitle(editing ? record.data?.full_name || 'Edit student' : 'Create student', 'Students', editing ? 'edit' : 'new');
+  const change = (key, value) => setForm((current) => ({ ...(current || source), [key]: value }));
+  const changeBranch = (value) => setForm((current) => ({ ...(current || source), branch: value, cohort: '' }));
+  const mutation = useMutation({
+    mutationFn: async (payload) => {
+      const saved = await httpRequest(editing ? 'PATCH' : 'POST', editing ? `/api/v1/students/${id}/` : '/api/v1/students/', { body: payload });
+      if (!editing && source.cohort) {
+        try {
+          await httpRequest('POST', `/api/v1/cohorts/${source.cohort}/enroll/`, { body: { student: Number(saved.id), start_date: organizationDateInput() } });
+        } catch (enrollmentError) {
+          return { saved, enrollmentError };
+        }
+      }
+      return { saved, enrollmentError: null };
+    },
+    onSuccess: ({ saved, enrollmentError }) => {
+      setSaveError(null);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      if (enrollmentError) {
+        toast.warning(`The student was created, but group placement needs review: ${mutationMessage(enrollmentError, 'the group could not be assigned')}`, { title: 'Student created without group' });
+      } else {
+        toast.success(editing ? 'Student identity and contact details updated.' : source.cohort ? 'Student created and enrolled in the selected group.' : 'Student created.', { title: editing ? 'Changes saved' : 'Student added' });
+      }
+      onNav(contextualPath(branchId, 'students', saved?.id || id));
+    },
+    onError: (failure) => {
+      setSaveError(failure);
+      toast.danger(mutationMessage(failure, 'The student record could not be saved.'), { title: 'Student not saved' });
+    },
+  });
+  if (editing && record.pending) return <WorkspaceState state={record} />;
+  if (editing && (record.error || !record.data)) return <WorkspaceState state={record} empty={!record.error && !record.data} emptyTitle="Student not found" emptyBody="This student may be outside your current responsibilities." />;
+  if (branchId && record.data && String(record.data.branch) !== String(branchId)) return <div className="fw-safety-block">This student belongs to another branch, so editing remains closed in this branch workspace.</div>;
+  const validationDetails = readableValidationDetails(saveError);
+  const submit = (event) => {
+    event.preventDefault();
+    setSaveError(null);
+    if (!String(source.phone || '').trim() && !String(source.email || '').trim()) {
+      setSaveError({ errors: { phone: ['Provide a phone or an email.'] } });
+      return;
+    }
+    const common = {
+      first_name: String(source.first_name || '').trim(),
+      last_name: String(source.last_name || '').trim(),
+      middle_name: String(source.middle_name || '').trim(),
+      phone: String(source.phone || '').trim(),
+      email: String(source.email || '').trim(),
+      birthdate: source.birthdate || null,
+      gender: source.gender || '',
+      academic_level: String(source.academic_level || '').trim(),
+      location: String(source.location || '').trim(),
+      previous_school: String(source.previous_school || '').trim(),
+    };
+    mutation.mutate(editing ? common : {
+      ...common,
+      branch: Number(branchId || source.branch),
+      username: String(source.username || '').trim(),
+      status: source.status || 'lead',
+    });
+  };
+
+  return (
+    <div className="fw-page">
+      <WorkspaceHeader eyebrow="Student administration" title={editing ? `Edit ${record.data?.full_name || 'student'}` : 'Create student'} description="Record identity and contact information here. Enrollment status and group movement use separate audited workflows after creation." actions={<LinkButton to={cancelPath} onNav={onNav}>Cancel</LinkButton>} />
+      <form className="fw-form" onSubmit={submit}>
+        {saveError ? <div className="fw-form-error" role="alert"><strong>{mutationMessage(saveError, 'Review the student details and try again.')}</strong>{validationDetails.length > 1 ? <ul>{validationDetails.slice(1).map((line) => <li key={line}>{line}</li>)}</ul> : null}</div> : null}
+        <section className="fw-form-section">
+          <header><h2>Identity</h2><p>Names belong to the student profile and are not inferred from another account.</p></header>
+          <label>First name<input maxLength="150" value={source.first_name || ''} onChange={(event) => change('first_name', event.target.value)} /></label>
+          <label>Last name<input maxLength="150" value={source.last_name || ''} onChange={(event) => change('last_name', event.target.value)} /></label>
+          <label>Middle name<input maxLength="150" value={source.middle_name || ''} onChange={(event) => change('middle_name', event.target.value)} /></label>
+          {!editing ? <label>Username<input maxLength="150" autoComplete="off" value={source.username || ''} onChange={(event) => change('username', event.target.value)} placeholder="Optional; generated when blank" /></label> : null}
+          <label>Date of birth<input type="date" max={organizationDateInput()} value={source.birthdate || ''} onChange={(event) => change('birthdate', event.target.value)} /></label>
+          <label>Gender<select value={source.gender || ''} onChange={(event) => change('gender', event.target.value)}><option value="">Not recorded</option><option value="f">Female</option><option value="m">Male</option></select></label>
+        </section>
+        <section className="fw-form-section">
+          <header><h2>Contact and background</h2><p>At least one of phone or email is required. Safeguarding information is managed only through separately authorized controls.</p></header>
+          <label>Phone<input type="tel" maxLength="32" value={source.phone || ''} onChange={(event) => change('phone', event.target.value)} /></label>
+          <label>Email<input type="email" maxLength="254" value={source.email || ''} onChange={(event) => change('email', event.target.value)} /></label>
+          <label>Academic level<input maxLength="64" value={source.academic_level || ''} onChange={(event) => change('academic_level', event.target.value)} /></label>
+          <label>Recorded location<input maxLength="200" value={source.location || ''} onChange={(event) => change('location', event.target.value)} /></label>
+          <label className="is-wide">Previous school<input maxLength="200" value={source.previous_school || ''} onChange={(event) => change('previous_school', event.target.value)} /></label>
+        </section>
+        {!editing ? <section className="fw-form-section">
+          <header><h2>Initial enrollment</h2><p>A group is optional. If selected, enrollment is recorded immediately after the student is created.</p></header>
+          {!branchId ? <label>Branch<select required value={source.branch || ''} onChange={(event) => changeBranch(event.target.value)}><option value="">Select branch</option><UnloadedSelectionOption value={source.branch} options={branches.rows} label="branch" />{branches.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : <label>Branch<input disabled value={`Branch ${branchId}`} /></label>}
+          <label>Initial status<select value={source.status || 'lead'} onChange={(event) => change('status', event.target.value)}>{STUDENT_STATUS_FILTERS.map((value) => <option value={value} key={value}>{studentStatusPresentation(value).label}</option>)}</select></label>
+          <label className="is-wide">Group<select value={source.cohort || ''} onChange={(event) => change('cohort', event.target.value)} disabled={!effectiveBranch || cohorts.pending}><option value="">Create without a group</option><UnloadedSelectionOption value={source.cohort} options={cohorts.rows} label="group" />{cohorts.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+        </section> : null}
+        <div className="fw-form-actions"><LinkButton to={cancelPath} onNav={onNav}>Cancel</LinkButton><ActionButton type="submit" tone="primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving student…' : editing ? 'Save changes' : 'Create student'}</ActionButton></div>
+      </form>
+    </div>
+  );
+}
+
+function StudentAdministration({ id, student, branchId, onNav, canManageGroups }) {
+  const [statusTarget, setStatusTarget] = useState('');
+  const [reasonCode, setReasonCode] = useState('');
+  const [statusNote, setStatusNote] = useState('');
+  const [groupTarget, setGroupTarget] = useState('');
+  const [groupReason, setGroupReason] = useState('');
+  const [blockReason, setBlockReason] = useState('');
+  const [credentials, setCredentials] = useState(null);
+  const [error, setError] = useState(null);
+  const toast = useToast();
+  const reasons = useWorkspaceData('/api/v1/students/enrollment-reasons/', { page_size: 100, is_active: true, ordering: 'name' });
+  const groups = useWorkspaceData('/api/v1/cohorts/', { page_size: 100, branch: student.branch, is_archived: false, ordering: 'name' }, { enabled: canManageGroups });
+  const mutation = useMutation({
+    mutationFn: ({ kind, body, target }) => {
+      if (kind === 'transition') return httpRequest('POST', `/api/v1/students/${id}/transition/`, { body });
+      if (kind === 'block') return httpRequest('POST', `/api/v1/students/${id}/block/`, { body });
+      if (kind === 'unblock') return httpRequest('POST', `/api/v1/students/${id}/unblock/`, { body: {} });
+      if (kind === 'credentials') return httpRequest('POST', `/api/v1/students/${id}/credentials/`, { body: {} });
+      if (kind === 'move') return httpRequest('POST', `/api/v1/cohorts/${target}/move-student/`, { body });
+      if (kind === 'enroll') return httpRequest('POST', `/api/v1/cohorts/${target}/enroll/`, { body });
+      if (kind === 'remove-group') return httpRequest('POST', `/api/v1/cohorts/${student.current_cohort}/remove-student/`, { body });
+      return httpRequest('DELETE', `/api/v1/students/${id}/`);
+    },
+    onSuccess: (saved, variables) => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      if (variables.kind === 'credentials') {
+        setCredentials(saved);
+        toast.warning('A one-time password was issued. Store it securely; it will not be shown again after leaving this page.', { title: 'Credentials issued', duration: 9000 });
+        return;
+      }
+      if (variables.kind === 'deactivate') {
+        toast.success('The student account was deactivated without deleting its history.', { title: 'Student deactivated' });
+        onNav(branchId ? `branches/${branchId}/students` : 'students/directory');
+        return;
+      }
+      const messages = {
+        transition: 'Enrollment status updated.',
+        block: 'Enrollment hold placed.',
+        unblock: 'Enrollment hold removed.',
+        move: saved?.over_capacity ? 'Student moved; the destination is above recorded capacity.' : 'Student moved to the selected group.',
+        enroll: 'Student enrolled in the selected group.',
+        'remove-group': 'Student removed from the group and kept enrolled at the center.',
+      };
+      if (saved?.over_capacity) toast.warning(messages[variables.kind], { title: 'Capacity review needed' });
+      else toast.success(messages[variables.kind], { title: 'Student record updated' });
+      setStatusTarget(''); setReasonCode(''); setStatusNote(''); setGroupTarget(''); setGroupReason(''); setBlockReason('');
+    },
+    onError: (failure) => {
+      setError(failure);
+      toast.danger(mutationMessage(failure, 'The student action could not be completed.'), { title: 'Student not changed' });
+    },
+  });
+  const currentGroup = cleanId(student.current_cohort);
+  const targetGroups = groups.rows.filter((group) => String(group.id) !== String(currentGroup || ''));
+  const issueCredentials = () => {
+    if (window.confirm('Issue a new one-time student password? Any previously issued temporary password will stop working.')) mutation.mutate({ kind: 'credentials' });
+  };
+  const deactivate = () => {
+    if (window.confirm(`Deactivate ${student.full_name || 'this student'}? Their history remains, but the account can no longer sign in.`)) mutation.mutate({ kind: 'deactivate' });
+  };
+  const copyCredentials = async () => {
+    if (!navigator.clipboard) {
+      toast.warning('Clipboard access is unavailable in this browser. Copy the credentials manually.', { title: 'Copy unavailable' });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(`${credentials.username}\n${credentials.temporary_password}`);
+      toast.success('Credentials copied.');
+    } catch {
+      toast.warning('The browser blocked clipboard access. Copy the credentials manually.', { title: 'Copy unavailable' });
+    }
+  };
+  return (
+    <DetailSection eyebrow="Authorized changes" title="Manage enrollment and access" description="Each action uses the backend’s scoped transaction and audit trail. Identity edits remain separate from lifecycle changes.">
+      {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The student action could not be completed.')}</div> : null}
+      {credentials ? <div className="fw-credential-reveal" role="status"><span><strong>One-time credentials</strong><small>Give these directly to the student over a trusted channel. A password change is required at first sign-in.</small></span><code>{credentials.username}</code><code>{credentials.temporary_password}</code><ActionButton onClick={copyCredentials}>Copy securely</ActionButton><button type="button" onClick={() => setCredentials(null)} aria-label="Hide credentials">{cloneElement(Icons.x, { size: 15 })}</button></div> : null}
+      <div className="fw-admin-grid">
+        <form onSubmit={(event) => { event.preventDefault(); mutation.mutate({ kind: 'transition', body: { to_status: statusTarget, reason_code: reasonCode, note: statusNote.trim() } }); }}>
+          <header><strong>Enrollment status</strong><small>Move through the recorded admissions and enrollment lifecycle.</small></header>
+          <label>New status<select required value={statusTarget} onChange={(event) => setStatusTarget(event.target.value)}><option value="">Select status</option>{STUDENT_STATUS_FILTERS.filter((value) => value !== student.status).map((value) => <option value={value} key={value}>{studentStatusPresentation(value).label}</option>)}</select></label>
+          <label>Reason<select value={reasonCode} onChange={(event) => setReasonCode(event.target.value)}><option value="">No reason code</option>{reasons.rows.map((item) => <option value={item.slug} key={item.id}>{item.name}</option>)}</select></label>
+          <label className="is-wide">Note<input maxLength="500" value={statusNote} onChange={(event) => setStatusNote(event.target.value)} placeholder="Optional context" /></label>
+          <ActionButton type="submit" tone="primary" disabled={!statusTarget || mutation.isPending}>Update status</ActionButton>
+        </form>
+        {canManageGroups ? <form onSubmit={(event) => { event.preventDefault(); const moving = Boolean(currentGroup); mutation.mutate({ kind: moving ? 'move' : 'enroll', target: groupTarget, body: moving ? { student: Number(id), reason: groupReason.trim() } : { student: Number(id), start_date: organizationDateInput() } }); }}>
+          <header><strong>Group placement</strong><small>{currentGroup ? `Move from ${student.current_cohort_name || `group ${currentGroup}`}` : 'Assign the first current group'}</small></header>
+          <label className="is-wide">Destination<select required value={groupTarget} onChange={(event) => setGroupTarget(event.target.value)}><option value="">Select group</option>{targetGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label>
+          {currentGroup ? <label className="is-wide">Reason<input required maxLength="64" value={groupReason} onChange={(event) => setGroupReason(event.target.value)} placeholder="Why is the student moving?" /></label> : null}
+          <div className="fw-admin-actions"><ActionButton type="submit" tone="primary" disabled={!groupTarget || (currentGroup && !groupReason.trim()) || mutation.isPending}>{currentGroup ? 'Move student' : 'Enroll in group'}</ActionButton>{currentGroup ? <ActionButton tone="danger" disabled={!groupReason.trim() || mutation.isPending} onClick={() => { if (window.confirm('Remove this student from the current group without assigning another group?')) mutation.mutate({ kind: 'remove-group', body: { student: Number(id), reason: groupReason.trim() } }); }}>Remove from group</ActionButton> : null}</div>
+        </form> : null}
+        <form onSubmit={(event) => { event.preventDefault(); mutation.mutate({ kind: student.is_blocked ? 'unblock' : 'block', body: student.is_blocked ? {} : { reason: blockReason.trim() } }); }}>
+          <header><strong>Enrollment hold</strong><small>{student.is_blocked ? 'Remove the current hold after review.' : 'Temporarily block enrollment operations without deleting the student.'}</small></header>
+          {!student.is_blocked ? <label className="is-wide">Reason<input required maxLength="255" value={blockReason} onChange={(event) => setBlockReason(event.target.value)} placeholder="Reason for hold" /></label> : <div className="fw-data-note is-wide">Current reason: {student.block_reason || 'No reason was recorded.'}</div>}
+          <ActionButton type="submit" tone={student.is_blocked ? 'primary' : 'danger'} disabled={(!student.is_blocked && !blockReason.trim()) || mutation.isPending}>{student.is_blocked ? 'Remove hold' : 'Place hold'}</ActionButton>
+        </form>
+        <section className="fw-admin-security">
+          <header><strong>Account access</strong><small>Issue a one-time password or deactivate sign-in while preserving the full student history.</small></header>
+          <div className="fw-admin-actions"><ActionButton onClick={issueCredentials} disabled={mutation.isPending}>Issue credentials</ActionButton><ActionButton tone="danger" onClick={deactivate} disabled={mutation.isPending}>Deactivate student</ActionButton></div>
+        </section>
+      </div>
+    </DetailSection>
+  );
+}
+
 function StudentDetail({ id, section, onNav, branchId, user }) {
   const base = branchId ? `branches/${branchId}/students/${id}` : `students/${id}`;
   const canAttendance = canUseCapability(user, 'attendance:read');
@@ -380,6 +621,8 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
   const canBranches = canUseCapability(user, 'org:read');
   const canTeachers = canUseCapability(user, 'teachers:read');
   const canSchedule = canUseCapability(user, 'schedule:read');
+  const canWrite = canUseCapability(user, 'students:write');
+  const canManageGroups = canUseCapability(user, 'cohorts:write');
   const leadership = useWorkspaceData(`/api/v1/students/${id}/leadership-profile/`);
   const profile = leadershipProfileFor(leadership.data, id);
   const leadershipStatus = Number(leadership.error?.status);
@@ -489,7 +732,7 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
           name={data.full_name}
           eyebrow="Student profile"
           meta={<><StatusPill value={status.label} tone={status.tone} />{data.student_id && <span>{data.student_id}</span>}{branchPath && canBranches && <RouteLink to={branchPath} onNav={onNav}>{data.branch_name || `Branch ${studentBranchId}`}</RouteLink>}{groupPath && canGroups && <RouteLink to={groupPath} onNav={onNav}>{data.current_cohort_name || `Group ${cohortId}`}</RouteLink>}{data.is_blocked && <StatusPill value="Needs enrollment review" tone="danger" />}</>}
-          actions={<><ActionButton onClick={() => window.print()}>{cloneElement(Icons.doc, { size: 14 })} Print</ActionButton><LinkButton to={branchId ? `branches/${branchId}/students` : 'students/directory'} onNav={onNav}>Back to students</LinkButton></>}
+          actions={<>{canWrite && <LinkButton to={`${base}/edit`} onNav={onNav} icon={Icons.settings}>Edit</LinkButton>}<ActionButton onClick={() => window.print()}>{cloneElement(Icons.doc, { size: 14 })} Print</ActionButton><LinkButton to={branchId ? `branches/${branchId}/students` : 'students/directory'} onNav={onNav}>Back to students</LinkButton></>}
         />
         <WorkspaceTabs label="Student record" items={availableSections} active={active} basePath={base} onNav={onNav} />
         <div className="fw-record-detail">
@@ -562,6 +805,7 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
                 { label: 'Default room', value: cohort.data?.default_room_name },
               ]} />
             </DetailSection>
+            {canWrite ? <StudentAdministration id={id} student={data} branchId={branchId} onNav={onNav} canManageGroups={canManageGroups} /> : null}
             <DetailSection eyebrow="History" title="Enrollment changes"><WorkspaceTable label="Enrollment history" rows={events.rows} columns={[
               { key: 'created_at', label: 'When', render: (row) => formatOrganizationDate(row.created_at) },
               { key: 'from_status', label: 'From', render: (row) => row.from_status ? <StudentStatus value={row.from_status} /> : <StatusPill value="New record" /> },
@@ -716,6 +960,13 @@ export function StudentsPage({ route, onNav, branchId, user }) {
   const directDetail = cleanId(relative[0]);
   const detailId = legacyDetail || directDetail;
   const detailSection = legacyDetail ? relative[2] : relative[1];
+  const canWrite = canUseCapability(user, 'students:write');
+  const creating = relative[0] === 'new';
+  const editing = Boolean(detailId) && detailSection === 'edit';
+  if (creating || editing) {
+    if (!canWrite) return <div className="fw-page"><WorkspaceHeader eyebrow="Student administration" title="Student changes are outside this scope" description="Your current role can review student records but cannot create or edit them." actions={<LinkButton to={branchId ? `branches/${branchId}/students` : 'students/directory'} onNav={onNav}>Back to students</LinkButton>} /></div>;
+    return <StudentEditor id={editing ? detailId : null} route={route} onNav={onNav} branchId={branchId} />;
+  }
   if (detailId) return <div className="fw-page"><StudentDetail id={detailId} section={detailSection || 'overview'} onNav={onNav} branchId={branchId} user={user} /></div>;
 
   const availableSections = STUDENT_SECTIONS.filter((item) => item.id !== 'families' || canUseCapability(user, 'parents:read'));
@@ -723,7 +974,7 @@ export function StudentsPage({ route, onNav, branchId, user }) {
   const basePath = branchId ? `branches/${branchId}/students` : 'students';
   return (
     <div className="fw-page">
-      {!branchId && <WorkspaceHeader eyebrow="People" title="Students" description="Search the student portfolio, apply decision-ready filters, and open every learning, family, attendance, or finance section permitted for your role." actions={<LinkButton to="students/directory?group=none" onNav={onNav} icon={Icons.flag}>Unassigned students</LinkButton>} />}
+      {!branchId && <WorkspaceHeader eyebrow="People" title="Students" description="Search the student portfolio, apply decision-ready filters, and open every learning, family, attendance, or finance section permitted for your role." actions={<>{canWrite && <LinkButton to="students/new" onNav={onNav} icon={Icons.plus} tone="primary">Create student</LinkButton>}<LinkButton to="students/directory?group=none" onNav={onNav} icon={Icons.flag}>Unassigned students</LinkButton></>} />}
       {!branchId && <WorkspaceTabs label="Students" items={availableSections} active={section} basePath={basePath} onNav={onNav} />}
       <div className="fw-layout-content">
         {section === 'directory' && <StudentDirectory route={route} onNav={onNav} branchId={branchId} user={user} />}

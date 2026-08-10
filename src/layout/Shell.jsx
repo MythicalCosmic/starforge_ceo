@@ -1,4 +1,5 @@
 import { cloneElement, useCallback, useEffect, useRef, useState } from 'react';
+import { useIsFetching, useIsMutating } from '@tanstack/react-query';
 import { Icons } from '../components/Icons.jsx';
 import { Sidebar } from './Sidebar.jsx';
 import { BranchSidebar } from './BranchSidebar.jsx';
@@ -9,6 +10,11 @@ import { usePreferences } from '../context/PreferencesContext.jsx';
 import { API_CONFIG } from '../api/config.js';
 import { useWorkspaceData } from '../hooks/useWorkspaceData.js';
 import { effectiveCapabilities, hasCapability } from '../lib/permissions.js';
+
+function NetworkProgress() {
+  const activeRequests = useIsFetching() + useIsMutating();
+  return <div className={`ad-network-progress${activeRequests > 0 ? ' is-active' : ''}`} aria-hidden="true"><i /></div>;
+}
 
 export function Shell({
   cfg,
@@ -119,6 +125,7 @@ export function Shell({
       data-navigation={sidebarLayout ? 'sidebar' : 'top'}
       data-branch-workspace={branchWorkspace ? 'true' : undefined}
     >
+      <NetworkProgress />
       <a
         className="ad-skip-link"
         href="#leadership-workspace"

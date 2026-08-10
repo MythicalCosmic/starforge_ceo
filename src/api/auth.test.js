@@ -137,6 +137,21 @@ describe('management session helpers', () => {
     );
   });
 
+  it('shares one in-flight identity bootstrap across development remounts', async () => {
+    let resolveResponse;
+    fetch.mockReturnValue(new Promise((resolve) => { resolveResponse = resolve; }));
+
+    const first = getCurrentUser();
+    const second = getCurrentUser();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    resolveResponse(success({ id: 7, username: 'admin' }));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { id: 7, username: 'admin' },
+      { id: 7, username: 'admin' },
+    ]);
+  });
+
   it('removes local credentials even when backend logout is unreachable', async () => {
     session.setItem(API_CONFIG.legacyTokenKey, 'active-token');
     persistent.setItem(API_CONFIG.legacyTokenKey, 'legacy-token');

@@ -21,7 +21,7 @@ function focusableElements(container) {
 }
 
 function routeHref(target) {
-  return `#/${String(target || '').replace(/^\/+/, '')}`;
+  return `/${String(target || '').replace(/^\/+/, '')}`;
 }
 
 function follow(event, onNav, target) {

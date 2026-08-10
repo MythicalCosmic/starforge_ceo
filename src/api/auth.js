@@ -8,6 +8,12 @@ import { queryClient } from './queryClient.js';
 export const AUTH_SESSION_CHANGED = 'sf-auth-session-changed';
 export const AUTH_SESSION_INVALIDATED = 'sf-auth-session-invalidated';
 
+let currentUserRequest = null;
+
+function clearCurrentUserRequest() {
+  currentUserRequest = null;
+}
+
 function removeLegacyTokens() {
   try {
     sessionStorage.removeItem(API_CONFIG.legacyTokenKey);
@@ -63,6 +69,7 @@ function deviceId() {
 }
 
 function acceptBrowserSession({ notify = true, reason = 'signed-in' } = {}) {
+  clearCurrentUserRequest();
   removeLegacyTokens();
   queryClient.clear();
   if (notify) notifySessionChange(reason);
@@ -70,6 +77,7 @@ function acceptBrowserSession({ notify = true, reason = 'signed-in' } = {}) {
 }
 
 function clearBrowserSession({ notify = true, clearDevice = false, broadcast = false, logoutReason = 'confirmed' } = {}) {
+  clearCurrentUserRequest();
   try {
     sessionStorage.removeItem(API_CONFIG.legacyTokenKey);
     if (clearDevice) sessionStorage.removeItem(API_CONFIG.deviceKey);
@@ -99,7 +107,7 @@ export async function loginWithPassword({ username, password }, { notify = true 
   // returns its masked request token; neither value authenticates a user.
   const browserSession = await httpRequest('GET', '/api/v1/auth/session/', {
     auth: false,
-    timeout: 7000,
+    timeout: 12_000,
   });
 
   const result = await httpRequest('POST', '/api/v1/auth/role-login/', {
@@ -124,11 +132,25 @@ export function getCurrentUser({ signal } = {}) {
   // Session bootstrap owns its 401 transition. Suppressing the global 401
   // signal here avoids a stale bootstrap response invalidating a newer cookie
   // session established in another tab.
-  return httpRequest('GET', '/api/v1/users/me/', {
+  const request = () => httpRequest('GET', '/api/v1/users/me/', {
     signal,
-    timeout: 7000,
+    timeout: 12_000,
     invalidateOnUnauthorized: false,
   });
+  // React development remounts and cross-tab session events can ask for the
+  // same identity at the same time. Share that one authoritative read instead
+  // of opening duplicate identity requests. A caller-owned signal remains
+  // isolated because sharing it would let one consumer cancel every consumer.
+  if (signal) return request();
+  if (!currentUserRequest) {
+    const pending = request();
+    currentUserRequest = pending;
+    pending.then(
+      () => { if (currentUserRequest === pending) clearCurrentUserRequest(); },
+      () => { if (currentUserRequest === pending) clearCurrentUserRequest(); },
+    );
+  }
+  return currentUserRequest;
 }
 
 export async function changeCurrentPassword({ oldPassword, newPassword }, { notify = true } = {}) {

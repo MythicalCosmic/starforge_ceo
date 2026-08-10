@@ -9,7 +9,7 @@ import {
 } from '../hooks/useApiResource.js';
 import { useWorkspaceTitle } from '../hooks/useWorkspaceTitle.js';
 import { isMissing, statusTone } from '../lib/resourcePresentation.js';
-import { hasDeclaredAccess } from '../lib/permissions.js';
+import { hasCapability, hasDeclaredAccess } from '../lib/permissions.js';
 import {
   formatBusinessMoney,
   formatBusinessNumber,
@@ -19,6 +19,10 @@ import {
 } from '../lib/formatters.js';
 import { managementQueryState } from '../lib/managementQuery.js';
 import { safeDocumentUrl } from '../lib/safeExternalUrl.js';
+import { appForApiPath, isServiceUnavailable } from '../lib/appAvailability.js';
+import { ApplicationGate, ApplicationUnavailableState } from '../components/AvailabilityState.jsx';
+import { ManagementActions } from '../components/ManagementActions.jsx';
+import { SystemAvailabilityPanel } from '../components/SystemAvailabilityPanel.jsx';
 import '../styles/resource-v2.css';
 
 const EMPTY = '\u2014';
@@ -69,7 +73,7 @@ const RouteLink = forwardRef(function RouteLink(
     <a
       {...props}
       ref={ref}
-      href={`#/${route}`}
+      href={`/${String(route || '').replace(/^\/+/, '')}`}
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
@@ -276,6 +280,9 @@ function recordHeading(resource, row) {
 }
 
 function ErrorPanel({ error, onRetry, compact = false }) {
+  if (isServiceUnavailable(error)) {
+    return <ApplicationUnavailableState label="This application" status="unavailable" onRetry={onRetry} compact />;
+  }
   const forbidden = error?.status === 403;
   const unauthorized = error?.status === 401;
   const unavailableOnPlan = error?.status === 402;
@@ -319,6 +326,11 @@ function ErrorPanel({ error, onRetry, compact = false }) {
 }
 
 function LoadingPanel({ compact = false, label = 'Preparing your view' }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 4_000);
+    return () => window.clearTimeout(timer);
+  }, []);
   return (
     <section
       className={`rv2-loading${compact ? ' is-compact' : ''}`}
@@ -332,7 +344,7 @@ function LoadingPanel({ compact = false, label = 'Preparing your view' }) {
         </span>
         <span>
           <strong>{label}</strong>
-          <small>Gathering the latest information.</small>
+          <small>{slow ? 'The live service is taking longer than usual. This request remains bounded and safe to retry.' : 'Gathering the latest information from the live service.'}</small>
         </span>
       </div>
       <div className="rv2-skeleton" aria-hidden="true">
@@ -1176,6 +1188,8 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
       : routedDetailRow;
   }, [activeResource, activeTab.id, routedDetailRow, selectedSeed]);
   const querySuffix = query ? `?${query}` : '';
+  const systemAvailability = activeResource.path === '/api/v1/org/system/apps/';
+  const canManageAvailability = capabilitySet == null || hasCapability(capabilitySet, 'system:write');
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
   }, [activeTab.id]);
@@ -1218,74 +1232,71 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
       </header>}
 
       {visibleTabs.length > 1 && (
-        <div className="rv2-view-picker">
-          <label htmlFor={`${basePath}-view`}>Current view</label>
-          <select
-            id={`${basePath}-view`}
-            value={activeTab.id}
-            onChange={(event) => onNavigate(`${basePath}/${event.target.value}`)}
-          >
+        <nav className="rv2-section-tabs" aria-label={`${businessCopy(module.title)} sections`}>
+          <span>Views</span>
+          <div>
             {visibleTabs.map((item) => (
-              <option value={item.id} key={item.id}>{businessCopy(item.label)}</option>
+              <RouteLink
+                key={item.id}
+                ref={item.id === activeTab.id ? activeTabRef : undefined}
+                className={item.id === activeTab.id ? 'is-active' : ''}
+                aria-current={item.id === activeTab.id ? 'page' : undefined}
+                route={`${basePath}/${item.id}`}
+                onFollow={() => onNavigate(`${basePath}/${item.id}`)}
+              >
+                <Glyph icon={item.id === activeTab.id ? Icons.check : Icons.doc} size={14} />
+                <span>{businessCopy(item.label)}</span>
+              </RouteLink>
             ))}
-          </select>
-        </div>
+          </div>
+        </nav>
       )}
 
-      <div className={`rv2-module-layout${visibleTabs.length > 1 ? ' has-section-rail' : ''}`}>
-        {visibleTabs.length > 1 && (
-          <aside className="rv2-section-rail" aria-label={`${businessCopy(module.title)} sections`}>
-            <span>Explore</span>
-            <nav>
-              {visibleTabs.map((item) => (
-                <RouteLink
-                  key={item.id}
-                  ref={item.id === activeTab.id ? activeTabRef : undefined}
-                  className={item.id === activeTab.id ? 'is-active' : ''}
-                  aria-current={item.id === activeTab.id ? 'page' : undefined}
-                  route={`${basePath}/${item.id}`}
-                  onFollow={() => onNavigate(`${basePath}/${item.id}`)}
-                >
-                  <Glyph icon={item.id === activeTab.id ? Icons.chevR : Icons.doc} size={15} />
-                  <span>{businessCopy(item.label)}</span>
-                </RouteLink>
-              ))}
-            </nav>
-          </aside>
-        )}
+      <div className="rv2-module-layout">
 
         <div className="rv2-module-main">
-          <div className="rv2-view" key={`${activeTab.id}:${detailRow ? 'detail' : 'list'}`}>
-            {noVisibleTabs ? (
-              <ErrorPanel error={{ status: 403 }} />
-            ) : detailRow ? (
-              <RecordDetailPage
-                resource={activeResource}
-                row={detailRow}
-                workspaceTitle={module.title}
-                listRoute={`${listPath}${querySuffix}`}
-                onBack={() => {
-                  if (selectedSeed?.tabId === activeTab.id) {
-                    setSelectedSeed(null);
-                    window.history.back();
-                  } else {
-                    onNavigate(`${listPath}${querySuffix}`, { replace: true });
-                  }
-                }}
-              />
-            ) : (
-              <ResourceWorkspace
-                resource={activeResource}
-                query={query}
-                detailBase={listPath}
-                onRouteState={updateRouteState}
-                onOpen={activeResource.detailPath ? (row, key) => {
-                  setSelectedSeed({ tabId: activeTab.id, key, row });
-                  onNavigate(`${listPath}/${encodeURIComponent(key)}${querySuffix}`);
-                } : undefined}
-              />
-            )}
-          </div>
+          <ApplicationGate apps={appForApiPath(activeResource.path)} label={businessCopy(activeTab.label)}>
+            <div className="rv2-view" key={`${activeTab.id}:${detailRow ? 'detail' : 'list'}`}>
+              {noVisibleTabs ? (
+                <ErrorPanel error={{ status: 403 }} />
+              ) : detailRow ? (
+                <RecordDetailPage
+                  resource={activeResource}
+                  row={detailRow}
+                  workspaceTitle={module.title}
+                  listRoute={`${listPath}${querySuffix}`}
+                  onBack={() => {
+                    if (selectedSeed?.tabId === activeTab.id) {
+                      setSelectedSeed(null);
+                      window.history.back();
+                    } else {
+                      onNavigate(`${listPath}${querySuffix}`, { replace: true });
+                    }
+                  }}
+                />
+              ) : systemAvailability ? (
+                <SystemAvailabilityPanel canWrite={canManageAvailability} />
+              ) : (
+                <ResourceWorkspace
+                  resource={activeResource}
+                  query={query}
+                  detailBase={listPath}
+                  onRouteState={updateRouteState}
+                  onOpen={activeResource.detailPath ? (row, key) => {
+                    setSelectedSeed({ tabId: activeTab.id, key, row });
+                    onNavigate(`${listPath}/${encodeURIComponent(key)}${querySuffix}`);
+                  } : undefined}
+                />
+              )}
+              {!noVisibleTabs && !systemAvailability && <ManagementActions
+                capabilities={capabilities}
+                pathPrefix={activeResource.path}
+                recordId={detailRow ? rowIdentity(activeResource, detailRow) : null}
+                collectionOnly={!detailRow}
+                title={`${businessCopy(activeTab.label)} actions`}
+              />}
+            </div>
+          </ApplicationGate>
         </div>
       </div>
     </div>

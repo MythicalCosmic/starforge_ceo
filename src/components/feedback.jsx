@@ -1,8 +1,17 @@
-import { cloneElement } from 'react';
+import { cloneElement, useEffect, useState } from 'react';
 import { Icons } from './Icons.jsx';
 import { SfStar } from './primitives.jsx';
 
-export function PageLoader({ label = 'Preparing your workspace…' }) {
+export function PageLoader({
+  label = 'Preparing your workspace…',
+  detail = 'Requesting the latest information from the live service',
+  slowDetail = 'The live service is taking longer than usual. This attempt will stop safely if it cannot connect.',
+}) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 4_000);
+    return () => window.clearTimeout(timer);
+  }, []);
   return (
     <div className="sf-page-loader" role="status" aria-label={label}>
       <div className="sf-page-loader-mark" aria-hidden="true">
@@ -12,7 +21,7 @@ export function PageLoader({ label = 'Preparing your workspace…' }) {
       </div>
       <div className="sf-page-loader-copy">
         <strong>{label}</strong>
-        <span>Bringing the right view into focus</span>
+        <span>{slow ? slowDetail : detail}</span>
       </div>
       <div className="sf-page-loader-lines" aria-hidden="true">
         <i />

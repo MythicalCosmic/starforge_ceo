@@ -15,80 +15,110 @@ const nav = (id, icon, grpKey, label, extra = {}) => ({
 const overview = nav('overview', Icons.home, 'main', 'Overview');
 const branches = nav('branches', Icons.globe, 'main', 'Branches', {
   capabilities: ['org:read', 'intelligence:read'],
+  app: 'org',
 });
 const students = nav('students', Icons.cohort, 'people', 'Students', {
   capabilities: ['students:read'],
+  app: 'students',
 });
 const teachers = nav('teachers', Icons.user, 'people', 'Teachers', {
   capabilities: ['teachers:read'],
+  app: 'teachers',
+});
+const staff = nav('staff', Icons.shield, 'people', 'Staff & HR', {
+  capabilities: ['users:read'],
+  app: ['org', 'users'],
 });
 const groups = nav('groups', Icons.cohort, 'people', 'Groups', {
   capabilities: ['cohorts:read'],
+  app: 'cohorts',
 });
 const exams = nav('exams', Icons.doc, 'people', 'Exams', {
   capabilities: ['academics:read'],
+  app: 'academics',
 });
 const people = nav('people', Icons.cohort, 'people', 'People & cohorts', {
   capabilities: ['students:read', 'cohorts:read', 'teachers:read', 'parents:read', 'users:read'],
+  app: ['students', 'cohorts', 'teachers', 'parents', 'users'],
   primary: false,
 });
 const attendance = nav('attendance', Icons.check, 'people', 'Attendance', {
   capabilities: ['attendance:read'],
+  app: 'attendance',
   primary: false,
   hidden: true,
 });
 const academics = nav('academics', Icons.doc, 'people', 'Academic records', {
   capabilities: ['academics:read'],
+  app: 'academics',
   primary: false,
 });
 const assignments = nav('assignments', Icons.folder, 'people', 'Assignments', {
   capabilities: ['assignments:read'],
+  app: 'assignments',
   primary: false,
   hidden: true,
 });
 const placement = nav('placement', Icons.flag, 'people', 'Placement', {
   capabilities: ['placement:read'],
+  app: 'placement',
 });
 const crm = nav('crm', Icons.flag, 'people', 'Admissions CRM', {
   capabilities: ['crm:read'],
 });
 const recognition = nav('recognition', Icons.brand, 'people', 'Recognition & conduct', {
   capabilities: ['achievements:read', 'rewards:read', 'card:read', 'compliance:read', 'penalty:read'],
+  app: ['achievements', 'rewards', 'cards', 'compliance'],
 });
 const schedule = nav('schedule', Icons.cal, 'operations', 'Schedule', {
   capabilities: ['schedule:read', 'meeting:write'],
+  app: ['schedule', 'meetings'],
 });
 const organization = nav('organization', Icons.globe, 'operations', 'Organization', {
   capabilities: ['org:read', 'users:read'],
+  app: ['org', 'users'],
+});
+const departments = nav('departments', Icons.globe, 'operations', 'Departments', {
+  capabilities: ['org:read'],
+  app: 'org',
 });
 const operations = nav('operations', Icons.settings, 'operations', 'Operations', {
   capabilities: ['tasks:read', 'cover:read', 'procurement:read', 'loan:read'],
+  app: ['staff_tasks', 'covers', 'procurement', 'loans'],
 });
 const decisions = nav('decisions', Icons.check, 'operations', 'Decisions', {
   accent: 'var(--sf-warn)',
   capabilities: ['approvals:read', 'ledger:read'],
+  app: 'approvals',
 });
 const content = nav('content', Icons.folder, 'operations', 'Content & print', {
   capabilities: ['content:read', 'printing:read'],
+  app: ['content', 'printing'],
 });
 const intelligence = nav('intelligence', Icons.trend, 'insights', 'Leadership intelligence', {
   capabilities: ['intelligence:read'],
+  app: 'intelligence',
 });
 const reports = nav('reports', Icons.doc, 'insights', 'Reports', {
   capabilities: ['reports:read'],
+  app: 'reports',
 });
 const audit = nav('audit', Icons.shield, 'insights', 'Activity history', {
   capabilities: ['audit:read'],
+  app: 'audit',
 });
 const engagement = nav('engagement', Icons.bell, 'comms', 'Community engagement', {
   capabilities: ['campaign:read', 'forms:read', 'notifications:read', 'notifications:write'],
+  app: ['campaigns', 'forms', 'notifications'],
 });
 const messaging = nav('messaging', Icons.chat, 'comms', 'Messages & contacts', {
   capabilities: ['messaging:read'],
+  app: 'messaging',
 });
 const finance = nav('finance', Icons.trend, 'finance', 'Finance', {
   accent: 'var(--sf-success)',
   capabilities: ['finance:read', 'payments:read', 'sale:read'],
+  app: ['finance', 'payments', 'sales'],
 });
 const payroll = nav('payroll', Icons.doc, 'finance', 'Payroll', {
   accent: 'var(--sf-success)',
@@ -96,13 +126,17 @@ const payroll = nav('payroll', Icons.doc, 'finance', 'Payroll', {
 });
 const aiGovernance = nav('ai-governance', Icons.ai, 'governance', 'Responsible AI', {
   capabilities: ['ai:read'],
+  app: 'ai',
 });
 const starAI = nav('star-ai', Icons.ai, 'main', 'StarAI', {
-  capabilities: ['intelligence:read', 'ai:read'],
+  capabilities: ['ai:read'],
+  app: ['ai', 'intelligence'],
 });
 const access = nav('access', Icons.shield, 'governance', 'Access & roles', {
   capabilities: ['access:read'],
+  app: 'access',
 });
+const capabilityCenter = nav('capabilities', Icons.settings, 'governance', 'Management actions');
 const account = nav('account', Icons.user, 'system', 'My account', { hidden: true });
 const settings = nav('settings', Icons.settings, 'system', 'Workspace preferences', {
   hidden: true,
@@ -113,6 +147,7 @@ const coreManagement = [
   branches,
   students,
   teachers,
+  staff,
   groups,
   exams,
   people,
@@ -122,6 +157,7 @@ const coreManagement = [
   placement,
   crm,
   recognition,
+  departments,
   schedule,
   operations,
   decisions,
@@ -134,6 +170,7 @@ const coreManagement = [
   payroll,
   starAI,
   aiGovernance,
+  capabilityCenter,
 ];
 
 const directorManagement = [
@@ -141,6 +178,7 @@ const directorManagement = [
   branches,
   students,
   teachers,
+  staff,
   groups,
   exams,
   people,
@@ -151,6 +189,7 @@ const directorManagement = [
   crm,
   recognition,
   organization,
+  departments,
   schedule,
   operations,
   decisions,
@@ -165,6 +204,7 @@ const directorManagement = [
   starAI,
   aiGovernance,
   access,
+  capabilityCenter,
 ];
 
 const ROLE_CFG = {

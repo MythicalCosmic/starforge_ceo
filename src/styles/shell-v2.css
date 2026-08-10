@@ -96,6 +96,39 @@
   transform: translate(-50%, 0);
 }
 
+.ad-shell-v2 .ad-network-progress {
+  position: fixed;
+  z-index: 120;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.ad-shell-v2 .ad-network-progress.is-active { opacity: 1; }
+
+.ad-shell-v2 .ad-network-progress i {
+  display: block;
+  width: 36%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--sf-primary), var(--sf-accent), transparent);
+  animation: ad-network-progress 1s ease-in-out infinite;
+}
+
+@keyframes ad-network-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(390%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ad-shell-v2 .ad-network-progress i { animation-duration: 2.4s; }
+}
+
 .ad-shell-v2 .ad-col {
   display: block;
   min-width: 0;

@@ -1,5 +1,7 @@
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToStaticMarkup as renderStatic } from 'react-dom/server';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastProvider } from '../context/ToastContext.jsx';
 
 const workspaceCalls = vi.hoisted(() => []);
 const workspaceMode = vi.hoisted(() => ({
@@ -107,6 +109,11 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
 
 import { GroupsPage } from './GroupsWorkspace.jsx';
 
+function renderGroups(element) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return renderStatic(<QueryClientProvider client={client}><ToastProvider>{element}</ToastProvider></QueryClientProvider>);
+}
+
 function pathsThatWouldLoad() {
   return workspaceCalls.filter((call) => call.enabled).map((call) => call.path);
 }
@@ -131,7 +138,7 @@ describe('Groups workspace capability boundaries', () => {
 
   it('keeps large group directories reachable through URL-backed pages', () => {
     workspaceMode.paginatedGroups = true;
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups?page=2" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
     );
     const groupCall = workspaceCalls.find((call) => call.path === '/api/v1/cohorts/');
@@ -146,7 +153,7 @@ describe('Groups workspace capability boundaries', () => {
 
   it('describes every disabled exact-only filter without relying on a pointer tooltip', () => {
     workspaceMode.paginatedGroups = true;
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups?page=2" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -156,7 +163,7 @@ describe('Groups workspace capability boundaries', () => {
   });
 
   it('loads only group records and hides connected filters for a cohorts-only role', () => {
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
     );
 
@@ -168,7 +175,7 @@ describe('Groups workspace capability boundaries', () => {
   });
 
   it('renders a safe overview for a direct restricted section without loading its sources', () => {
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
     );
 
@@ -180,7 +187,7 @@ describe('Groups workspace capability boundaries', () => {
   });
 
   it('loads an allowed connected section without probing unrelated domains', () => {
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['cohorts:read', 'finance:read'] }} onNav={vi.fn()} />,
     );
 
@@ -191,7 +198,7 @@ describe('Groups workspace capability boundaries', () => {
   });
 
   it('does not open connected records when a direct group URL belongs to another branch', () => {
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="branches/3/groups/7/finance" branchId="3" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -201,7 +208,7 @@ describe('Groups workspace capability boundaries', () => {
   });
 
   it('retains every section and loads only overview sources for a fully granted role', () => {
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/overview" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -222,7 +229,7 @@ describe('Groups workspace capability boundaries', () => {
   });
 
   it('shows multi-month attendance movement before the exact matrix', () => {
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/attendance?from=2026-06-01&to=2026-07-31" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -240,10 +247,10 @@ describe('Groups workspace capability boundaries', () => {
   it('does not present a missing attendance sample as zero performance', () => {
     workspaceMode.emptyAttendance = true;
 
-    const overview = renderToStaticMarkup(
+    const overview = renderGroups(
       <GroupsPage route="groups/7/overview" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
-    const attendance = renderToStaticMarkup(
+    const attendance = renderGroups(
       <GroupsPage route="groups/7/attendance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -261,7 +268,7 @@ describe('Groups workspace capability boundaries', () => {
       students: [{ student: 44, name: 'Mohira Olimova', present: true, absent: -1, late: 0, excused: 0, total: 2, percent_present: 250 }],
     };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/attendance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -274,7 +281,7 @@ describe('Groups workspace capability boundaries', () => {
   it('does not present an incomplete empty invoice page as a zero financial position', () => {
     workspaceMode.partialFinance = true;
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -299,7 +306,7 @@ describe('Groups workspace capability boundaries', () => {
     };
     workspaceMode.financeInvoicesData = { count: 1, results: [invoice] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -322,7 +329,7 @@ describe('Groups workspace capability boundaries', () => {
       due_date: '2026-08-20',
     }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -344,7 +351,7 @@ describe('Groups workspace capability boundaries', () => {
       due_date: '2026-08-20',
     }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -366,7 +373,7 @@ describe('Groups workspace capability boundaries', () => {
       due_date: '2026-08-20',
     }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -389,7 +396,7 @@ describe('Groups workspace capability boundaries', () => {
       status: 'issued',
     }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -403,7 +410,7 @@ describe('Groups workspace capability boundaries', () => {
     workspaceMode.partialMembers = true;
     workspaceMode.membersData = { count: 12, results: [{ id: 1, student: 44, student_name: 'Mohira Olimova', start_date: '2026-01-01' }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/overview" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -416,7 +423,7 @@ describe('Groups workspace capability boundaries', () => {
     workspaceMode.partialMembers = true;
     workspaceMode.membersData = { results: [{ id: 1, student: 44, student_name: 'Mohira Olimova', start_date: '2026-01-01' }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/overview" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -431,7 +438,7 @@ describe('Groups workspace capability boundaries', () => {
   ])('does not coerce a %s membership total into a number', (_label, count) => {
     workspaceMode.membersData = { count, results: [{ id: 1, student: 44, student_name: 'Mohira Olimova', start_date: '2026-01-01' }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/overview" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -445,7 +452,7 @@ describe('Groups workspace capability boundaries', () => {
       students: [{ student: 44, name: 'Mohira Olimova', present: 0, absent: 0, late: 0, excused: 0, total: 0, percent_present: 0 }],
     };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/students" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -457,7 +464,7 @@ describe('Groups workspace capability boundaries', () => {
     workspaceMode.partialAttendanceRecords = true;
     workspaceMode.attendanceRecordsData = { count: 8, results: [{ id: 1, student: 44, lesson: 101, status: 'present' }] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/attendance" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -471,7 +478,7 @@ describe('Groups workspace capability boundaries', () => {
     workspaceMode.partialAttendanceDashboard = true;
     workspaceMode.attendanceDashboardData = { rate: 0, students: [] };
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups/7/overview" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
     );
 
@@ -485,7 +492,7 @@ describe('Groups workspace capability boundaries', () => {
       { id: 8, name: 'Unspecified Seats', capacity: null, is_archived: false },
     ];
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
     );
 
@@ -500,7 +507,7 @@ describe('Groups workspace capability boundaries', () => {
   ])('does not coerce a %s group capacity into a recorded seat count', (_label, capacity) => {
     workspaceMode.groupRows = [{ id: 7, name: 'North Stars', capacity, is_archived: false }];
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
     );
 
@@ -511,7 +518,7 @@ describe('Groups workspace capability boundaries', () => {
   it('preserves a genuine complete zero recorded capacity', () => {
     workspaceMode.groupRows = [{ id: 7, name: 'North Stars', capacity: 0, is_archived: false }];
 
-    const html = renderToStaticMarkup(
+    const html = renderGroups(
       <GroupsPage route="groups" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
     );
 

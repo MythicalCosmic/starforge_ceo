@@ -1,4 +1,5 @@
 import { cloneElement, useMemo, useState } from 'react';
+import { ApplicationUnavailableState } from '../components/AvailabilityState.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { ActionButton, RouteLink } from '../components/WorkspacePrimitives.jsx';
 import { useWorkspaceData } from '../hooks/useWorkspaceData.js';
@@ -13,56 +14,17 @@ import '../styles/focused-v3.css';
 import '../styles/star-ai-v3.css';
 
 const PAGE_100 = Object.freeze({ page_size: 100 });
-const SESSION_KEY_PREFIX = 'sf-star-ai-conversations-v2';
-
 const STARTERS = Object.freeze([
-  { label: 'Compare branches', prompt: 'Compare branch performance and show me where attention is needed.', icon: Icons.globe },
-  { label: 'Review collections', prompt: 'Summarize billing, collections, and outstanding invoices.', icon: Icons.trend },
-  { label: 'Teacher capacity', prompt: 'Which teachers and groups appear to have the most capacity pressure?', icon: Icons.user },
-  { label: 'Student risks', prompt: 'Summarize the student risk signals currently visible to leadership.', icon: Icons.flag },
+  { id: 'branches', label: 'Branch footprint', prompt: 'Compare branches using verified student, teacher, and group ownership.', description: 'Headcount and group coverage by branch', icon: Icons.globe },
+  { id: 'collections', label: 'Collections', prompt: 'Summarize billing, collections, and outstanding invoices.', description: 'Issued billing and recorded payments', icon: Icons.trend },
+  { id: 'capacity', label: 'Teaching capacity', prompt: 'Which teachers and groups appear to have the most capacity pressure?', description: 'Teacher-to-group assignment load', icon: Icons.user },
+  { id: 'risks', label: 'Student attention', prompt: 'Summarize the student risk signals currently visible to leadership.', description: 'Explainable risk signals in scope', icon: Icons.flag },
 ]);
-
-function conversationStorageKey(user) {
-  const tenant = encodeURIComponent(String(user?.tenant_slug || 'organization'));
-  const account = encodeURIComponent(String(user?.id || user?.username || 'anonymous'));
-  return `${SESSION_KEY_PREFIX}:${tenant}:${account}`;
-}
-
-function safeStoredConversations(storageKey) {
-  try {
-    const parsed = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
-    return Array.isArray(parsed) ? parsed.filter((item) => item && Array.isArray(item.messages)) : [];
-  } catch {
-    return [];
-  }
-}
 
 function conversationId() {
   return globalThis.crypto?.randomUUID?.() || `conversation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function freshConversation() {
-  return {
-    id: conversationId(),
-    title: 'New leadership brief',
-    createdAt: new Date().toISOString(),
-    messages: [{
-      id: conversationId(),
-      role: 'assistant',
-      headline: 'What would you like to understand?',
-      body: 'I can turn the organization records currently loaded in this workspace into a concise leadership brief. Choose a starting point or ask in your own words.',
-      note: 'Preview workspace · replies remain in this browser tab',
-    }],
-  };
-}
-
-function persist(storageKey, conversations) {
-  try {
-    sessionStorage.setItem(storageKey, JSON.stringify(conversations.slice(0, 12)));
-  } catch {
-    // The conversation still works in memory if private browsing blocks storage.
-  }
-}
 
 function readable(state) {
   return Boolean(state && !state.pending && !state.error && !state.paused && state.data !== null);
@@ -118,7 +80,11 @@ function useLeadershipContext(user, branchId) {
   const invoices = useWorkspaceData('/api/v1/finance/invoices/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('finance:read') });
   const payments = useWorkspaceData('/api/v1/payments/', { ...PAGE_100, branch: branchId || undefined }, { enabled: allowsScope('payments:read') });
   const risks = useWorkspaceData('/api/v1/intelligence/risk/', PAGE_100, { enabled: allowsScope('intelligence:read') });
-  return { branches, students, teachers, cohorts, invoices, payments, risks };
+  // This harmless scoped read is also the source-of-truth availability probe.
+  // If the AI app is operator-disabled, middleware returns 503 and the entire
+  // briefing surface closes instead of pretending that a local response is AI.
+  const aiProbe = useWorkspaceData('/api/v1/ai/requests/', { page_size: 1 }, { enabled: allowsScope('ai:read') });
+  return { branches, students, teachers, cohorts, invoices, payments, risks, aiProbe };
 }
 
 function visibleInvoices(context) {
@@ -276,114 +242,76 @@ export function createLeadershipReply(prompt, context, branchId, branchName) {
   };
 }
 
-function Message({ message, onNav }) {
-  if (message.role === 'user') return <div className="ai-message is-user"><div><p>{message.body}</p></div></div>;
+function BriefResult({ brief, onNav }) {
   return (
-    <div className="ai-message is-assistant">
-      <span className="ai-message-mark" aria-hidden="true">{cloneElement(Icons.ai, { size: 17 })}</span>
+    <article className="ai-brief-result" aria-live="polite">
+      <span className="ai-message-mark" aria-hidden="true">{cloneElement(Icons.ai, { size: 18 })}</span>
       <div>
-        {message.headline && <h2>{message.headline}</h2>}
-        <p>{message.body}</p>
-        {message.metrics?.length > 0 && <div className="ai-message-metrics">{message.metrics.map((metric) => <div key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div>}
-        {message.bullets?.length > 0 && <ul>{message.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
-        {message.actions?.length > 0 && <div className="ai-message-actions">{message.actions.map((action) => <RouteLink key={action.to} to={action.to} onNav={onNav}>{action.label}{cloneElement(Icons.chevR, { size: 13 })}</RouteLink>)}</div>}
-        {message.note && <small>{message.note}</small>}
+        <span className="ai-brief-eyebrow">Verified leadership brief</span>
+        {brief.headline && <h2>{brief.headline}</h2>}
+        <p>{brief.body}</p>
+        {brief.metrics?.length > 0 && <div className="ai-message-metrics">{brief.metrics.map((metric) => <div key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div>}
+        {brief.bullets?.length > 0 && <ul>{brief.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
+        {brief.actions?.length > 0 && <div className="ai-message-actions">{brief.actions.map((action) => <RouteLink key={action.to} to={action.to} onNav={onNav}>{action.label}{cloneElement(Icons.chevR, { size: 13 })}</RouteLink>)}</div>}
+        {brief.note && <small>{brief.note}</small>}
       </div>
-    </div>
+    </article>
   );
 }
 
 export function StarAIPage({ user, onNav }) {
-  const storageKey = conversationStorageKey(user);
-  const stored = useMemo(() => safeStoredConversations(storageKey), [storageKey]);
-  const initial = useMemo(() => stored.length ? stored : [freshConversation()], [stored]);
-  const [conversations, setConversations] = useState(initial);
-  const [activeId, setActiveId] = useState(initial[0].id);
-  const [input, setInput] = useState('');
+  const [activeBriefId, setActiveBriefId] = useState(STARTERS[0].id);
   const [branchId, setBranchId] = useState('');
   const context = useLeadershipContext(user, branchId);
-  const active = conversations.find((item) => item.id === activeId) || conversations[0];
+  const activeBrief = STARTERS.find((item) => item.id === activeBriefId) || STARTERS[0];
   const branchName = context.branches.rows.find((item) => String(item.id) === branchId)?.name || '';
-  const preparing = Object.values(context).some((state) => state.pending);
+  const evidenceStates = [context.branches, context.students, context.teachers, context.cohorts, context.invoices, context.payments, context.risks];
+  const preparing = evidenceStates.some((state) => state.pending);
   const evidenceCount = context.students.rows.length + context.teachers.rows.length + context.cohorts.rows.length;
-  const incompleteEvidence = Object.values(context).some((state) => !readable(state) || !state.complete);
+  const incompleteEvidence = evidenceStates.some((state) => !readable(state) || !state.complete);
+  const reply = useMemo(
+    () => createLeadershipReply(activeBrief.prompt, context, branchId, branchName),
+    // Each state reference changes when its source changes; the context object is
+    // intentionally included so the brief never lags a completed refetch.
+    [activeBrief.prompt, branchId, branchName, context],
+  );
+  const refresh = () => Promise.all(evidenceStates.map((state) => state.retry?.()).filter(Boolean));
 
-  const updateConversations = (next) => {
-    setConversations(next);
-    persist(storageKey, next);
-  };
-
-  const newConversation = () => {
-    const next = freshConversation();
-    updateConversations([next, ...conversations]);
-    setActiveId(next.id);
-    setInput('');
-  };
-
-  const submit = (promptValue) => {
-    if (preparing) return;
-    const prompt = String(promptValue || input).trim();
-    if (!prompt || !active) return;
-    const userMessage = { id: conversationId(), role: 'user', body: prompt };
-    const assistantMessage = createLeadershipReply(prompt, context, branchId, branchName);
-    const next = conversations.map((conversation) => conversation.id === active.id ? {
-      ...conversation,
-      title: conversation.messages.length <= 1 ? prompt.slice(0, 54) : conversation.title,
-      messages: [...conversation.messages, userMessage, assistantMessage],
-    } : conversation);
-    updateConversations(next);
-    setInput('');
-  };
+  if (context.aiProbe.pending && !context.aiProbe.data) {
+    return <div className="ai-workspace"><div className="ai-service-loading" role="status"><span>{cloneElement(Icons.ai, { size: 20 })}</span><div><strong>Verifying StarAI availability…</strong><small>Checking the live AI service before preparing any briefing.</small></div></div></div>;
+  }
+  if (context.aiProbe.error && !context.aiProbe.data) {
+    return <div className="ai-workspace"><ApplicationUnavailableState label="StarAI" status={Number(context.aiProbe.error?.status) === 503 ? 'disabled' : 'unavailable'} onRetry={context.aiProbe.retry} /></div>;
+  }
 
   return (
-    <div className="ai-workspace">
-      <h1 className="fw-sr">StarAI leadership copilot</h1>
-      <div className="ai-shell">
-        <aside className="ai-history" aria-label="StarAI conversations">
-          <div className="ai-brand">
-            <span aria-hidden="true">{cloneElement(Icons.ai, { size: 18 })}</span>
-            <div><strong>StarAI</strong><small>Leadership copilot</small></div>
-            <i title="Preview mode" aria-label="Preview mode" />
-          </div>
-          <ActionButton tone="primary" icon={Icons.ai} onClick={newConversation}>New brief</ActionButton>
-          <div className="ai-history-list">
-            <span>Recent in this tab</span>
-            {conversations.map((conversation) => <button type="button" className={conversation.id === active.id ? 'is-active' : ''} key={conversation.id} onClick={() => setActiveId(conversation.id)}><span>{cloneElement(Icons.chat, { size: 14 })}</span><strong>{conversation.title}</strong></button>)}
-          </div>
-          <div className="ai-privacy-note"><span>{cloneElement(Icons.shield, { size: 16 })}</span><p><strong>Private preview</strong>Conversation history is separated by signed-in account, stays in this browser tab, and ends with the tab session.</p></div>
-        </aside>
+    <div className="ai-workspace ai-brief-workspace">
+      <header className="ai-brief-head">
+        <span className="ai-brief-brand" aria-hidden="true">{cloneElement(Icons.ai, { size: 21 })}</span>
+        <div><span>StarAI · verified mode</span><h1>Leadership briefings</h1><p>Choose a defined briefing. Every statement is calculated from visible organization records; no free-form model response is invented or shown as fact.</p></div>
+        <div className="ai-brief-tools"><label><span>Scope</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="">Entire organization</option>{context.branches.rows.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></label><ActionButton onClick={refresh} disabled={preparing}>{preparing ? 'Refreshing…' : 'Refresh evidence'}</ActionButton></div>
+      </header>
 
-        <section className="ai-conversation" aria-label="Active StarAI conversation">
-          <header className="ai-conversation-head">
-            <div><span>Conversation</span><strong>{active.title}</strong></div>
-            <div className="ai-conversation-tools">
-              <label><span className="fw-sr">Choose branch scope</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="">Entire organization</option>{context.branches.rows.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></label>
-              <details className="ai-evidence">
-                <summary>{cloneElement(Icons.shield, { size: 14 })}<span>{formatBusinessNumber(evidenceCount)} records</span></summary>
-                <div>
-                  <span>Current evidence</span>
-                  <strong>{branchName || 'Entire organization'}</strong>
-                  <dl>
-                    <div><dt>Students</dt><dd>{stateTotal(context.students)}</dd></div>
-                    <div><dt>Teachers</dt><dd>{stateTotal(context.teachers)}</dd></div>
-                    <div><dt>Groups</dt><dd>{stateTotal(context.cohorts)}</dd></div>
-                    <div><dt>Invoices loaded</dt><dd>{readable(context.invoices) ? formatBusinessNumber(visibleInvoices(context).length) : '—'}</dd></div>
-                  </dl>
-                  <p>Answers distinguish loaded evidence from authoritative totals.</p>
-                  <RouteLink to="overview" onNav={onNav}>Open executive overview{cloneElement(Icons.chevR, { size: 13 })}</RouteLink>
-                </div>
-              </details>
-            </div>
-          </header>
-          <div className="ai-messages" role="log" aria-live="polite" aria-relevant="additions text">
-            {active.messages.map((message) => <Message message={message} onNav={onNav} key={message.id} />)}
-            {active.messages.length === 1 && <div className="ai-starters">{STARTERS.map((starter) => <button type="button" disabled={preparing} onClick={() => submit(starter.prompt)} key={starter.label}><span>{cloneElement(starter.icon, { size: 16 })}</span><strong>{starter.label}</strong><small>{starter.prompt}</small></button>)}</div>}
-          </div>
-          <form className="ai-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-            <textarea rows="2" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder={`Ask about ${branchName || 'your organization'}…`} aria-label="Ask StarAI" />
-            <div><span>{preparing ? 'Preparing organization context…' : `${formatBusinessNumber(evidenceCount)} people and group records loaded${incompleteEvidence ? ' · partial coverage' : ''}`}</span><button type="submit" disabled={!input.trim() || preparing} aria-label="Send question">{cloneElement(Icons.trend, { size: 17 })}</button></div>
-          </form>
-        </section>
+      <div className="ai-truth-note" role="note"><span>{cloneElement(Icons.shield, { size: 16 })}</span><p><strong>Truthful by design.</strong> The current backend does not expose a leadership chat endpoint. This page therefore offers bounded evidence briefings, while actual generative AI remains limited to supported workflows such as exam generation.</p><RouteLink to="ai-governance/requests" onNav={onNav}>Review AI requests{cloneElement(Icons.chevR, { size: 13 })}</RouteLink></div>
+
+      <section className="ai-brief-picker" aria-labelledby="brief-picker-title">
+        <header><div><span>Choose a briefing</span><h2 id="brief-picker-title">What needs a closer look?</h2></div><span>{preparing ? 'Refreshing evidence…' : `${formatBusinessNumber(evidenceCount)} people and group records loaded${incompleteEvidence ? ' · partial coverage' : ''}`}</span></header>
+        <div>{STARTERS.map((starter) => <button type="button" className={starter.id === activeBrief.id ? 'is-active' : ''} aria-pressed={starter.id === activeBrief.id} disabled={preparing} onClick={() => setActiveBriefId(starter.id)} key={starter.id}><span>{cloneElement(starter.icon, { size: 17 })}</span><strong>{starter.label}</strong><small>{starter.description}</small>{cloneElement(Icons.chevR, { size: 14 })}</button>)}</div>
+      </section>
+
+      <div className="ai-brief-grid">
+        <BriefResult brief={reply} onNav={onNav} />
+        <aside className="ai-evidence-card" aria-label="Current evidence coverage">
+          <header><span>{cloneElement(Icons.shield, { size: 15 })}</span><div><strong>Evidence coverage</strong><small>{branchName || 'Entire organization'}</small></div></header>
+          <dl>
+            <div><dt>Students</dt><dd>{stateTotal(context.students)}</dd></div>
+            <div><dt>Teachers</dt><dd>{stateTotal(context.teachers)}</dd></div>
+            <div><dt>Groups</dt><dd>{stateTotal(context.cohorts)}</dd></div>
+            <div><dt>Invoices loaded</dt><dd>{readable(context.invoices) ? formatBusinessNumber(visibleInvoices(context).length) : '—'}</dd></div>
+          </dl>
+          <p>{incompleteEvidence ? 'One or more registers are partial or unavailable. Affected conclusions remain unstated.' : 'All requested registers are complete for the current scope.'}</p>
+          <RouteLink to="overview" onNav={onNav}>Open executive overview{cloneElement(Icons.chevR, { size: 13 })}</RouteLink>
+        </aside>
       </div>
     </div>
   );

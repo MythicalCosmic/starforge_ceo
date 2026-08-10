@@ -10,6 +10,9 @@ import { resolveLegacySegments } from './config/routes.js';
 import { shouldResolveLazyManagementTitle } from './config/titleRouting.js';
 import { useAuth } from './context/AuthContext.jsx';
 import { ScopeProvider } from './context/ScopeContext.jsx';
+import { AvailabilityProvider } from './context/AvailabilityContext.jsx';
+import { ApplicationGate } from './components/AvailabilityState.jsx';
+import { BRANCH_WORKSPACE_SECTIONS, branchWorkspaceRoute } from './config/branchWorkspace.js';
 import { useHashRoute } from './hooks/useHashRoute.js';
 import { Shell } from './layout/Shell.jsx';
 import { userFacingError } from './lib/userFacingError.js';
@@ -57,6 +60,12 @@ function LeadershipWorkspace({ role, user, logout }) {
     : currentItem.path;
   const canonicalPath = canonicalRoute.split('?')[0];
   const Page = PAGES[routeId] || PAGES[fallback];
+  const branchWorkspace = branchWorkspaceRoute(canonicalRoute);
+  const branchSection = branchWorkspace
+    ? BRANCH_WORKSPACE_SECTIONS.find((item) => item.id === branchWorkspace.section)
+    : null;
+  const activeApps = branchSection?.app || currentItem?.app;
+  const activeLabel = branchSection?.label || currentItem?.label || 'This application';
 
   const prefetch = useCallback((target) => {
     void prefetchRoute(target);
@@ -126,27 +135,31 @@ function LeadershipWorkspace({ role, user, logout }) {
   }, [canonicalPath, currentItem.label, role, routeId, user]);
 
   return (
-    <ScopeProvider
-      role={role}
-      defaultBranch={cfg.defaultBranch}
-      defaultBranchName={cfg.defaultBranchName}
-    >
-      <Shell
-        cfg={cfg}
-        user={user}
-        active={routeId}
-        route={canonicalRoute}
-        onNav={navigate}
-        onPrefetch={prefetch}
-        onLogout={logout}
+    <AvailabilityProvider user={user}>
+      <ScopeProvider
+        role={role}
+        defaultBranch={cfg.defaultBranch}
+        defaultBranchName={cfg.defaultBranchName}
       >
-        <Suspense fallback={<PageLoader label="Shaping your next view…" />}>
-          <div className="sf-route-stage" key={canonicalPath}>
-            <Page role={role} user={user} route={canonicalRoute} onNav={navigate} />
-          </div>
-        </Suspense>
-      </Shell>
-    </ScopeProvider>
+        <Shell
+          cfg={cfg}
+          user={user}
+          active={routeId}
+          route={canonicalRoute}
+          onNav={navigate}
+          onPrefetch={prefetch}
+          onLogout={logout}
+        >
+          <ApplicationGate apps={activeApps} label={activeLabel}>
+            <Suspense fallback={<PageLoader label="Shaping your next view…" />}>
+              <div className="sf-route-stage" key={canonicalPath}>
+                <Page role={role} user={user} route={canonicalRoute} onNav={navigate} />
+              </div>
+            </Suspense>
+          </ApplicationGate>
+        </Shell>
+      </ScopeProvider>
+    </AvailabilityProvider>
   );
 }
 

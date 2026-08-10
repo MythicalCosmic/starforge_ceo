@@ -65,6 +65,13 @@ describe('restored management routes', () => {
       .toEqual(['organization', 'branches']);
   });
 
+  it('opens staff and departments in their dedicated workspaces', () => {
+    expect(resolveLegacySegments(['organization', 'staff', '42']))
+      .toEqual(['staff', '42']);
+    expect(resolveLegacySegments(['organization', 'departments', '9']))
+      .toEqual(['departments', '9']);
+  });
+
   it('keeps links from the consolidated build useful', () => {
     expect(resolveLegacySegments(['learning', 'assignments', '12']))
       .toEqual(['assignments', 'assignments', '12']);

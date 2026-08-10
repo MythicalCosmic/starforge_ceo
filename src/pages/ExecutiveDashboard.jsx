@@ -1,10 +1,11 @@
-import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { cloneElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
 import {
   ActivityHeatmap,
   ChartCard,
   ChartEmpty,
+  ChartState,
   ComparisonBars,
   ExecutiveSelect,
   PeriodBars,
@@ -175,6 +176,22 @@ function dashboardRoute(filters) {
   return params.toString() ? `overview?${params}` : 'overview';
 }
 
+function useViewportActivation(rootMargin = '180px') {
+  const anchorRef = useRef(null);
+  const [active, setActive] = useState(() => typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (active || !anchorRef.current || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setActive(true);
+      observer.disconnect();
+    }, { rootMargin });
+    observer.observe(anchorRef.current);
+    return () => observer.disconnect();
+  }, [active, rootMargin]);
+  return [anchorRef, active];
+}
+
 function invoiceAllocated(invoice) {
   if (!Array.isArray(invoice?.allocations)) return null;
   return completeNonNegativeSum(invoice.allocations, (row) => row.amount_uzs ?? row.amount);
@@ -216,7 +233,7 @@ function RouteLink({ to, onNav, children, className = '' }) {
   return (
     <a
       className={className}
-      href={`#/${to}`}
+      href={`/${String(to || '').replace(/^\/+/, '')}`}
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
@@ -382,6 +399,8 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
   const teacherOptions = teacherScope.record ? [...teachersState.rows, teacherScope.record] : teachersState.rows;
   const filters = { ...requestedFilters, branch: branchScope.value, teacher: teacherScope.value };
   const scopeReady = branchScope.ready && teacherScope.ready;
+  const [detailChartsRef, detailChartsActive] = useViewportActivation();
+  const detailReady = scopeReady && detailChartsActive;
   const canonicalRoute = dashboardRoute(filters);
   const currentRoute = routed.params.toString() ? `overview?${routed.params}` : 'overview';
 
@@ -396,23 +415,20 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
     date_from: filters.from,
     date_to: filters.to,
   }, { enabled: scopeReady && filters.teacher === 'all', staleTime: 45_000 });
-  // Let the cached aggregate paint the decision-critical headline before the
-  // row-heavy drill-down registers compete for the same browser connection.
-  const detailReady = scopeReady && (filters.teacher !== 'all' || !executiveState.pending);
+  // Compatibility reads stay dormant unless an older deployment does not yet
+  // expose the aggregate contract. This lets backend and frontend roll out in
+  // either order without paying for duplicate registers on the current build.
+  const legacyFallback = scopeReady && filters.teacher === 'all' && Boolean(executiveState.error && !executiveState.data);
   const cohortsState = useWorkspaceData('/api/v1/cohorts/', {
     page_size: 100,
     branch: scopeReady && filters.branch !== 'all' ? filters.branch : undefined,
-  }, { enabled: scopeReady });
+  }, { enabled: detailReady });
   const studentsState = useWorkspaceData('/api/v1/students/', {
     page_size: 100,
     status: 'active',
     branch: scopeReady && filters.branch !== 'all' ? filters.branch : undefined,
     teacher: scopeReady && filters.teacher !== 'all' ? filters.teacher : undefined,
-  }, { enabled: detailReady });
-  // Compatibility reads stay dormant unless an older deployment does not yet
-  // expose the aggregate contract. This lets backend and frontend roll out in
-  // either order without paying for duplicate registers on the current build.
-  const legacyFallback = scopeReady && filters.teacher === 'all' && Boolean(executiveState.error && !executiveState.data);
+  }, { enabled: detailReady || legacyFallback });
   const statsState = useWorkspaceData('/api/v1/students/stats/', undefined, { enabled: legacyFallback });
   const comparisonState = useWorkspaceData('/api/v1/students/comparison/', { metric: 'joined', unit: 'month' }, { enabled: detailReady });
   const branchSignalsState = useWorkspaceData('/api/v1/intelligence/branches/', PAGE_100, { enabled: detailReady });
@@ -425,14 +441,14 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
     page_size: 100,
     date_from: attendanceFrom,
     date_to: attendanceTo,
-  }, { enabled: detailReady && attendanceWindowValid });
+  }, { enabled: (detailReady || legacyFallback) && attendanceWindowValid });
   const financialWindow = {
     page_size: 100,
     branch: scopeReady && filters.branch !== 'all' ? filters.branch : undefined,
     date_from: filters.from,
     date_to: filters.to,
   };
-  const invoicesState = useWorkspaceData('/api/v1/finance/invoices/', financialWindow, { enabled: detailReady });
+  const invoicesState = useWorkspaceData('/api/v1/finance/invoices/', financialWindow, { enabled: detailReady || legacyFallback });
   const paymentsState = useWorkspaceData('/api/v1/payments/', financialWindow, { enabled: legacyFallback });
   const expensesState = useWorkspaceData('/api/v1/finance/expenses/', financialWindow, { enabled: legacyFallback });
 
@@ -488,6 +504,9 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
   const snapshotStudents = snapshot?.students;
   const snapshotAttendance = snapshot?.attendance;
   const snapshotFinance = snapshot?.finance;
+  const snapshotCapacity = snapshot?.capacity;
+  const snapshotRisk = snapshot?.risk;
+  const snapshotTeachers = snapshot?.teachers;
   const loadedAttendanceDenominator = filteredAttendance.filter((record) => record.status !== 'excused').length;
   const loadedAttended = filteredAttendance.filter((record) => ['present', 'late'].includes(record.status)).length;
   const snapshotAttendanceDenominator = nonNegative(snapshotAttendance?.denominator);
@@ -524,6 +543,8 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
     (financeRelationshipComplete && invoicesState.data ? evidenceInvoiceBalance(invoicesState, issuedInvoices) : null);
   const activeStudents = snapshotActiveStudents ??
     (studentsState.data ? studentsState.total : null);
+  const activeGroups = nonNegative(snapshotCapacity?.active_group_count) ??
+    (cohortsState.data ? cohortsState.total : null);
   const groupCapacity = cohortsState.complete ? completeNonNegativeSum(cohortsState.rows, 'capacity') : null;
   const studentsByCohort = studentsState.rows.reduce((map, student) => {
     const key = String(student.current_cohort || 'unassigned');
@@ -554,8 +575,11 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
   }, [invoicesState.complete, invoicesState.data, issuedInvoices, filters.from, filters.to]);
 
   const scoredTeacherSignals = visibleTeacherSignals.filter((item) => boundedPercent(item.engagement_score) != null);
+  const snapshotTeachingActivity = fraction(snapshotTeachers?.attendance_rate_fraction);
   const teachingActivity = selectedTeacherSignal
     ? boundedPercent(selectedTeacherSignal.engagement_score)
+    : snapshotTeachingActivity != null
+      ? snapshotTeachingActivity * 100
     : scoredTeacherSignals.length
       ? sum(scoredTeacherSignals, (signal) => boundedPercent(signal.engagement_score)) / scoredTeacherSignals.length
       : null;
@@ -588,6 +612,7 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
   const snapshotBlocked = filters.teacher === 'all' ? nonNegative(snapshotStudents?.blocked) : null;
   const legacyBlocked = filters.teacher === 'all' ? nonNegative(statsState.data?.blocked) : null;
   const snapshotOverdue = filters.teacher === 'all' ? nonNegative(snapshotFinance?.overdue_invoice_count) : null;
+  const snapshotHighRisk = filters.teacher === 'all' ? nonNegative(snapshotRisk?.high_risk_students) : null;
   const placementCount = snapshotPlacement != null
     ? snapshotPlacement
     : legacyPlacement != null
@@ -601,18 +626,22 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
   const overdueCount = snapshotOverdue != null
     ? snapshotOverdue
     : invoicesState.data ? filteredInvoices.filter((invoice) => invoice.status === 'overdue').length : null;
+  const highRiskCount = snapshotHighRisk != null
+    ? snapshotHighRisk
+    : riskState.data ? visibleRisk.filter((item) => item.level === 'high').length : null;
   const placementConclusive = snapshotPlacement != null || legacyPlacement != null || studentsState.complete;
   const blockedConclusive = snapshotBlocked != null || legacyBlocked != null || studentsState.complete;
   const overdueConclusive = snapshotOverdue != null || invoicesState.complete;
+  const highRiskConclusive = snapshotHighRisk != null || (riskState.data != null && riskState.complete && relationshipScopeComplete);
   const queue = [
     { value: placementCount, label: 'Students awaiting a group', detail: placementConclusive ? 'Verified current records in this scope.' : 'Recorded items in the available coverage.', to: 'students?group=none', icon: Icons.cohort, tone: 'warn' },
     { value: blockedCount, label: 'Enrollment holds', detail: blockedConclusive ? 'Verified current records in this scope.' : 'Recorded items in the available coverage.', to: 'students?blocked=true', icon: Icons.shield, tone: 'danger' },
-    { value: visibleRisk.filter((item) => item.level === 'high').length, label: 'High-priority student signals', detail: 'Open the explainable risk record.', to: 'intelligence/risk', icon: Icons.flag, tone: 'danger' },
+    { value: highRiskCount, label: 'High-priority student signals', detail: 'Open the explainable risk record.', to: 'intelligence/risk', icon: Icons.flag, tone: 'danger' },
     { value: overdueCount, label: 'Overdue invoices in view', detail: 'Follow up with the connected family.', to: 'finance/invoices?status=overdue', icon: Icons.trend, tone: 'warn' },
   ].filter((item) => finite(item.value) > 0);
   const queueConclusive = [placementCount, blockedCount, overdueCount].every((value) => finite(value) != null) &&
     placementConclusive && blockedConclusive && overdueConclusive &&
-    riskState.data != null && riskState.complete && relationshipScopeComplete;
+    highRiskConclusive;
 
   const updateFilter = (key, value) => {
     const params = new URLSearchParams(canonicalRoute.split('?')[1] || '');
@@ -678,12 +707,12 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
       <FilterBar filters={filters} branches={branchOptions} teachers={teacherOptions} onChange={updateFilter} onReset={resetFilters} />
 
       <div className="ex-metric-grid">
-        <MetricTile label="Active students" value={activeStudents == null ? '\u2014' : formatBusinessNumber(activeStudents)} detail={cohortsState.data ? `${formatBusinessNumber(cohortsState.total)} groups in this scope` : 'Group coverage is temporarily unavailable'} icon={Icons.cohort} to="students" onNav={onNav} loading={filters.teacher === 'all' ? executiveState.pending : studentsState.pending} source={snapshotActiveStudents != null ? 'Exact management snapshot' : studentsState.data ? 'Current visible records' : 'Unavailable'} />
+        <MetricTile label="Active students" value={activeStudents == null ? '\u2014' : formatBusinessNumber(activeStudents)} detail={activeGroups != null ? `${formatBusinessNumber(activeGroups)} groups in this scope` : 'Group coverage is temporarily unavailable'} icon={Icons.cohort} to="students" onNav={onNav} loading={filters.teacher === 'all' ? executiveState.pending : studentsState.pending} source={snapshotActiveStudents != null ? 'Exact management snapshot' : studentsState.data ? 'Current visible records' : 'Unavailable'} />
         <MetricTile label="Issued billing in view" value={money(billed)} detail={billed == null ? 'The consolidated invoice view is temporarily unavailable' : 'Invoices issued in the selected reporting window'} icon={Icons.doc} tone="accent" to="finance/invoices" onNav={onNav} loading={filters.teacher === 'all' ? executiveState.pending : invoicesState.pending} source={snapshotBilled != null ? 'Exact management snapshot' : billed == null ? 'Unavailable' : invoicesState.complete ? 'Complete current register' : 'Loaded records only'} />
         <MetricTile label="Completed collections" value={financeTeacherScoped || collected == null ? '—' : money(collected)} detail={financeTeacherScoped ? 'Not attributable to one teacher from current records' : collected == null ? 'The consolidated money view is temporarily unavailable' : 'Completed payments in the selected branch and period'} icon={Icons.trend} tone="success" to="finance/payments" onNav={onNav} loading={!financeTeacherScoped && (executiveState.pending || paymentsState.pending)} source={financeTeacherScoped ? 'Filter unavailable' : snapshotCollected != null ? 'Exact management snapshot' : collected != null ? 'Compatible current register' : 'Unavailable'} />
         <MetricTile label="Outstanding balance" value={money(outstanding)} detail={outstanding == null ? 'The consolidated invoice view is temporarily unavailable' : 'Issued value less recorded allocations'} icon={Icons.flag} tone={outstanding == null ? 'primary' : outstanding > 0 ? 'warn' : 'success'} to="finance/invoices?status=issued" onNav={onNav} loading={filters.teacher === 'all' ? executiveState.pending : invoicesState.pending} source={outstanding == null ? 'Unavailable' : 'Not net income'} />
         <MetricTile label="Visible attendance" value={percent(attendanceRate)} detail={attendanceDenominator == null ? 'Attendance evidence is temporarily unavailable' : attendanceDenominator === 0 ? 'No non-excused marks are recorded in this range' : attendanceRate == null ? `The attendance rate is unavailable for ${formatBusinessNumber(attendanceDenominator)} recorded outcomes` : `${formatBusinessNumber(attendanceDenominator)} non-excused marks in range`} icon={Icons.check} tone={attendanceRate != null && attendanceRate < 85 ? 'warn' : 'success'} to="groups" onNav={onNav} loading={filters.teacher === 'all' ? executiveState.pending : attendanceState.pending} source={snapshotAttendanceComplete ? 'Exact management snapshot' : snapshotAttendancePresent ? 'Snapshot incomplete' : loadedAttendanceUsable ? 'Present + late · loaded records' : 'Unavailable'} />
-        <MetricTile label="Teaching activity" value={percent(teachingActivity)} detail={teacherSignalsState.data == null ? 'Teaching evidence is temporarily unavailable' : selectedTeacherSignal ? `${selectedTeacherSignal.lessons_delivered} lessons · ${selectedTeacherSignal.students_reached} students` : `${formatBusinessNumber(scoredTeacherSignals.length)} teachers with recorded engagement`} icon={Icons.user} tone="primary" to="teachers" onNav={onNav} loading={teacherSignalsState.pending} source={teacherSignalsState.data == null ? 'Unavailable' : 'Recent attendance engagement'} />
+        <MetricTile label="Teaching activity" value={percent(teachingActivity)} detail={selectedTeacherSignal ? `${selectedTeacherSignal.lessons_delivered} lessons · ${selectedTeacherSignal.students_reached} students` : snapshotTeachers ? `${formatBusinessNumber(nonNegative(snapshotTeachers.completed_lessons))} completed lessons · ${formatBusinessNumber(nonNegative(snapshotTeachers.students_reached))} students reached` : teacherSignalsState.data == null ? 'Teaching evidence is temporarily unavailable' : `${formatBusinessNumber(scoredTeacherSignals.length)} teachers with recorded engagement`} icon={Icons.user} tone="primary" to="teachers" onNav={onNav} loading={filters.teacher === 'all' ? executiveState.pending : teacherSignalsState.pending} source={snapshotTeachers ? 'Exact management snapshot' : teacherSignalsState.data == null ? 'Unavailable' : 'Recent attendance engagement'} />
       </div>
 
       <SourceNote partial={allStates.some((state) => state.enabled && (state.error || state.paused || state.warnings?.length || (!state.loading && !state.complete)))}>
@@ -694,23 +723,26 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
 
       <div className="ex-dashboard-grid ex-grid-money">
         <ChartCard eyebrow="Money" title="Financial position" description={`Recorded activity from ${filters.from} to ${filters.to}. Values are not a profit-and-loss statement.`} className="is-wide">
-          <ComparisonBars
-            formatter={money}
-            onSelect={(item) => onNav(item.to)}
-            data={[
-              { label: 'Issued billing', detail: 'Issued invoice totals', value: billed, color: 'var(--sf-primary)', to: `finance/invoices?from=${filters.from}&to=${filters.to}` },
-              { label: 'Completed collections', detail: financeTeacherScoped ? 'Unavailable for teacher scope' : collected == null ? 'Snapshot unavailable' : 'Completed payments', value: collected ?? undefined, color: 'var(--sf-success)', to: `finance/payments?from=${filters.from}&to=${filters.to}&status=completed` },
-              { label: 'Paid expenses', detail: financeTeacherScoped ? 'Unavailable for teacher scope' : expenses == null ? 'Snapshot unavailable' : 'Completed disbursements', value: expenses ?? undefined, color: 'var(--sf-warn)', to: `finance/expenses?from=${filters.from}&to=${filters.to}&status=paid` },
-              { label: 'Outstanding', detail: 'Invoice value less allocations', value: outstanding, color: 'var(--sf-danger)', to: `finance/invoices?from=${filters.from}&to=${filters.to}&status=issued` },
-            ]}
-          />
+          <ChartState states={filters.teacher !== 'all' ? [invoicesState] : legacyFallback ? [invoicesState, paymentsState, expensesState] : [executiveState]} label="Loading financial position">
+            <ComparisonBars
+              formatter={money}
+              onSelect={(item) => onNav(item.to)}
+              data={[
+                { label: 'Issued billing', detail: 'Issued invoice totals', value: billed, color: 'var(--sf-primary)', to: `finance/invoices?from=${filters.from}&to=${filters.to}` },
+                { label: 'Completed collections', detail: financeTeacherScoped ? 'Unavailable for teacher scope' : collected == null ? 'Snapshot unavailable' : 'Completed payments', value: collected ?? undefined, color: 'var(--sf-success)', to: `finance/payments?from=${filters.from}&to=${filters.to}&status=completed` },
+                { label: 'Paid expenses', detail: financeTeacherScoped ? 'Unavailable for teacher scope' : expenses == null ? 'Snapshot unavailable' : 'Completed disbursements', value: expenses ?? undefined, color: 'var(--sf-warn)', to: `finance/expenses?from=${filters.from}&to=${filters.to}&status=paid` },
+                { label: 'Outstanding', detail: 'Invoice value less allocations', value: outstanding, color: 'var(--sf-danger)', to: `finance/invoices?from=${filters.from}&to=${filters.to}&status=issued` },
+              ]}
+            />
+          </ChartState>
         </ChartCard>
         <Queue items={queue} onNav={onNav} conclusive={queueConclusive} />
       </div>
 
-      <div className="ex-dashboard-grid">
+      <div className="ex-deferred-charts" ref={detailChartsRef}>
+        <div className="ex-dashboard-grid">
         <ChartCard eyebrow="Billing periods" title="Issued value by recorded month" description="Discrete issue-month totals · UZS · selected period. Separate columns avoid implying movement between sparse observations." className="is-wide">
-          {invoicesState.data == null
+          <ChartState states={[invoicesState]} label="Loading billing periods">{invoicesState.data == null
             ? <ChartEmpty>Billing-period detail is temporarily unavailable.</ChartEmpty>
             : !invoicesState.complete
               ? <ChartEmpty>Billing-period coverage is incomplete, so no zero-value trend has been inferred.</ChartEmpty>
@@ -720,19 +752,19 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
             const [year, rawMonth] = month.key.split('-').map(Number);
             const end = new Date(year, rawMonth, 0).getDate();
             onNav(`finance/invoices?from=${month.key}-01&to=${month.key}-${String(end).padStart(2, '0')}`);
-          }} />}
+          }} />}</ChartState>
         </ChartCard>
         <ChartCard eyebrow="Enrollment" title="Month-over-month joins" description="Current and previous calendar windows from enrollment records.">
-          {scopedDirectory ? <ChartEmpty>Enrollment comparison is organization-wide in the current records and is hidden while branch or teacher scope is active.</ChartEmpty> : <ComparisonBars formatter={(value) => formatBusinessNumber(value)} data={[
+          <ChartState states={scopedDirectory ? [] : [comparisonState]} label="Loading enrollment comparison">{scopedDirectory ? <ChartEmpty>Enrollment comparison is organization-wide in the current records and is hidden while branch or teacher scope is active.</ChartEmpty> : <ComparisonBars formatter={(value) => formatBusinessNumber(value)} data={[
             { label: 'Previous month', value: nonNegative(comparisonState.data?.previous), color: 'var(--sf-muted-2)' },
             { label: 'Current month', value: nonNegative(comparisonState.data?.current), color: 'var(--sf-primary)' },
-          ]} />}
+          ]} />}</ChartState>
         </ChartCard>
       </div>
 
       <div className="ex-dashboard-grid">
         <ChartCard eyebrow="Branch comparison" title="Branch health ranking" description="Fixed recent 30-day score · attendance 50%, grades 30%, lower student risk 20%" className="is-wide" action={<RouteLink to="branches" onNav={onNav}>Compare branches {cloneElement(Icons.chevR, { size: 14 })}</RouteLink>}>
-          {filters.teacher !== 'all' ? <ChartEmpty>Branch rankings are hidden while one teacher is selected because the score is not a teacher-attribution measure.</ChartEmpty> : <RankedBars data={visibleBranchSignals.map((branch) => ({
+          <ChartState states={filters.teacher !== 'all' ? [] : [branchSignalsState]} label="Loading branch health ranking">{filters.teacher !== 'all' ? <ChartEmpty>Branch rankings are hidden while one teacher is selected because the score is not a teacher-attribution measure.</ChartEmpty> : <RankedBars data={visibleBranchSignals.map((branch) => ({
             id: branch.branch,
             rank: branch.rank,
             label: branch.name,
@@ -743,16 +775,16 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
               { label: 'Average grade', value: percent(boundedPercent(branch.avg_grade_pct)) },
               { label: 'At-risk share', value: fraction(branch.at_risk_rate) == null ? '—' : percent(fraction(branch.at_risk_rate) * 100) },
             ],
-          }))} onSelect={(branch) => onNav(`branches/${branch.id}/overview`)} />}
+          }))} onSelect={(branch) => onNav(`branches/${branch.id}/overview`)} />}</ChartState>
         </ChartCard>
         <ChartCard eyebrow="Student portfolio" title="Enrollment status mix" description="Current active view; based on the loaded directory.">
-          <SegmentedBreakdown data={statusMix} onSelect={(item) => onNav(`students?status=${item.key}`)} />
+          <ChartState states={[studentsState]} label="Loading enrollment status"><SegmentedBreakdown data={statusMix} onSelect={(item) => onNav(`students?status=${item.key}`)} /></ChartState>
         </ChartCard>
       </div>
 
       <div className="ex-dashboard-grid">
         <ChartCard eyebrow="Teaching delivery" title="Recent teacher engagement" description="Attendance participation in delivered lessons · not a causal teacher rating" className="is-wide" action={<RouteLink to="teachers" onNav={onNav}>Open teachers {cloneElement(Icons.chevR, { size: 14 })}</RouteLink>}>
-          <RankedBars formatter={percent} data={visibleTeacherSignals.slice(0, 8).map((teacher) => ({
+          <ChartState states={[teacherSignalsState]} label="Loading teacher engagement"><RankedBars formatter={percent} data={visibleTeacherSignals.slice(0, 8).map((teacher) => ({
             id: teacher.teacher,
             label: teacher.name,
             value: boundedPercent(teacher.engagement_score),
@@ -762,16 +794,16 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
               { label: 'Students', value: formatBusinessNumber(nonNegative(teacher.students_reached)) },
               { label: 'Marks sampled', value: formatBusinessNumber(nonNegative(teacher.marks_sampled)) },
             ],
-          }))} onSelect={(teacher) => onNav(`teachers/${teacher.id}`)} />
+          }))} onSelect={(teacher) => onNav(`teachers/${teacher.id}`)} /></ChartState>
         </ChartCard>
         <ChartCard eyebrow="Student attention" title="Risk signal mix" description="Explainable rules; counts reflect the loaded risk register.">
-          <SegmentedBreakdown data={riskMix} onSelect={(item) => onNav(`intelligence/risk?level=${item.key}`)} />
+          <ChartState states={[riskState]} label="Loading student risk signals"><SegmentedBreakdown data={riskMix} onSelect={(item) => onNav(`intelligence/risk?level=${item.key}`)} /></ChartState>
         </ChartCard>
       </div>
 
       <div className="ex-dashboard-grid">
         <ChartCard eyebrow="Learning capacity" title="Group occupancy" description={`Current students against recorded capacity${groupCapacity ? ` · ${formatBusinessNumber(groupCapacity)} seats total` : ''}.`}>
-          {studentsState.data == null || cohortsState.data == null
+          <ChartState states={[studentsState, cohortsState]} label="Loading group capacity">{studentsState.data == null || cohortsState.data == null
             ? <ChartEmpty>Student-to-group occupancy is temporarily unavailable.</ChartEmpty>
             : !studentsState.complete || !cohortsState.complete || groupCapacity == null
               ? <ChartEmpty>Student-to-group occupancy coverage is incomplete, so no utilization percentage is inferred.</ChartEmpty>
@@ -784,15 +816,15 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
               value: capacity && (enrolled > 0 || studentsState.complete) ? enrolled / capacity * 100 : null,
               detail: capacity ? `${enrolled} of ${capacity} seats loaded` : `${enrolled} students · capacity not set`,
             };
-          })} onSelect={(cohort) => onNav(`groups/${cohort.id}/overview`)} />}
+          })} onSelect={(cohort) => onNav(`groups/${cohort.id}/overview`)} />}</ChartState>
         </ChartCard>
         <ChartCard eyebrow="Recorded locations" title="Where student records point" description="The current field is free text and may describe a campus, not a true origin. It is shown without geographic inference.">
-          <RankedBars data={locationBars} />
+          <ChartState states={[studentsState]} label="Loading recorded locations"><RankedBars data={locationBars} /></ChartState>
         </ChartCard>
       </div>
 
       <ChartCard eyebrow="Attendance detail" title="Attendance by group and status" description={`Recorded marks from ${filters.from} to ${filters.to} · leaders have read-only access`} className="is-full">
-        {attendanceState.data == null
+        <ChartState states={[attendanceState, cohortsState]} label="Loading attendance detail">{attendanceState.data == null
           ? <ChartEmpty>Attendance detail is temporarily unavailable.</ChartEmpty>
           : !attendanceState.complete
             ? <ChartEmpty>Attendance coverage is incomplete, so zero-count group comparisons are not inferred.</ChartEmpty>
@@ -804,8 +836,9 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
             formatter={(value) => formatBusinessNumber(value)}
             onSelect={(cohort) => onNav(`groups/${cohort.id}/attendance?from=${filters.from}&to=${filters.to}`)}
           />
-        ) : <ChartEmpty />}
-      </ChartCard>
+        ) : <ChartEmpty />}</ChartState>
+        </ChartCard>
+      </div>
 
       {(executiveState.error || invoicesState.error || attendanceState.error) && (
         <section className="ex-inline-warning" role="status">

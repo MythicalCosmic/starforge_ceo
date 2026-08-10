@@ -13,6 +13,16 @@ import { Icons } from '../components/Icons.jsx';
 const ToastContext = createContext(null);
 const DEFAULT_DURATION = 5200;
 const MAX_VISIBLE = 5;
+const SILENT_TOAST = Object.freeze({
+  push: () => '',
+  update: () => {},
+  dismiss: () => {},
+  clear: () => {},
+  success: () => '',
+  warning: () => '',
+  danger: () => '',
+  info: () => '',
+});
 
 const iconForTone = {
   success: Icons.check,
@@ -192,4 +202,12 @@ export function useToast() {
   const context = useContext(ToastContext);
   if (!context) throw new Error('useToast must be used within ToastProvider');
   return context;
+}
+
+// Leaf action controls can be rendered in isolation by server-side previews and
+// component tests. Production still supplies ToastProvider at the application
+// root; the fallback keeps those isolated renders side-effect free.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOptionalToast() {
+  return useContext(ToastContext) || SILENT_TOAST;
 }

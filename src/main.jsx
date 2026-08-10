@@ -1,4 +1,4 @@
-import { StrictMode, Suspense } from 'react';
+import { Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import '@fontsource-variable/manrope/wght.css';
@@ -13,22 +13,21 @@ import { PreferencesProvider } from './context/PreferencesContext.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
+import { PageLoader } from './components/feedback.jsx';
 import { queryClient } from './api/queryClient.js';
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <Suspense fallback={null}>
-          <PreferencesProvider>
-            <ToastProvider>
-              <AuthProvider>
-                <App />
-              </AuthProvider>
-            </ToastProvider>
-          </PreferencesProvider>
-        </Suspense>
-      </QueryClientProvider>
-    </ErrorBoundary>
-  </StrictMode>,
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <Suspense fallback={<PageLoader label="Opening StarForge EDU…" />}>
+        <PreferencesProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </ToastProvider>
+        </PreferencesProvider>
+      </Suspense>
+    </QueryClientProvider>
+  </ErrorBoundary>,
 );

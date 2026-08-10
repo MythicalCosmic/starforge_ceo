@@ -2,16 +2,16 @@ import { Icons } from '../components/Icons.jsx';
 import { hasCapability } from '../lib/permissions.js';
 
 export const BRANCH_WORKSPACE_SECTIONS = Object.freeze([
-  { id: 'overview', label: 'Branch overview', group: 'Branch', icon: Icons.home },
-  { id: 'students', label: 'Students', group: 'People & learning', icon: Icons.cohort, destination: 'students', capabilities: ['students:read'] },
-  { id: 'teachers', label: 'Teachers', group: 'People & learning', icon: Icons.user, destination: 'teachers', capabilities: ['teachers:read'] },
-  { id: 'groups', label: 'Groups', group: 'People & learning', icon: Icons.cohort, destination: 'groups', capabilities: ['cohorts:read'] },
-  { id: 'exams', label: 'Exams', group: 'People & learning', icon: Icons.doc, destination: 'exams', capabilities: ['academics:read'] },
-  { id: 'finance', label: 'Finance', group: 'Business', icon: Icons.trend, destination: 'finance', capabilities: ['finance:read'] },
-  { id: 'meetings', label: 'Meetings', group: 'Operations', icon: Icons.cal, destination: 'schedule', capabilities: ['schedule:read', 'meeting:write'] },
-  { id: 'content', label: 'Learning library', group: 'Operations', icon: Icons.folder, destination: 'content', capabilities: ['content:read'] },
-  { id: 'printers', label: 'Print room', group: 'Operations', icon: Icons.doc, destination: 'content', capabilities: ['printing:read'] },
-  { id: 'activity', label: 'Activity history', group: 'Assurance', icon: Icons.shield, destination: 'audit', capabilities: ['audit:read'], safetyHold: true },
+  { id: 'overview', label: 'Branch overview', group: 'Branch', icon: Icons.home, app: 'org' },
+  { id: 'students', label: 'Students', group: 'People & learning', icon: Icons.cohort, destination: 'students', capabilities: ['students:read'], app: 'students' },
+  { id: 'teachers', label: 'Teachers', group: 'People & learning', icon: Icons.user, destination: 'teachers', capabilities: ['teachers:read'], app: 'teachers' },
+  { id: 'groups', label: 'Groups', group: 'People & learning', icon: Icons.cohort, destination: 'groups', capabilities: ['cohorts:read'], app: 'cohorts' },
+  { id: 'exams', label: 'Exams', group: 'People & learning', icon: Icons.doc, destination: 'exams', capabilities: ['academics:read'], app: 'academics' },
+  { id: 'finance', label: 'Finance', group: 'Business', icon: Icons.trend, destination: 'finance', capabilities: ['finance:read'], app: 'finance' },
+  { id: 'meetings', label: 'Meetings', group: 'Operations', icon: Icons.cal, destination: 'schedule', capabilities: ['schedule:read', 'meeting:write'], app: 'meetings' },
+  { id: 'content', label: 'Learning library', group: 'Operations', icon: Icons.folder, destination: 'content', capabilities: ['content:read'], app: 'content' },
+  { id: 'printers', label: 'Print room', group: 'Operations', icon: Icons.doc, destination: 'content', capabilities: ['printing:read'], app: 'printing' },
+  { id: 'activity', label: 'Activity history', group: 'Assurance', icon: Icons.shield, destination: 'audit', capabilities: ['audit:read'], app: 'audit', safetyHold: true },
 ]);
 
 export function branchWorkspaceRoute(route) {

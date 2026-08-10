@@ -65,6 +65,8 @@ export const LEGACY_ROUTES = Object.freeze({
   'governance/ai-usage': route('ai-governance/usage'),
 
   'organization/tasks': route('operations/tasks'),
+  'organization/staff': route('staff'),
+  'organization/departments': route('departments'),
   'organization/cover': route('operations/cover'),
   'organization/procurement': route('operations/procurement'),
   'schedule/upcoming': route('schedule/upcomingMeetings'),

@@ -7,6 +7,7 @@ const loadTeachersPage = () => import('../pages/TeachersWorkspace.jsx');
 const loadGroupsPage = () => import('../pages/GroupsWorkspace.jsx');
 const loadExamsPage = () => import('../pages/ExamsWorkspace.jsx');
 const loadFinancePage = () => import('../pages/FinanceWorkspace.jsx');
+const loadWorkforcePage = () => import('../pages/WorkforceWorkspace.jsx');
 
 const moduleEntry = (load, exportName) => Object.freeze({ load, exportName });
 
@@ -20,6 +21,8 @@ export const ROUTE_MODULES = Object.freeze({
   branches: moduleEntry(() => import('../pages/Branches.jsx'), 'BranchesPage'),
   students: moduleEntry(loadStudentsPage, 'StudentsPage'),
   teachers: moduleEntry(loadTeachersPage, 'TeachersPage'),
+  staff: moduleEntry(loadWorkforcePage, 'StaffPage'),
+  departments: moduleEntry(loadWorkforcePage, 'DepartmentsPage'),
   groups: moduleEntry(loadGroupsPage, 'GroupsPage'),
   exams: moduleEntry(loadExamsPage, 'ExamsPage'),
   people: moduleEntry(loadManagementPages, 'PeoplePage'),
@@ -44,6 +47,10 @@ export const ROUTE_MODULES = Object.freeze({
   'star-ai': moduleEntry(() => import('../pages/StarAIWorkspace.jsx'), 'StarAIPage'),
   'ai-governance': moduleEntry(loadManagementPages, 'AIGovernancePage'),
   access: moduleEntry(loadManagementPages, 'AccessPage'),
+  capabilities: moduleEntry(
+    () => import('../pages/CapabilitiesWorkspace.jsx'),
+    'CapabilitiesPage',
+  ),
 });
 
 function routeSegments(target) {

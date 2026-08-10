@@ -25,6 +25,7 @@ export const Icons = {
   bell: <SfIcon><path d="M6 16 V11 a6 6 0 0 1 12 0 V16 L20 18 H4 Z M10 21 a2 2 0 0 0 4 0" /></SfIcon>,
   user: <SfIcon><circle cx="12" cy="8" r="3.7" /><path d="M4.5 20 c0-3.5 3-6 7.5-6 s7.5 2.5 7.5 6" /></SfIcon>,
   check: <SfIcon d="M5 12.5 L10 17.5 L19.5 7" stroke={2.4} />,
+  plus: <SfIcon d="M12 5 V19 M5 12 H19" stroke={2.2} />,
   x: <SfIcon d="M6 6 L18 18 M18 6 L6 18" stroke={2.4} />,
   search: <SfIcon><circle cx="11" cy="11" r="6" /><path d="M16 16 L20.5 20.5" /></SfIcon>,
   chevR: <SfIcon d="M9 6 L15 12 L9 18" />,

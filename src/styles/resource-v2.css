@@ -9,104 +9,76 @@
   padding-bottom: 36px;
 }
 
-/* Route-backed section navigation replaces the long, flat horizontal tab strip.
-   The primary work stays visually dominant while supporting directories remain
-   one click away and every historic route remains reachable. */
 .rv2-module-layout {
   display: grid;
   min-width: 0;
   gap: 16px;
 }
 
-.rv2-module-layout.has-section-rail {
-  grid-template-columns: 196px minmax(0, 1fr);
-  align-items: start;
-}
-
-.rv2-section-rail {
-  position: sticky;
-  top: 78px;
+.rv2-section-tabs {
+  display: flex;
   min-width: 0;
-  padding: 10px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 11px;
   border: 1px solid var(--sf-v2-border);
   border-radius: 15px;
   background: color-mix(in srgb, var(--sf-surface) 92%, transparent);
   box-shadow: var(--sf-v2-shadow);
 }
 
-.rv2-section-rail > span {
-  display: block;
-  padding: 5px 8px 9px;
+.rv2-section-tabs > span {
+  flex: 0 0 auto;
+  padding: 0 4px;
   color: var(--sf-muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 830;
   letter-spacing: .11em;
   text-transform: uppercase;
 }
 
-.rv2-section-rail nav {
-  display: grid;
-  gap: 3px;
+.rv2-section-tabs > div {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
-.rv2-section-rail a {
+.rv2-section-tabs a {
   display: flex;
-  min-height: 36px;
-  min-width: 0;
+  min-height: 34px;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px 9px;
-  border-radius: 9px;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   color: var(--sf-muted);
   font-size: 11px;
-  font-weight: 680;
+  font-weight: 720;
   line-height: 1.3;
   text-decoration: none;
+  white-space: nowrap;
 }
 
-.rv2-section-rail a:hover {
+.rv2-section-tabs a:hover {
   background: var(--sf-surface-2);
   color: var(--sf-ink-2);
 }
 
-.rv2-section-rail a.is-active {
+.rv2-section-tabs a.is-active {
+  border-color: color-mix(in srgb, var(--sf-primary) 18%, var(--sf-border));
   background: var(--sf-primary-soft);
   color: var(--sf-primary);
   font-weight: 790;
 }
 
 .rv2-module-main { min-width: 0; }
-.rv2-view-picker { display: none; }
 
 @media (max-width: 900px) {
-  .rv2-module-layout.has-section-rail { grid-template-columns: 1fr; }
-  .rv2-section-rail { display: none; }
-  .rv2-view-picker {
-    display: grid;
-    gap: 5px;
-    margin-bottom: 12px;
-    padding: 10px;
-    border: 1px solid var(--sf-v2-border);
-    border-radius: 13px;
-    background: var(--sf-surface);
-  }
-  .rv2-view-picker label {
-    color: var(--sf-muted);
-    font-size: 11px;
-    font-weight: 820;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-  }
-  .rv2-view-picker select {
-    min-height: 40px;
-    padding: 8px 10px;
-    border: 1px solid var(--sf-border);
-    border-radius: 9px;
-    background: var(--sf-surface-2);
-    color: var(--sf-ink-2);
-    font-size: 11px;
-    font-weight: 700;
-  }
+  .rv2-section-tabs { align-items: stretch; flex-direction: column; gap: 6px; }
+  .rv2-section-tabs > span { padding-left: 8px; }
 }
 
 .rv2-glyph {

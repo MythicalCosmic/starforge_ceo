@@ -113,7 +113,7 @@ describe('Exams route-backed workflows', () => {
   it('uses a calendar-first overview and progressive register filters', () => {
     const overview = renderToStaticMarkup(<ExamsPage route="exams/overview" onNav={vi.fn()} user={{ effective_permissions: ['academics:read'] }} />);
     expect(overview).toContain('Recent assessment moments');
-    expect(overview).toContain('href="#/exams/exams/7"');
+    expect(overview).toContain('href="/exams/exams/7"');
 
     const register = renderToStaticMarkup(<ExamsPage route="exams/exams?subject=3" onNav={vi.fn()} user={{ effective_permissions: ['academics:read'] }} />);
     expect(register).toContain('<details class="fw-filter-disclosure"');
@@ -148,10 +148,10 @@ describe('Exams route-backed workflows', () => {
   it('keeps edit, results, import, and back links inside a branch workspace', () => {
     const html = renderToStaticMarkup(<ExamsPage route="branches/2/exams/exams/7" branchId="2" onNav={vi.fn()} user={{ effective_permissions: ['academics:read', 'academics:write', 'cohorts:read'] }} />);
 
-    expect(html).toContain('href="#/branches/2/exams"');
-    expect(html).toContain('href="#/branches/2/exams/exams/7/edit"');
-    expect(html).toContain('href="#/branches/2/exams/exams/7/results"');
-    expect(html).toContain('href="#/branches/2/exams/exams/7/import"');
+    expect(html).toContain('href="/branches/2/exams"');
+    expect(html).toContain('href="/branches/2/exams/exams/7/edit"');
+    expect(html).toContain('href="/branches/2/exams/exams/7/results"');
+    expect(html).toContain('href="/branches/2/exams/exams/7/import"');
   });
 
   it('sends published assessments to the controlled correction and history workflow', () => {
@@ -160,9 +160,9 @@ describe('Exams route-backed workflows', () => {
     expect(html).toContain('Published assessment');
     expect(html).toContain('Published definitions and results can only change through the correction workflow');
     expect(html).toContain('Publication and correction history');
-    expect(html).toContain('href="#/exams/exams/9/correct"');
-    expect(html).not.toContain('href="#/exams/exams/9/edit"');
-    expect(html).not.toContain('href="#/exams/exams/9/import"');
+    expect(html).toContain('href="/exams/exams/9/correct"');
+    expect(html).not.toContain('href="/exams/exams/9/edit"');
+    expect(html).not.toContain('href="/exams/exams/9/import"');
   });
 
   it('loads the readiness snapshot and publishes the exact reviewed version with explicit confirmation', async () => {

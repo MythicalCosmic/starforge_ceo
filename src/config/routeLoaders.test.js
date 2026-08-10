@@ -13,6 +13,8 @@ describe('route module loading', () => {
     expect(routeModuleIdsFor('crm/leads/9')).toEqual(['crm']);
     expect(routeModuleIdsFor('backendPayroll/periods/9')).toEqual(['payroll']);
     expect(routeModuleIdsFor('reports/library')).toEqual(['reports']);
+    expect(routeModuleIdsFor('staff/42')).toEqual(['staff']);
+    expect(routeModuleIdsFor('organization/departments/9')).toEqual(['departments']);
     expect(routeModuleIdsFor('missing/page')).toEqual([]);
   });
 

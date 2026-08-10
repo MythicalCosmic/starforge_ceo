@@ -151,7 +151,49 @@ export function ChartCard({ eyebrow, title, description, action, legend, childre
 }
 
 export function ChartEmpty({ children = 'There is not enough recorded activity for this chart yet.' }) {
-  return <div className="ex-chart-empty">{children}</div>;
+  return (
+    <div className="ex-chart-empty" role="status">
+      <span aria-hidden="true">{cloneElement(Icons.trend, { size: 19 })}</span>
+      <strong>No chartable records in this view</strong>
+      <small>{children}</small>
+    </div>
+  );
+}
+
+export function ChartLoading({ label = 'Loading verified chart data' }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 4_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return (
+    <div className="ex-chart-loading" role="status" aria-live="polite">
+      <div className="ex-chart-loading-copy">
+        <span aria-hidden="true">{cloneElement(Icons.trend, { size: 17 })}</span>
+        <span><strong>{label}</strong><small>{slow ? 'The live service is responding slowly; this request is still bounded and safe to retry.' : 'Requesting current, permission-scoped information…'}</small></span>
+      </div>
+      <div className="ex-chart-loading-bars" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
+    </div>
+  );
+}
+
+export function ChartState({ states = [], label, children }) {
+  const active = states.filter((state) => state?.enabled !== false);
+  if (states.length && !active.length) return <ChartLoading label={label} />;
+  const pending = active.some((state) => state?.pending && state?.data == null);
+  const failure = active.find((state) => (state?.error || state?.paused) && state?.data == null);
+  if (pending) return <ChartLoading label={label} />;
+  if (failure) {
+    return (
+      <div className="ex-chart-failure" role="alert">
+        <span aria-hidden="true">{cloneElement(Icons.flag, { size: 19 })}</span>
+        <strong>{failure.paused ? 'This chart is waiting for a connection' : 'This chart could not reach the live service'}</strong>
+        <small>No zero or empty result has been inferred.</small>
+        <button type="button" onClick={() => failure.retry?.()}>Try again</button>
+      </div>
+    );
+  }
+  return children;
 }
 
 export function RankedBars({ data, valueKey = 'value', labelKey = 'label', formatter, max, onSelect }) {

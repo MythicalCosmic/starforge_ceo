@@ -45,7 +45,7 @@ function routeHref(target) {
   const path = String(target || 'overview')
     .replace(/^#/, '')
     .replace(/^\/+/, '');
-  return `#/${path || 'overview'}`;
+  return `/${path || 'overview'}`;
 }
 
 function handleRouteClick(event, onNav, target, afterNavigate) {

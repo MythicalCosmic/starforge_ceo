@@ -2,19 +2,22 @@ import { cloneElement } from 'react';
 import { Icons } from './Icons.jsx';
 import { SfAvatar } from './primitives.jsx';
 import { formatBusinessNumber, formatOrganizationDate } from '../lib/formatters.js';
+import { ApplicationUnavailableState } from './AvailabilityState.jsx';
+import { isServiceUnavailable } from '../lib/appAvailability.js';
+import { supportReference, userFacingError } from '../lib/userFacingError.js';
 
 export function RouteLink({ to, onNav, children, className = '', ...props }) {
   return (
     <a
       {...props}
       className={className}
-      href={`#/${to}`}
+      href={`/${String(to || '').replace(/^\/+/, '')}`}
       onClick={(event) => {
         props.onClick?.(event);
         if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || (props.target && props.target !== '_self')) return;
         event.preventDefault();
         if (typeof onNav === 'function') onNav(to);
-        else if (typeof window !== 'undefined') window.location.hash = `#/${to}`;
+        else if (typeof window !== 'undefined') window.location.assign(`/${String(to || '').replace(/^\/+/, '')}`);
       }}
     >
       {children}
@@ -93,15 +96,19 @@ export function LinkButton({ children, icon, tone = 'soft', to, onNav, ...props 
   return <RouteLink {...props} className={`fw-action is-${tone}`} to={to} onNav={onNav}>{icon && cloneElement(icon, { size: 15 })}{children}</RouteLink>;
 }
 
-export function WorkspaceState({ state, empty = false, emptyTitle = 'No records match this view', emptyBody = 'Try adjusting the filters.', children }) {
+export function WorkspaceState({ state, empty = false, emptyTitle = 'No records match this view', emptyBody = 'Try adjusting the filters.', applicationLabel = 'This application', children }) {
   if (state?.paused && !state?.rows?.length && !state?.data) {
     return <div className="fw-state" role="status"><span>{cloneElement(Icons.flag, { size: 20 })}</span><strong>You are offline</strong><p>Reconnect to prepare this view.</p></div>;
   }
   if (state?.pending) {
-    return <div className="fw-state is-loading" role="status" aria-label="Preparing this view"><span className="fw-sr">Preparing this view…</span><i /><i /><i /><i /></div>;
+    return <div className="fw-state is-loading" role="status" aria-label="Preparing this view"><div className="fw-loading-copy"><strong>Preparing this view</strong><small>Requesting current information from the live service…</small></div><i /><i /><i /><i /></div>;
   }
   if (state?.error && !state?.rows?.length && !state?.data) {
-    return <div className="fw-state" role="alert"><span>{cloneElement(Icons.flag, { size: 20 })}</span><strong>This view needs another moment</strong><p>The rest of the workspace remains available.</p><ActionButton onClick={state.retry}>Try again</ActionButton></div>;
+    if (isServiceUnavailable(state.error)) {
+      return <ApplicationUnavailableState label={applicationLabel} status="unavailable" onRetry={state.retry} compact />;
+    }
+    const reference = supportReference(state.error);
+    return <div className="fw-state" role="alert"><span>{cloneElement(Icons.flag, { size: 20 })}</span><strong>This view could not be opened</strong><p>{userFacingError(state.error)}</p>{reference && <small>Support reference {reference}</small>}<ActionButton onClick={state.retry}>Try again</ActionButton></div>;
   }
   if (empty) {
     return <div className="fw-state"><span>{cloneElement(Icons.search, { size: 20 })}</span><strong>{emptyTitle}</strong><p>{emptyBody}</p></div>;

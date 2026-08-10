@@ -155,6 +155,9 @@
 .fw-state strong { color: var(--sf-ink-2); font-size: 12px; }
 .fw-state p { max-width: 360px; margin: 0; font-size: 11px; line-height: 1.5; }
 .fw-state.is-loading { grid-template-columns: repeat(4, minmax(80px, 160px)); align-items: end; }
+.fw-loading-copy { display: grid; grid-column: 1 / -1; gap: 3px; margin-bottom: 5px; text-align: left; }
+.fw-loading-copy strong { color: var(--sf-ink-2); font-size: 12px; }
+.fw-loading-copy small { color: var(--sf-muted); font-size: 11px; }
 .fw-state.is-loading i { height: 130px; border-radius: 12px; background: linear-gradient(90deg, var(--sf-surface-2), var(--sf-surface-3), var(--sf-surface-2)); background-size: 200% 100%; animation: fw-shimmer 1.2s linear infinite; }
 
 .fw-profile-hero {
@@ -402,6 +405,22 @@
 .fw-record-detail .fw-detail-grid > div { min-height: 76px; padding: 12px 13px; border: 1px solid var(--sf-v2-border); border-radius: 11px; background: color-mix(in srgb, var(--sf-surface-2) 46%, var(--sf-surface)); transition: border-color .16s ease, background-color .16s ease; }
 .fw-record-detail .fw-detail-grid > div:hover { border-color: color-mix(in srgb, var(--sf-primary) 25%, var(--sf-border)); background: var(--sf-surface); }
 
+.fw-admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fw-admin-grid > form,
+.fw-admin-security { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--sf-v2-border); border-radius: 13px; background: color-mix(in srgb, var(--sf-surface-2) 42%, var(--sf-surface)); }
+.fw-admin-grid header { display: grid; gap: 4px; }
+.fw-admin-grid header strong { color: var(--sf-ink); font-size: 13px; }
+.fw-admin-grid header small { color: var(--sf-muted); font-size: 11px; line-height: 1.5; }
+.fw-admin-grid label { display: grid; gap: 6px; color: var(--sf-ink-2); font-size: 11px; font-weight: 760; }
+.fw-admin-grid input,
+.fw-admin-grid select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--sf-v2-border); border-radius: 9px; background: var(--sf-surface); color: var(--sf-ink); font: inherit; }
+.fw-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.fw-credential-reveal { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto auto auto; align-items: center; gap: 9px; margin-bottom: 12px; padding: 13px; border: 1px solid color-mix(in srgb, var(--sf-warn) 35%, var(--sf-v2-border)); border-radius: 12px; background: color-mix(in srgb, var(--sf-warn) 8%, var(--sf-surface)); }
+.fw-credential-reveal > span { display: grid; gap: 3px; }
+.fw-credential-reveal small { color: var(--sf-muted); font-size: 10.5px; line-height: 1.45; }
+.fw-credential-reveal code { padding: 6px 8px; border: 1px solid var(--sf-v2-border); border-radius: 7px; background: var(--sf-surface); color: var(--sf-ink); }
+.fw-credential-reveal > button:last-child { display: grid; width: 30px; height: 30px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--sf-muted); cursor: pointer; }
+
 .fw-workspace-tabs a:focus-visible,
 .fw-filter-toggle:focus-visible,
 .fw-person-card a:focus-visible { outline: 2px solid var(--sf-primary); outline-offset: 3px; }
@@ -430,6 +449,9 @@
   .fw-person-grid.is-teachers { grid-template-columns: 1fr; }
   .fw-filter-primary,
   .fw-filter-advanced { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fw-admin-grid { grid-template-columns: 1fr; }
+  .fw-credential-reveal { grid-template-columns: 1fr auto; }
+  .fw-credential-reveal > span { grid-column: 1 / -1; }
 }
 
 @media (max-width: 650px) {

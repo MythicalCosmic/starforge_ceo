@@ -268,10 +268,10 @@ describe('People workspace redesign', () => {
   it('prioritizes student cards and links every available relationship', () => {
     const html = renderToStaticMarkup(<StudentsPage route="students/directory" onNav={vi.fn()} user={user} />);
     expect(html).toContain('fw-person-card is-student');
-    expect(html).toContain('href="#/students/44/overview"');
-    expect(html).toContain('href="#/branches/2/overview"');
-    expect(html).toContain('href="#/groups/7/overview"');
-    expect(html).toContain('href="#/teachers/9/overview"');
+    expect(html).toContain('href="/students/44/overview"');
+    expect(html).toContain('href="/branches/2/overview"');
+    expect(html).toContain('href="/groups/7/overview"');
+    expect(html).toContain('href="/teachers/9/overview"');
   });
 
   it('requests and exposes the URL-backed student page without counting it as a filter', () => {
@@ -350,9 +350,9 @@ describe('People workspace redesign', () => {
     expect(html).toContain('fw-record-placement');
     expect(html).toContain('ready for placement');
     expect(html).not.toContain('>accepted<');
-    expect(html).toContain('href="#/branches/2/overview"');
-    expect(html).toContain('href="#/groups/7/overview"');
-    expect(html).toContain('href="#/teachers/9/overview"');
+    expect(html).toContain('href="/branches/2/overview"');
+    expect(html).toContain('href="/groups/7/overview"');
+    expect(html).toContain('href="/teachers/9/overview"');
   });
 
   it('uses one exact-scope leadership snapshot for the student overview before loading drill-down registers', () => {
@@ -365,7 +365,7 @@ describe('People workspace redesign', () => {
     expect(html).toContain('exact student scope');
     expect(html).toContain('<span>Visible attendance</span><strong>90%</strong>');
     expect(html).toContain('<span>Issued billing</span><strong>EUR');
-    expect(html).toContain('href="#/teachers/9/overview"');
+    expect(html).toContain('href="/teachers/9/overview"');
     expect(enabledPaths).toContain('/api/v1/students/44/leadership-profile/');
     expect(enabledPaths).not.toContain('/api/v1/students/44/');
     expect(enabledPaths).not.toContain('/api/v1/attendance/records/');
@@ -380,7 +380,7 @@ describe('People workspace redesign', () => {
     const html = renderToStaticMarkup(<StudentsPage route="students/44/attendance" onNav={vi.fn()} user={user} />);
     const enabledPaths = workspaceCalls.filter((call) => call.enabled).map((call) => call.path);
 
-    expect(html).toContain('This view needs another moment');
+    expect(html).toContain('This view could not be opened');
     expect(enabledPaths).toContain('/api/v1/students/44/leadership-profile/');
     expect(enabledPaths).not.toContain('/api/v1/students/44/');
     expect(enabledPaths).not.toContain('/api/v1/attendance/records/');
@@ -553,8 +553,8 @@ describe('People workspace redesign', () => {
     const numericZeroRow = invoiceRows.find((row) => row.includes('INV-NUMERIC-ZERO'));
 
     expect(html).toContain('4 of 4 invoices loaded');
-    expect(missingTotalRow).toContain('href="#/finance/invoices/501"');
-    expect(missingTotalRow).toContain('href="#/groups/7/overview"');
+    expect(missingTotalRow).toContain('href="/finance/invoices/501"');
+    expect(missingTotalRow).toContain('href="/groups/7/overview"');
     expect(missingTotalRow).toContain('<td data-label="Total">—</td>');
     expect(missingTotalRow).toContain('<td data-label="Balance">UZS');
     expect(missingAllocationRow).toContain('<td data-label="Balance">—</td>');
@@ -564,17 +564,17 @@ describe('People workspace redesign', () => {
 
   it('links attendance rows to the lesson, group, and teacher records', () => {
     const html = renderToStaticMarkup(<StudentsPage route="students/44/attendance" onNav={vi.fn()} user={user} />);
-    expect(html).toContain('href="#/schedule/lessons/81"');
-    expect(html).toContain('href="#/groups/7/overview"');
-    expect(html).toContain('href="#/teachers/9/overview"');
+    expect(html).toContain('href="/schedule/lessons/81"');
+    expect(html).toContain('href="/groups/7/overview"');
+    expect(html).toContain('href="/teachers/9/overview"');
   });
 
   it('makes teacher workload cards primary and progressively reveals secondary filters', () => {
     const html = renderToStaticMarkup(<TeachersPage route="teachers/directory" onNav={vi.fn()} user={user} />);
     expect(html).toContain('fw-person-card is-teacher');
     expect(html).toContain('Current workload');
-    expect(html).toContain('href="#/teachers/9/overview"');
-    expect(html).toContain('href="#/groups/7/overview"');
+    expect(html).toContain('href="/teachers/9/overview"');
+    expect(html).toContain('href="/groups/7/overview"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('Teaching arrangement');
 
@@ -621,9 +621,9 @@ describe('People workspace redesign', () => {
   it('links teacher profiles back to branch, groups, and students', () => {
     const html = renderToStaticMarkup(<TeachersPage route="teachers/9/groups" onNav={vi.fn()} user={user} />);
     expect(html).toContain('fw-workspace-tabs');
-    expect(html).toContain('href="#/branches/2/overview"');
-    expect(html).toContain('href="#/groups/7/overview"');
-    expect(html).toContain('href="#/students/44/overview"');
+    expect(html).toContain('href="/branches/2/overview"');
+    expect(html).toContain('href="/groups/7/overview"');
+    expect(html).toContain('href="/students/44/overview"');
     expect(html).toContain('ready for placement');
     expect(html).not.toContain('>accepted<');
   });

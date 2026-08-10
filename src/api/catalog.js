@@ -689,7 +689,7 @@ const modules = {
           field('quiet_hours_end', 'Quiet hours end'),
           updatedAt,
         ],
-        { permission: 'org:read', searchParam: false, pagination: 'none' },
+        { permission: 'organization_settings:read', searchParam: false, pagination: 'none' },
       ),
       tab(
         'systemApps',
@@ -701,7 +701,7 @@ const modules = {
             itemKeys: ['app', 'status'],
           }),
         ],
-        { permission: 'org:read', searchParam: false, pagination: 'none' },
+        { permission: 'system:read', searchParam: false, pagination: 'none' },
       ),
     ],
   },
@@ -1426,11 +1426,9 @@ const modules = {
     ],
   },
 
-  // CRM reads are deliberately catalogued as reviewed, read-only surfaces.
-  // The workflow has contract-backed POST operations, but a generic register
-  // must never manufacture a mutation DTO, an idempotency key, or a conflict
-  // resolution decision. The selector-bound funnel is intentionally omitted:
-  // it requires a bounded date window and belongs in a purpose-built view.
+  // CRM registers stay explicit so their core fields remain readable. The
+  // schema-driven action and data workbenches add permission-filtered workflow
+  // controls and specialized reads without making browser state authoritative.
   backendCRM: {
     title: 'Admissions CRM',
     eyebrow: 'Lead ownership and follow-through',
@@ -1660,11 +1658,10 @@ const modules = {
     ],
   },
 
-  // Payroll contains high-impact, stateful workflows. This catalog exposes
-  // only immutable/read operations for a granted compensation reader. Period
-  // creation, run/approval, adjustment decisions, payment reconciliation,
-  // exports, and signed downloads remain out of the generic UI until each has
-  // a dedicated request adapter, separation-of-duties UX, and retry contract.
+  // Payroll's everyday evidence stays in explicit registers. High-impact
+  // workflow transitions are supplied by the permission-filtered action
+  // workbench, with confirmation, idempotency, service validation, and the
+  // backend's separation-of-duties checks preserved.
   backendPayroll: {
     title: 'Payroll',
     eyebrow: 'Compensation oversight',
@@ -2236,7 +2233,8 @@ const modules = {
         ],
         {
           detailPath: '/api/v1/audit/{id}/',
-          searchPlaceholder: 'Search actor, action, or resource',
+          pagination: 'cursor',
+          searchParam: false,
         },
       ),
     ],

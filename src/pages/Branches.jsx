@@ -197,7 +197,7 @@ function RouteLink({ to, onNav, children, className = '', ...props }) {
     <a
       {...props}
       className={className}
-      href={`#/${to}`}
+      href={`/${String(to || '').replace(/^\/+/, '')}`}
       onClick={(event) => {
         if (
           event.button !== 0 ||
@@ -831,7 +831,7 @@ function StudentTable({ rows, branchId, canOpenDetails, onNav }) {
   );
 }
 
-function StudentsSection({ state, cohorts, branchId, canViewCohorts, canOpenDirectory, canOpenDetails, canOpenGroups, onNav }) {
+function StudentsSection({ state, cohorts, branchId, canViewCohorts, canOpenDirectory, canOpenDetails, canOpenGroups, canWrite, onNav }) {
   const statusMix = Object.entries(state.rows.reduce((result, student) => {
     const key = normalizedStatus(student.status);
     result[key] = (result[key] || 0) + 1;
@@ -855,7 +855,7 @@ function StudentsSection({ state, cohorts, branchId, canViewCohorts, canOpenDire
           {canViewCohorts ? <RankedBars data={cohorts.rows.map((cohort) => { const studentCount = state.rows.filter((student) => idKey(student.current_cohort) === idKey(cohort.id)).length; return { id: cohort.id, label: cohort.name, value: studentCount > 0 || state.complete ? studentCount : null, detail: cohort.level || 'Level not recorded' }; })} onSelect={canOpenGroups ? (cohort) => onNav(`branches/${branchId}/groups/${cohort.id}/overview`) : undefined} /> : <ChartEmpty>Group comparisons are outside the current responsibilities.</ChartEmpty>}
         </ChartCard>
       </div>
-      <RegisterSection eyebrow="Student register" title="Students in this branch" description="Identity, placement, enrollment, and contact fields from the branch-filtered directory." action={canOpenDirectory ? <RouteLink className="br-secondary-action" to={`branches/${branchId}/students/directory`} onNav={onNav}>Advanced filters {cloneElement(Icons.chevR, { size: 14 })}</RouteLink> : null}>
+      <RegisterSection eyebrow="Student register" title="Students in this branch" description="Identity, placement, enrollment, and contact fields from the branch-filtered directory." action={(canOpenDirectory || canWrite) ? <div className="br-register-actions">{canWrite && <RouteLink className="br-primary-action" to={`branches/${branchId}/students/new`} onNav={onNav}>{cloneElement(Icons.plus, { size: 14 })} Create student</RouteLink>}{canOpenDirectory && <RouteLink className="br-secondary-action" to={`branches/${branchId}/students/directory`} onNav={onNav}>Advanced filters {cloneElement(Icons.chevR, { size: 14 })}</RouteLink>}</div> : null}>
         <StudentTable rows={state.rows} branchId={branchId} canOpenDetails={canOpenDetails} onNav={onNav} />
       </RegisterSection>
     </>
@@ -914,7 +914,7 @@ function TeachersSection({ state, cohorts, branchId, canViewCohorts, canOpenDire
   );
 }
 
-function GroupsSection({ state, students, branchId, canViewStudents, canOpenDetails, onNav }) {
+function GroupsSection({ state, students, branchId, canViewStudents, canOpenDetails, canWrite, onNav }) {
   const studentsByGroup = useMemo(() => students.rows.reduce((map, student) => {
     const key = relationKey(student.current_cohort);
     if (key) map.set(key, (map.get(key) || 0) + 1);
@@ -945,7 +945,7 @@ function GroupsSection({ state, students, branchId, canViewStudents, canOpenDeta
           return { id: cohort.id, label: cohort.name, value: seats > 0 ? enrolled / seats * 100 : null, detail: seats != null ? `${enrolled} of ${seats} seats · ${cohort.primary_teacher_name || 'teacher not assigned'}` : `${enrolled} students · capacity not recorded` };
         }).filter((cohort) => cohort.value != null)} onSelect={canOpenDetails ? (cohort) => onNav(`branches/${branchId}/groups/${cohort.id}/overview`) : undefined} /> : <ChartEmpty>{canViewStudents ? 'A complete student register is required before placement percentages are shown.' : 'Primary placement comparisons are outside the current responsibilities.'}</ChartEmpty>}
       </ChartCard>
-      <RegisterSection eyebrow="Group register" title="Groups in this branch" description="Leadership context for level, teacher, room, dates, and loaded primary placements.">
+      <RegisterSection eyebrow="Group register" title="Groups in this branch" description="Leadership context for level, teacher, room, dates, and loaded primary placements." action={canWrite ? <RouteLink className="br-retry" to={`branches/${branchId}/groups/new`} onNav={onNav}>{cloneElement(Icons.plus, { size: 14 })} Create group</RouteLink> : null}>
         <DataTable label="Branch groups" rows={state.rows} columns={[
           { label: 'Group', render: (cohort) => <span className="br-stacked">{canOpenDetails ? <RouteLink to={`branches/${branchId}/groups/${cohort.id}/overview`} onNav={onNav}>{cohort.name}</RouteLink> : <strong>{cohort.name}</strong>}<small>{cohort.department_name || EMPTY}</small></span> },
           { label: 'Level', render: (cohort) => cohort.level || EMPTY },
@@ -1274,15 +1274,17 @@ export function BranchesPage({ user, route, onNav }) {
   const nested = Boolean(branchId);
   const section = nested ? routed.segments[2] || 'overview' : null;
   const tail = nested ? routed.segments.slice(3) : [];
+  const studentCreate = section === 'students' && tail[0] === 'new';
   const studentDirectory = section === 'students' && tail[0] === 'directory';
   const studentDetailId = section === 'students' && /^[1-9]\d*$/.test(tail[0] || '') ? tail[0] : null;
   const teacherDirectory = section === 'teachers' && tail[0] === 'directory';
   const teacherDetailId = section === 'teachers' && /^[1-9]\d*$/.test(tail[0] || '') ? tail[0] : null;
   const groupDetailId = section === 'groups' && /^[1-9]\d*$/.test(tail[0] || '') ? tail[0] : null;
+  const groupCreate = section === 'groups' && tail[0] === 'new';
   const examDetailId = section === 'exams' && tail[0] === 'exams' && /^[1-9]\d*$/.test(tail[1] || '') ? tail[1] : null;
-  const delegatedStudentView = studentDirectory || Boolean(studentDetailId);
+  const delegatedStudentView = studentCreate || studentDirectory || Boolean(studentDetailId);
   const delegatedTeacherView = teacherDirectory || Boolean(teacherDetailId);
-  const delegatedGroupView = Boolean(groupDetailId);
+  const delegatedGroupView = groupCreate || Boolean(groupDetailId);
   const delegatedExamView = Boolean(examDetailId);
   const delegatedView = delegatedStudentView || delegatedTeacherView || delegatedGroupView || delegatedExamView;
   const capabilities = useMemo(() => effectiveCapabilities(user), [user]);
@@ -1294,8 +1296,10 @@ export function BranchesPage({ user, route, onNav }) {
     org: can('org:read'),
     intelligence: can('intelligence:read'),
     students: can('students:read'),
+    studentsWrite: can('students:write'),
     teachers: can('teachers:read'),
     cohorts: can('cohorts:read'),
+    cohortsWrite: can('cohorts:write'),
     finance: can('finance:read'),
     branchInvoices: can('finance:read'),
     invoiceAttribution: can('finance:read') && can('students:read') && can('cohorts:read'),
@@ -1443,7 +1447,7 @@ export function BranchesPage({ user, route, onNav }) {
 
   if (delegatedView) {
     const allowed = delegatedStudentView
-      ? studentDirectory ? studentDirectoryAllowed : studentDetailAllowed
+      ? studentCreate ? studentDirectoryAllowed && access.studentsWrite : studentDirectory ? studentDirectoryAllowed : studentDetailAllowed
       : delegatedTeacherView
         ? teacherDirectory ? teacherDirectoryAllowed : teacherDetailAllowed
         : delegatedGroupView
@@ -1592,11 +1596,11 @@ export function BranchesPage({ user, route, onNav }) {
   if (section === 'overview') {
     content = <DataGate states={visibleStates} title="Branch overview"><BranchOverview model={model} students={students} teachers={teachers} cohorts={cohorts} invoices={invoices} expenses={expenses} access={access} onNav={onNav} /></DataGate>;
   } else if (section === 'students') {
-    content = access.students ? <DataGate states={[students, ...(access.cohorts ? [cohorts] : [])]} title="Branch students"><StudentsSection state={students} cohorts={cohorts} branchId={branchId} canViewCohorts={access.cohorts} canOpenDirectory={studentDirectoryAllowed} canOpenDetails={studentDetailAllowed} canOpenGroups={groupDetailBaseAllowed} onNav={onNav} /></DataGate> : <AccessHold section="Student information" />;
+    content = access.students ? <DataGate states={[students, ...(access.cohorts ? [cohorts] : [])]} title="Branch students"><StudentsSection state={students} cohorts={cohorts} branchId={branchId} canViewCohorts={access.cohorts} canOpenDirectory={studentDirectoryAllowed} canOpenDetails={studentDetailAllowed} canOpenGroups={groupDetailBaseAllowed} canWrite={access.studentsWrite} onNav={onNav} /></DataGate> : <AccessHold section="Student information" />;
   } else if (section === 'teachers') {
     content = access.teachers ? <DataGate states={[teachers, ...(access.cohorts ? [cohorts] : [])]} title="Branch teachers"><TeachersSection state={teachers} cohorts={cohorts} branchId={branchId} canViewCohorts={access.cohorts} canOpenDirectory={teacherDirectoryAllowed} canOpenDetails={teacherDetailAllowed} onNav={onNav} /></DataGate> : <AccessHold section="Teacher information" />;
   } else if (section === 'groups') {
-    content = access.cohorts ? <DataGate states={[cohorts, ...(access.students ? [students] : [])]} title="Branch groups"><GroupsSection state={cohorts} students={students} branchId={branchId} canViewStudents={access.students} canOpenDetails={groupDetailBaseAllowed} onNav={onNav} /></DataGate> : <AccessHold section="Group information" />;
+    content = access.cohorts ? <DataGate states={[cohorts, ...(access.students ? [students] : [])]} title="Branch groups"><GroupsSection state={cohorts} students={students} branchId={branchId} canViewStudents={access.students} canOpenDetails={groupDetailBaseAllowed} canWrite={access.cohortsWrite} onNav={onNav} /></DataGate> : <AccessHold section="Group information" />;
   } else if (section === 'exams') {
     content = access.academics && access.cohorts
       ? <DataGate states={[exams, cohorts]} title="Branch exams"><ExamsSection state={exams} cohortIds={cohortIds} branchId={branchId} onNav={onNav} /></DataGate>

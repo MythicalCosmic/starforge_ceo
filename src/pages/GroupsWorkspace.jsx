@@ -1,8 +1,13 @@
-import { cloneElement, useEffect, useMemo } from 'react';
+import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Icons } from '../components/Icons.jsx';
 import { EmptyState, Skeleton } from '../components/feedback.jsx';
 import { SfAvatar } from '../components/primitives.jsx';
+import { ApplicationUnavailableState } from '../components/AvailabilityState.jsx';
 import { WorkspacePagination } from '../components/WorkspacePrimitives.jsx';
+import { httpRequest } from '../api/http.js';
+import { queryClient } from '../api/queryClient.js';
+import { useOptionalToast, useToast } from '../context/ToastContext.jsx';
 import {
   downloadSpreadsheet,
   useWorkspaceData,
@@ -18,6 +23,8 @@ import {
 } from '../lib/formatters.js';
 import { canUseCapability } from '../lib/permissions.js';
 import { userFacingError } from '../lib/userFacingError.js';
+import { readableValidationDetails } from '../lib/validationPresentation.js';
+import { isServiceUnavailable } from '../lib/appAvailability.js';
 import '../styles/focused-v3.css';
 import '../styles/groups-v3.css';
 
@@ -181,7 +188,7 @@ function safeFilename(value, fallback = 'group') {
 
 function navigate(onNav, to, options) {
   if (typeof onNav === 'function') onNav(to, options);
-  else if (typeof window !== 'undefined') window.location.hash = `#/${to}`;
+  else if (typeof window !== 'undefined') window.location.assign(`/${String(to || '').replace(/^\/+/, '')}`);
 }
 
 function groupsBase(branchId) {
@@ -202,14 +209,18 @@ function directoryRoute(basePath, filters, page = 1) {
 function groupAccess(user) {
   return {
     cohorts: canUseCapability(user, 'cohorts:read'),
+    cohortsWrite: canUseCapability(user, 'cohorts:write'),
     organization: canUseCapability(user, 'org:read'),
     students: canUseCapability(user, 'students:read'),
+    studentsWrite: canUseCapability(user, 'students:write'),
     teachers: canUseCapability(user, 'teachers:read'),
     attendance: canUseCapability(user, 'attendance:read'),
     schedule: canUseCapability(user, 'schedule:read'),
     assignments: canUseCapability(user, 'assignments:read'),
     academics: canUseCapability(user, 'academics:read'),
     finance: canUseCapability(user, 'finance:read'),
+    cover: canUseCapability(user, 'cover:read'),
+    coverApprove: canUseCapability(user, 'cover:approve'),
   };
 }
 
@@ -230,7 +241,7 @@ function RouteLink({ to, onNav, children, className = '', ...props }) {
     <a
       {...props}
       className={className}
-      href={`#/${to}`}
+      href={`/${String(to || '').replace(/^\/+/, '')}`}
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
@@ -279,6 +290,9 @@ function CoverageNote({ complete, loaded, total, children }) {
 }
 
 function QueryFailure({ error, retry, title = 'This section could not be opened' }) {
+  if (isServiceUnavailable(error)) {
+    return <ApplicationUnavailableState label={title.replace(/ could not be opened$/i, '')} status="unavailable" onRetry={retry} compact />;
+  }
   return (
     <div className="gp3-query-state is-error" role="alert">
       <span aria-hidden="true"><Icon source={Icons.flag} size={19} /></span>
@@ -286,6 +300,11 @@ function QueryFailure({ error, retry, title = 'This section could not be opened'
       <button type="button" onClick={() => retry()}>Try again</button>
     </div>
   );
+}
+
+function mutationMessage(error, fallback) {
+  const details = readableValidationDetails(error);
+  return details[0] || userFacingError(error, { fallback });
 }
 
 function LoadingPanel({ lines = 5 }) {
@@ -375,6 +394,123 @@ function DirectoryFilters({ filters, branches, teachers, levels, complete, branc
         <button className="gp3-button" type="button" onClick={() => navigate(onNav, basePath)}>Clear</button>
       ) : null}
     </form>
+  );
+}
+
+function GroupEditor({ id, branchId, access, onNav }) {
+  const editing = Boolean(id);
+  const basePath = groupsBase(branchId);
+  const cancelPath = editing ? `${basePath}/${id}/overview` : basePath;
+  const record = useWorkspaceData(editing ? `/api/v1/cohorts/${id}/` : null, undefined, { enabled: editing });
+  const [form, setForm] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const toast = useToast();
+  const initial = {
+    name: '',
+    branch: branchId || '',
+    department: '',
+    level: '',
+    start_date: todayInOrganization(),
+    end_date: shiftDate(todayInOrganization(), 180),
+    capacity: '',
+    primary_teacher: '',
+    default_room: '',
+    is_archived: false,
+  };
+  const source = form || record.data || initial;
+  const effectiveBranch = String(branchId || source.branch || '');
+  const effectiveDepartment = String(source.department || '');
+  const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: PAGE_SIZE, ordering: 'name' }, { enabled: !branchId && access.organization });
+  const departments = useWorkspaceData('/api/v1/org/departments/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && access.organization });
+  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, department: effectiveDepartment || undefined, ordering: 'last_name' }, { enabled: Boolean(effectiveBranch) && access.teachers });
+  const rooms = useWorkspaceData('/api/v1/org/rooms/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, is_active: true, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && access.organization });
+  useWorkspaceTitle(editing ? record.data?.name || 'Edit group' : 'Create group', 'Groups', editing ? 'edit' : 'new');
+
+  const change = (key, value) => setForm((current) => ({ ...(current || source), [key]: value }));
+  const changeBranch = (value) => setForm((current) => ({
+    ...(current || source),
+    branch: value,
+    department: '',
+    primary_teacher: '',
+    default_room: '',
+  }));
+  const mutation = useMutation({
+    mutationFn: (payload) => httpRequest(
+      editing ? 'PATCH' : 'POST',
+      editing ? `/api/v1/cohorts/${id}/` : '/api/v1/cohorts/',
+      { body: payload },
+    ),
+    onSuccess: (saved) => {
+      setSaveError(null);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.success(editing ? 'Group record updated.' : 'Group created and ready for student enrollment.', { title: editing ? 'Changes saved' : 'Group created' });
+      navigate(onNav, `${basePath}/${saved?.id || id}/overview`);
+    },
+    onError: (failure) => {
+      setSaveError(failure);
+      toast.danger(mutationMessage(failure, 'The group could not be saved.'), { title: 'Group not saved' });
+    },
+  });
+
+  if (editing && record.pending) return <div className="gp3-page"><LoadingPanel lines={9} /></div>;
+  if (editing && (record.error || !record.data)) return <div className="gp3-page"><QueryFailure error={record.error} retry={record.retry} title="This group could not be opened for editing" /></div>;
+  if (branchId && record.data && String(record.data.branch) !== String(branchId)) return <InvalidGroup onNav={onNav} basePath={basePath} mismatch />;
+  if (record.data?.is_archived) {
+    return <div className="gp3-page"><div className="gp3-back-row"><RouteLink to={cancelPath} onNav={onNav}><span aria-hidden="true">←</span> Back to group</RouteLink></div><EmptyState icon={Icons.shield} eyebrow="Archived group" title="Unarchive this group before editing" description="Archived records remain protected from accidental changes. Use the group overview to restore it first." /></div>;
+  }
+
+  const validationDetails = readableValidationDetails(saveError);
+  const selectedOption = (value, rows, label) => value && !rows.some((row) => String(row.id) === String(value))
+    ? <option value={value}>Current {label}</option>
+    : null;
+  const submit = (event) => {
+    event.preventDefault();
+    setSaveError(null);
+    if (source.start_date && source.end_date && source.start_date > source.end_date) {
+      setSaveError({ errors: { end_date: ['Must be on or after the start date.'] } });
+      return;
+    }
+    mutation.mutate({
+      name: String(source.name || '').trim(),
+      branch: Number(branchId || source.branch),
+      department: source.department ? Number(source.department) : null,
+      level: String(source.level || '').trim(),
+      start_date: source.start_date,
+      end_date: source.end_date,
+      capacity: source.capacity === '' || source.capacity == null ? null : Number(source.capacity),
+      primary_teacher: source.primary_teacher ? Number(source.primary_teacher) : null,
+      default_room: source.default_room ? Number(source.default_room) : null,
+      is_archived: Boolean(source.is_archived),
+    });
+  };
+
+  return (
+    <div className="gp3-page gp3-editor-page">
+      <div className="gp3-back-row"><RouteLink to={cancelPath} onNav={onNav}><span aria-hidden="true">←</span> {editing ? 'Back to group' : 'Back to groups'}</RouteLink></div>
+      <header className="gp3-page-head">
+        <div><span className="gp3-eyebrow">Group administration</span><h1>{editing ? `Edit ${text(record.data?.name)}` : 'Create a group'}</h1><p>Define the group once, then enroll students and assign additional or substitute teachers from its operating workspace.</p></div>
+      </header>
+      <form className="fw-form gp3-editor-form" onSubmit={submit}>
+        {saveError ? <div className="fw-form-error" role="alert"><strong>{mutationMessage(saveError, 'Review the group details and try again.')}</strong>{validationDetails.length > 1 ? <ul>{validationDetails.slice(1).map((line) => <li key={line}>{line}</li>)}</ul> : null}</div> : null}
+        <section className="fw-form-section">
+          <header><h2>Group identity</h2><p>Branch and department scope control which students, teachers, and rooms can be connected.</p></header>
+          <label className="is-wide">Group name<input required maxLength="120" value={source.name || ''} onChange={(event) => change('name', event.target.value)} placeholder="For example, IELTS Evening A" /></label>
+          {!branchId ? <label>Branch<select required value={source.branch || ''} onChange={(event) => changeBranch(event.target.value)}><option value="">Select branch</option>{selectedOption(source.branch, branches.rows, 'branch')}{branches.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : <label>Branch<input value={record.data?.branch_name || `Branch ${branchId}`} disabled /></label>}
+          <label>Department<select value={source.department || ''} onChange={(event) => change('department', event.target.value)} disabled={!effectiveBranch || departments.pending}><option value="">No department</option>{selectedOption(source.department, departments.rows, 'department')}{departments.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+          <label>Academic level<input maxLength="64" value={source.level || ''} onChange={(event) => change('level', event.target.value)} placeholder="Optional level" /></label>
+          <label>Capacity<input type="number" inputMode="numeric" min="0" max="32767" value={source.capacity ?? ''} onChange={(event) => change('capacity', event.target.value)} placeholder="Optional" /></label>
+        </section>
+        <section className="fw-form-section">
+          <header><h2>Dates and default resources</h2><p>The main teacher and room are optional. Additional teaching roles can be assigned after saving.</p></header>
+          <label>Start date<input required type="date" value={source.start_date || ''} max={source.end_date || undefined} onChange={(event) => change('start_date', event.target.value)} /></label>
+          <label>End date<input required type="date" value={source.end_date || ''} min={source.start_date || undefined} onChange={(event) => change('end_date', event.target.value)} /></label>
+          {access.teachers ? <label>Main teacher<select value={source.primary_teacher || ''} onChange={(event) => change('primary_teacher', event.target.value)} disabled={!effectiveBranch || teachers.pending}><option value="">Assign later</option>{selectedOption(source.primary_teacher, teachers.rows, 'teacher')}{teachers.rows.map((item) => <option value={item.id} key={item.id}>{item.full_name || item.name}</option>)}</select></label> : null}
+          {access.organization ? <label>Default room<select value={source.default_room || ''} onChange={(event) => change('default_room', event.target.value)} disabled={!effectiveBranch || rooms.pending}><option value="">No default room</option>{selectedOption(source.default_room, rooms.rows, 'room')}{rooms.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : null}
+          {editing ? <label className="fw-check is-wide"><input type="checkbox" checked={Boolean(source.is_archived)} onChange={(event) => change('is_archived', event.target.checked)} /><span><strong>Archive after saving</strong><small>Archived groups remain visible but cannot be changed until restored.</small></span></label> : null}
+        </section>
+        <div className="fw-form-actions"><button type="button" className="gp3-button" onClick={() => navigate(onNav, cancelPath)} disabled={mutation.isPending}>Cancel</button><button type="submit" className="gp3-button is-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving group…' : editing ? 'Save changes' : 'Create group'}</button></div>
+      </form>
+    </div>
   );
 }
 
@@ -499,7 +635,7 @@ function GroupsDirectory({ route, onNav, branchId, access }) {
     <div className="gp3-page gp3-directory">
       <header className="gp3-page-head">
         <div><span className="gp3-eyebrow">Learning operations</span><h1>Groups</h1><p>Compare teaching groups, then open the operating record and connected areas available within your responsibilities.</p></div>
-        <button className="gp3-button" type="button" disabled={!visibleRows.length} onClick={exportRows} title={complete ? 'Downloads every matched group in an Excel-compatible file' : 'Downloads the currently loaded page in an Excel-compatible file'}><Icon source={Icons.doc} size={15} /> Download {complete ? 'filtered' : 'current page'} spreadsheet</button>
+        <div className="gp3-head-actions">{access.cohortsWrite ? <RouteLink className="gp3-button is-primary" to={`${basePath}/new`} onNav={onNav}><Icon source={Icons.plus} size={15} /> Create group</RouteLink> : null}<button className="gp3-button" type="button" disabled={!visibleRows.length} onClick={exportRows} title={complete ? 'Downloads every matched group in an Excel-compatible file' : 'Downloads the currently loaded page in an Excel-compatible file'}><Icon source={Icons.doc} size={15} /> Download {complete ? 'filtered' : 'current page'} spreadsheet</button></div>
       </header>
 
       <DirectoryFilters filters={filters} branches={branchesState.rows} teachers={teachers} levels={levels} complete={complete} branchId={forcedBranch} basePath={basePath} access={access} onNav={onNav} />
@@ -604,6 +740,19 @@ function DateRangeForm({ groupId, section, range, basePath, onNav }) {
   );
 }
 
+function RestoreGroupButton({ cohortId }) {
+  const toast = useOptionalToast();
+  const unarchive = useMutation({
+    mutationFn: () => httpRequest('POST', `/api/v1/cohorts/${cohortId}/unarchive/`, { body: {} }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.success('The group is active and editable again.', { title: 'Group restored' });
+    },
+    onError: (failure) => toast.danger(mutationMessage(failure, 'The group could not be restored.'), { title: 'Group not restored' }),
+  });
+  return <button type="button" className="gp3-button is-primary" onClick={() => unarchive.mutate()} disabled={unarchive.isPending}>{unarchive.isPending ? 'Restoring…' : 'Restore group'}</button>;
+}
+
 function GroupHero({ cohort, basePath, access, onNav }) {
   return (
     <>
@@ -616,7 +765,7 @@ function GroupHero({ cohort, basePath, access, onNav }) {
             {text(cohort.department_name)}<span>·</span>{text(cohort.level, 'Level not recorded')}
           </p></div>
         </div>
-        <div className="gp3-hero-meta"><Status value={cohort.is_archived ? 'archived' : 'active'}>{cohort.is_archived ? 'Archived' : 'Active'}</Status><span>{dateOnly(cohort.start_date)} – {dateOnly(cohort.end_date)}</span></div>
+        <div className="gp3-hero-meta"><Status value={cohort.is_archived ? 'archived' : 'active'}>{cohort.is_archived ? 'Archived' : 'Active'}</Status><span>{dateOnly(cohort.start_date)} – {dateOnly(cohort.end_date)}</span>{access.cohortsWrite && !cohort.is_archived ? <RouteLink className="gp3-button" to={`${basePath}/${cohort.id}/edit`} onNav={onNav}><Icon source={Icons.settings} size={14} /> Edit group</RouteLink> : null}{access.cohortsWrite && cohort.is_archived ? <RestoreGroupButton cohortId={cohort.id} /> : null}</div>
       </header>
     </>
   );
@@ -639,6 +788,70 @@ function TeacherRoster({ rows, cohort, onNav }) {
       <Icon source={Icons.chevR} size={14} />
     </RouteLink>
   ))}</div>;
+}
+
+function TeacherAssignmentManager({ cohort, rows }) {
+  const [teacherId, setTeacherId] = useState('');
+  const [typeId, setTypeId] = useState('');
+  const [error, setError] = useState(null);
+  const toast = useToast();
+  const teachers = useWorkspaceData('/api/v1/teachers/', {
+    page_size: PAGE_SIZE,
+    branch: cohort.branch,
+    department: cohort.department || undefined,
+    is_active: true,
+    ordering: 'last_name',
+  });
+  const types = useWorkspaceData('/api/v1/cohorts/teacher-types/', undefined, { staleTime: 5 * 60_000 });
+  const activeTypes = types.rows.filter((item) => item.is_active !== false);
+  const selectedType = activeTypes.find((item) => String(item.id) === String(typeId))
+    || activeTypes.find((item) => item.is_default)
+    || activeTypes[0];
+  const mutation = useMutation({
+    mutationFn: ({ kind, assignmentId, teacher, teacherType }) => {
+      if (kind === 'remove') return httpRequest('DELETE', `/api/v1/cohorts/${cohort.id}/teachers/${assignmentId}/`);
+      if (selectedType?.slug === 'main-teacher') {
+        return httpRequest('PATCH', `/api/v1/cohorts/${cohort.id}/`, { body: { primary_teacher: Number(teacher) } });
+      }
+      return httpRequest('POST', `/api/v1/cohorts/${cohort.id}/teachers/`, { body: { teacher: Number(teacher), teacher_type: Number(teacherType) } });
+    },
+    onSuccess: (_saved, variables) => {
+      setError(null);
+      setTeacherId('');
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.success(variables.kind === 'remove' ? 'Teacher assignment removed.' : selectedType?.slug === 'main-teacher' ? 'Main teacher updated.' : 'Teacher assigned to the group.', { title: 'Teaching team updated' });
+    },
+    onError: (failure) => {
+      setError(failure);
+      toast.danger(mutationMessage(failure, 'The teaching assignment could not be changed.'), { title: 'Teaching team not changed' });
+    },
+  });
+  const remove = (assignment) => {
+    if (!/^\d+$/.test(String(assignment.id || ''))) return;
+    if (!window.confirm(`Remove ${text(assignment.teacher_name, 'this teacher')} from this group assignment?`)) return;
+    mutation.mutate({ kind: 'remove', assignmentId: assignment.id });
+  };
+
+  return (
+    <details className="gp3-manage-disclosure">
+      <summary><span><Icon source={Icons.settings} size={15} /> Manage teaching team</span><small>Assign a main, additional, video, assistant, or substitute role</small></summary>
+      <div className="gp3-management-panel">
+        {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The teaching assignment could not be changed.')}</div> : null}
+        {(teachers.pending || types.pending) && !teachers.rows.length ? <LoadingPanel lines={2} /> : null}
+        <form className="gp3-inline-form" onSubmit={(event) => {
+          event.preventDefault();
+          if (!teacherId || !selectedType?.id) return;
+          mutation.mutate({ kind: 'assign', teacher: teacherId, teacherType: selectedType.id });
+        }}>
+          <label><span>Teacher</span><select required value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Select an active teacher</option>{teachers.rows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.is_substitute ? ' · Substitute' : ''}</option>)}</select></label>
+          <label><span>Assignment type</span><select required value={typeId || selectedType?.id || ''} onChange={(event) => setTypeId(event.target.value)}><option value="">Select a role</option>{activeTypes.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label>
+          <button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !teacherId || !selectedType?.id}>{mutation.isPending ? 'Updating…' : selectedType?.slug === 'main-teacher' ? 'Set main teacher' : 'Assign teacher'}</button>
+        </form>
+        <p className="gp3-management-note">Teacher choices are restricted to this group’s branch and department. Main-teacher changes replace the current primary assignment; other types add to the team.</p>
+        {rows.length ? <div className="gp3-assignment-actions">{rows.map((assignment) => <div key={assignment.id || `${assignment.teacher}-${assignment.teacher_type}`}><span><strong>{text(assignment.teacher_name)}</strong><small>{text(assignment.teacher_type_name || assignment.role, 'Teacher')}</small></span>{/^\d+$/.test(String(assignment.id || '')) ? <button type="button" className="gp3-button is-danger" onClick={() => remove(assignment)} disabled={mutation.isPending}>Remove</button> : null}</div>)}</div> : null}
+      </div>
+    </details>
+  );
 }
 
 function OverviewSection({ cohort, membersState, teachersState, dashboardState, lessonsState, range, basePath, access, onNav }) {
@@ -722,6 +935,7 @@ function OverviewSection({ cohort, membersState, teachersState, dashboardState, 
         </Panel>
         {access.teachers ? <Panel eyebrow="Teaching" title="Assigned teachers" detail="Open a teacher to continue into their full record.">
           {teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} /> : teachersState.pending ? <LoadingPanel lines={3} /> : <TeacherRoster rows={teachersState.rows} cohort={cohort} onNav={onNav} />}
+          {access.cohortsWrite && !cohort.is_archived && !teachersState.pending ? <TeacherAssignmentManager cohort={cohort} rows={teachersState.rows.length ? teachersState.rows : assignmentRows(cohort)} /> : null}
         </Panel> : null}
       </div>
       {access.schedule ? <Panel eyebrow="Recent activity" title="Lessons in the reporting period" detail={`${dateOnly(range.from)} through ${dateOnly(range.to)}`} action={<RouteLink className="gp3-text-link" to={`${basePath}/${cohort.id}/schedule?from=${range.from}&to=${range.to}`} onNav={onNav}>Full schedule <Icon source={Icons.chevR} size={14} /></RouteLink>}>
@@ -731,7 +945,119 @@ function OverviewSection({ cohort, membersState, teachersState, dashboardState, 
   );
 }
 
-function StudentsSection({ cohort, membersState, dashboardState, canViewAttendance, onNav }) {
+function MembershipManager({ cohort, members, canCreateStudent, onNav }) {
+  const [open, setOpen] = useState(false);
+  const [searchDraft, setSearchDraft] = useState('');
+  const [search, setSearch] = useState('');
+  const [candidateId, setCandidateId] = useState('');
+  const [joinReason, setJoinReason] = useState('');
+  const [memberId, setMemberId] = useState('');
+  const [targetId, setTargetId] = useState('');
+  const [moveReason, setMoveReason] = useState('');
+  const [error, setError] = useState(null);
+  const toast = useToast();
+  const students = useWorkspaceData('/api/v1/students/', {
+    page_size: PAGE_SIZE,
+    branch: cohort.branch,
+    search: search || undefined,
+    ordering: 'last_name',
+  }, { enabled: open });
+  const groups = useWorkspaceData('/api/v1/cohorts/', {
+    page_size: PAGE_SIZE,
+    branch: cohort.branch,
+    is_archived: false,
+    ordering: 'name',
+  }, { enabled: open });
+  const candidates = students.rows.filter((student) => String(student.current_cohort || '') !== String(cohort.id));
+  const selectedCandidate = candidates.find((student) => String(student.id) === String(candidateId));
+  const selectedMember = members.find((member) => String(member.student) === String(memberId));
+  const targetGroups = groups.rows.filter((group) => String(group.id) !== String(cohort.id));
+  const mutation = useMutation({
+    mutationFn: ({ kind, student, target, reason }) => {
+      if (kind === 'enroll') return httpRequest('POST', `/api/v1/cohorts/${cohort.id}/enroll/`, { body: { student: Number(student), start_date: todayInOrganization() } });
+      if (kind === 'move-in') return httpRequest('POST', `/api/v1/cohorts/${cohort.id}/move-student/`, { body: { student: Number(student), reason } });
+      if (kind === 'move-out') return httpRequest('POST', `/api/v1/cohorts/${target}/move-student/`, { body: { student: Number(student), reason } });
+      return httpRequest('POST', `/api/v1/cohorts/${cohort.id}/remove-student/`, { body: { student: Number(student), reason } });
+    },
+    onSuccess: (saved, variables) => {
+      setError(null);
+      setCandidateId('');
+      setJoinReason('');
+      setMemberId('');
+      setTargetId('');
+      setMoveReason('');
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      const messages = {
+        enroll: 'Student enrolled in this group.',
+        'move-in': 'Student moved into this group.',
+        'move-out': 'Student moved to the selected group.',
+        remove: 'Student removed from this group and kept enrolled at the center.',
+      };
+      if (saved?.over_capacity) toast.warning('The move was recorded, but the destination group is now above its recorded capacity.', { title: 'Capacity review needed' });
+      else toast.success(messages[variables.kind], { title: 'Membership updated' });
+    },
+    onError: (failure) => {
+      setError(failure);
+      toast.danger(mutationMessage(failure, 'The student membership could not be changed.'), { title: 'Membership not changed' });
+    },
+  });
+
+  const addOrMove = (event) => {
+    event.preventDefault();
+    if (!selectedCandidate) return;
+    const moving = Boolean(selectedCandidate.current_cohort);
+    if (moving && !joinReason.trim()) {
+      setError({ errors: { reason: ['Record why this student is changing groups.'] } });
+      return;
+    }
+    mutation.mutate({ kind: moving ? 'move-in' : 'enroll', student: selectedCandidate.id, reason: joinReason.trim() });
+  };
+  const moveOut = (event) => {
+    event.preventDefault();
+    if (!selectedMember || !targetId || !moveReason.trim()) return;
+    mutation.mutate({ kind: 'move-out', student: selectedMember.student, target: targetId, reason: moveReason.trim() });
+  };
+  const remove = () => {
+    if (!selectedMember || !moveReason.trim()) {
+      setError({ errors: { reason: ['Record why this student is leaving the group.'] } });
+      return;
+    }
+    if (!window.confirm(`Remove ${text(selectedMember.student_name, 'this student')} from ${text(cohort.name)} without assigning another group?`)) return;
+    mutation.mutate({ kind: 'remove', student: selectedMember.student, reason: moveReason.trim() });
+  };
+
+  return (
+    <details className="gp3-manage-disclosure gp3-membership-manager" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary><span><Icon source={Icons.settings} size={15} /> Manage group membership</span><small>Add, move, or remove students with an auditable reason</small></summary>
+      <div className="gp3-management-panel">
+        {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The membership could not be changed.')}</div> : null}
+        <section className="gp3-management-section">
+          <header><div><strong>Add or move a student here</strong><small>Students already assigned elsewhere use the controlled move workflow automatically.</small></div>{canCreateStudent ? <RouteLink className="gp3-button" to={`students/new?branch=${cohort.branch}&cohort=${cohort.id}`} onNav={onNav}><Icon source={Icons.plus} size={14} /> Create student</RouteLink> : null}</header>
+          <form className="gp3-search-inline" onSubmit={(event) => { event.preventDefault(); setSearch(searchDraft.trim()); setCandidateId(''); }}><label><span>Find a student</span><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} maxLength="100" placeholder="Name, phone, or student ID" /></label><button type="submit" className="gp3-button">Search</button></form>
+          {students.pending ? <LoadingPanel lines={2} /> : students.error ? <QueryFailure error={students.error} retry={students.retry} title="Student choices could not be loaded" /> : (
+            <form className="gp3-inline-form" onSubmit={addOrMove}>
+              <label className="is-wide"><span>Student</span><select required value={candidateId} onChange={(event) => { setCandidateId(event.target.value); setError(null); }}><option value="">Select a student</option>{candidates.map((student) => <option value={student.id} key={student.id}>{student.full_name || student.student_id}{student.current_cohort ? ` · Move from ${student.current_cohort_name || `group ${student.current_cohort}`}` : ' · Not assigned to a group'}</option>)}</select></label>
+              {selectedCandidate?.current_cohort ? <label className="is-wide"><span>Reason for move</span><input required maxLength="64" value={joinReason} onChange={(event) => setJoinReason(event.target.value)} placeholder="For example, level placement change" /></label> : null}
+              <button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !selectedCandidate}>{mutation.isPending ? 'Updating…' : selectedCandidate?.current_cohort ? 'Move into this group' : 'Enroll in this group'}</button>
+            </form>
+          )}
+          {!students.pending && !students.error && !candidates.length ? <p className="gp3-management-note">No eligible students match this search. Try a different name or create a new student record.</p> : null}
+        </section>
+        <section className="gp3-management-section">
+          <header><div><strong>Move or remove a current student</strong><small>A move closes the current membership and creates one in the destination group as a single backend transaction.</small></div></header>
+          <form className="gp3-inline-form" onSubmit={moveOut}>
+            <label><span>Current student</span><select required value={memberId} onChange={(event) => { setMemberId(event.target.value); setError(null); }}><option value="">Select a student</option>{members.map((member) => <option value={member.student} key={member.id || member.student}>{member.student_name}</option>)}</select></label>
+            <label><span>Destination group</span><select required value={targetId} onChange={(event) => setTargetId(event.target.value)} disabled={groups.pending}><option value="">Select another group</option>{targetGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label>
+            <label className="is-wide"><span>Reason</span><input required maxLength="64" value={moveReason} onChange={(event) => setMoveReason(event.target.value)} placeholder="Record the operational reason" /></label>
+            <div className="gp3-inline-actions"><button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !selectedMember || !targetId || !moveReason.trim()}>Move student</button><button type="button" className="gp3-button is-danger" onClick={remove} disabled={mutation.isPending || !selectedMember || !moveReason.trim()}>Remove without another group</button></div>
+          </form>
+        </section>
+      </div>
+    </details>
+  );
+}
+
+function StudentsSection({ cohort, membersState, dashboardState, canViewAttendance, canWrite, canCreateStudent, onNav }) {
   const dashboardByStudent = new Map((dashboardState.data?.students || []).map((row) => [String(row.student), row]));
   const membersComplete = collectionComplete(membersState);
   function exportStudents() {
@@ -752,7 +1078,8 @@ function StudentsSection({ cohort, membersState, dashboardState, canViewAttendan
     });
     downloadSpreadsheet(`${safeFilename(cohort.name)}-students-${todayInOrganization()}.csv`, columns, membersState.rows);
   }
-  return <Panel eyebrow="Membership" title="Students" detail="Current and historical membership, connected to each student's full record." action={<button type="button" className="gp3-button" disabled={!membersState.rows.length} onClick={exportStudents} title="Downloads an Excel-compatible file"><Icon source={Icons.doc} size={14} /> Download spreadsheet</button>}>
+  return <Panel eyebrow="Membership" title="Students" detail="Current membership connected to each student's full record." action={<button type="button" className="gp3-button" disabled={!membersState.rows.length} onClick={exportStudents} title="Downloads an Excel-compatible file"><Icon source={Icons.doc} size={14} /> Download spreadsheet</button>}>
+    {canWrite && !cohort.is_archived ? <MembershipManager cohort={cohort} members={membersState.rows} canCreateStudent={canCreateStudent} onNav={onNav} /> : null}
     {membersState.error ? <QueryFailure error={membersState.error} retry={membersState.retry} /> : membersState.pending ? <LoadingPanel lines={7} /> : membersState.rows.length ? <>
       <CoverageNote complete={membersComplete} loaded={membersState.rows.length} total={membersState.total} />
       {canViewAttendance && dashboardState.error ? <div className="gp3-inline-warning" role="status"><Icon source={Icons.flag} size={15} /><span>Attendance summaries are temporarily unavailable. Membership information below is still current.</span><button type="button" onClick={() => dashboardState.retry()}>Retry attendance</button></div> : null}
@@ -897,13 +1224,48 @@ function AttendanceSection({ cohort, membersState, dashboardState, recordsState,
   </div>;
 }
 
-function ScheduleSection({ cohort, lessonsState, range, basePath, canViewTeachers, onNav }) {
+function CoverAssignmentManager({ cohort, lessons, access }) {
+  const [choices, setChoices] = useState({});
+  const [error, setError] = useState(null);
+  const toast = useToast();
+  const covers = useWorkspaceData('/api/v1/cover/', { page_size: PAGE_SIZE, branch: cohort.branch, status: 'open', ordering: '-created_at' }, { enabled: access.cover });
+  const lessonMap = new Map(lessons.map((lesson) => [String(lesson.id), lesson]));
+  const rows = covers.rows.filter((cover) => lessonMap.has(String(cover.lesson)));
+  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: PAGE_SIZE, branch: cohort.branch, is_active: true, ordering: 'last_name' }, { enabled: access.coverApprove && rows.length > 0 });
+  const mutation = useMutation({
+    mutationFn: ({ cover, action, teacher }) => {
+      const path = action === 'assign'
+        ? `/api/v1/cover/${cover}/assign/`
+        : action === 'open-pool'
+          ? `/api/v1/cover/${cover}/open-pool/`
+          : `/api/v1/cover/${cover}/reject/`;
+      return httpRequest('POST', path, { body: action === 'assign' ? { cover_teacher: Number(teacher) } : {} });
+    },
+    onSuccess: (_saved, variables) => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      const message = variables.action === 'assign' ? 'Cover teacher assigned and the lesson schedule updated.' : variables.action === 'open-pool' ? 'The request is open to eligible teachers in the branch.' : 'The cover request was rejected.';
+      toast.success(message, { title: 'Lesson cover updated' });
+    },
+    onError: (failure) => {
+      setError(failure);
+      toast.danger(mutationMessage(failure, 'The cover request could not be updated.'), { title: failure?.code === 'cover_conflict' ? 'Teacher is not free at this time' : 'Cover not updated' });
+    },
+  });
+  if (!access.cover) return null;
+  return <Panel eyebrow="Absence coverage" title="Open cover requests" detail="Assign another active teacher or open the lesson to the branch pool. Schedule conflicts are verified by the backend before reassignment.">
+    {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The cover request could not be updated.')}</div> : null}
+    {covers.error ? <QueryFailure error={covers.error} retry={covers.retry} title="Lesson-cover requests could not be opened" /> : covers.pending ? <LoadingPanel lines={3} /> : rows.length ? <div className="gp3-cover-list">{rows.map((cover) => { const lesson = lessonMap.get(String(cover.lesson)); const choice = choices[cover.id] || ''; return <article key={cover.id}><div><span className="gp3-activity-icon"><Icon source={Icons.user} size={16} /></span><span><strong>{text(lesson?.title, `Lesson ${cover.lesson}`)}</strong><small>{localDate(lesson?.starts_at)} · {text(lesson?.teacher_name, 'Teacher not recorded')}</small><small>{text(cover.reason, 'No absence reason was recorded')}</small></span><Status value={cover.pool ? 'pool' : cover.status}>{cover.pool ? 'Open pool' : cover.status}</Status></div>{access.coverApprove ? <div className="gp3-cover-actions"><select aria-label={`Cover teacher for ${text(lesson?.title, 'lesson')}`} value={choice} onChange={(event) => setChoices((current) => ({ ...current, [cover.id]: event.target.value }))}><option value="">Select an active teacher</option>{teachers.rows.filter((teacher) => String(teacher.id) !== String(lesson?.teacher)).map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.is_substitute ? ' · Substitute' : ''}</option>)}</select><button type="button" className="gp3-button is-primary" disabled={!choice || mutation.isPending} onClick={() => mutation.mutate({ cover: cover.id, action: 'assign', teacher: choice })}>Assign cover</button><button type="button" className="gp3-button" disabled={cover.pool || mutation.isPending} onClick={() => mutation.mutate({ cover: cover.id, action: 'open-pool' })}>Open to pool</button><button type="button" className="gp3-button is-danger" disabled={mutation.isPending} onClick={() => { if (window.confirm('Reject this open cover request?')) mutation.mutate({ cover: cover.id, action: 'reject' }); }}>Reject</button></div> : null}</article>; })}</div> : <EmptyState icon={Icons.check} eyebrow="Cover board" title="No open cover requests for these lessons" description="A request appears here after the lesson’s assigned teacher records an absence request." />}
+  </Panel>;
+}
+
+function ScheduleSection({ cohort, lessonsState, range, basePath, access, onNav }) {
   return <div className="gp3-section-stack"><DateRangeForm groupId={cohort.id} section="schedule" range={range} basePath={basePath} onNav={onNav} /><Panel eyebrow="Teaching calendar" title="Schedule" detail={`${dateOnly(range.from)} through ${dateOnly(range.to)}`}>
     {lessonsState.error ? <QueryFailure error={lessonsState.error} retry={lessonsState.retry} /> : lessonsState.pending ? <LoadingPanel lines={7} /> : lessonsState.rows.length ? <>
       <CoverageNote complete={collectionComplete(lessonsState)} loaded={lessonsState.rows.length} total={lessonsState.total} />
-      <div className="gp3-table-wrap" role="region" aria-label="Group schedule, scrollable table" tabIndex="0"><table className="gp3-table" aria-label="Group schedule"><thead><tr><th>Date and time</th><th>Lesson</th><th>Teacher</th><th>Room</th><th>Type</th><th>State</th></tr></thead><tbody>{lessonsState.rows.map((lesson) => <tr key={lesson.id}><td><strong>{localDate(lesson.starts_at)}</strong><small>Ends {localDate(lesson.ends_at)}</small></td><td>{text(lesson.title, 'Lesson')}</td><td>{canViewTeachers ? <RouteLink to={`teachers/directory/${lesson.teacher}`} onNav={onNav}>{text(lesson.teacher_name)}</RouteLink> : text(lesson.teacher_name)}</td><td>{text(lesson.room_name)}</td><td>{text(lesson.lesson_type_name)}</td><td><Status value={lesson.status}>{lesson.status}</Status>{lesson.cancel_reason ? <small>{lesson.cancel_reason}</small> : null}</td></tr>)}</tbody></table></div>
+      <div className="gp3-table-wrap" role="region" aria-label="Group schedule, scrollable table" tabIndex="0"><table className="gp3-table" aria-label="Group schedule"><thead><tr><th>Date and time</th><th>Lesson</th><th>Teacher</th><th>Room</th><th>Type</th><th>State</th></tr></thead><tbody>{lessonsState.rows.map((lesson) => <tr key={lesson.id}><td><strong>{localDate(lesson.starts_at)}</strong><small>Ends {localDate(lesson.ends_at)}</small></td><td>{text(lesson.title, 'Lesson')}</td><td>{access.teachers ? <RouteLink to={`teachers/directory/${lesson.teacher}`} onNav={onNav}>{text(lesson.teacher_name)}</RouteLink> : text(lesson.teacher_name)}</td><td>{text(lesson.room_name)}</td><td>{text(lesson.lesson_type_name)}</td><td><Status value={lesson.status}>{lesson.status}</Status>{lesson.cancel_reason ? <small>{lesson.cancel_reason}</small> : null}</td></tr>)}</tbody></table></div>
     </> : <EmptyState icon={Icons.cal} eyebrow="Schedule" title="No lessons are recorded in this period" description="Choose another reporting period to inspect the teaching calendar." />}
-  </Panel></div>;
+  </Panel>{!lessonsState.pending && !lessonsState.error ? <CoverAssignmentManager cohort={cohort} lessons={lessonsState.rows} access={access} /> : null}</div>;
 }
 
 function LearningSection({ assignmentsState }) {
@@ -1020,9 +1382,9 @@ function GroupDetail({ groupId, section, sections, route, onNav, branchId, acces
     <label className="gp3-section-select"><span>Group record section</span><select value={section} onChange={(event) => navigate(onNav, `${basePath}/${cohort.id}/${event.target.value}?from=${range.from}&to=${range.to}`)}>{sections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
     <div className="gp3-detail-content">
         {section === 'overview' ? <OverviewSection cohort={cohort} membersState={membersState} teachersState={teachersState} dashboardState={dashboardState} lessonsState={lessonsState} range={range} basePath={basePath} access={access} onNav={onNav} /> : null}
-        {section === 'students' ? <StudentsSection cohort={cohort} membersState={membersState} dashboardState={dashboardState} canViewAttendance={access.attendance} onNav={onNav} /> : null}
+        {section === 'students' ? <StudentsSection cohort={cohort} membersState={membersState} dashboardState={dashboardState} canViewAttendance={access.attendance} canWrite={access.cohortsWrite} canCreateStudent={access.studentsWrite} onNav={onNav} /> : null}
         {section === 'attendance' ? <AttendanceSection cohort={cohort} membersState={membersState} dashboardState={dashboardState} recordsState={recordsState} lessonsState={lessonsState} range={range} basePath={basePath} onNav={onNav} /> : null}
-        {section === 'schedule' ? <ScheduleSection cohort={cohort} lessonsState={lessonsState} range={range} basePath={basePath} canViewTeachers={access.teachers} onNav={onNav} /> : null}
+        {section === 'schedule' ? <ScheduleSection cohort={cohort} lessonsState={lessonsState} range={range} basePath={basePath} access={access} onNav={onNav} /> : null}
         {section === 'learning' ? <LearningSection assignmentsState={assignmentsState} /> : null}
         {section === 'exams' ? <ExamsSection examsState={examsState} /> : null}
         {section === 'finance' ? <FinanceSection invoicesState={invoicesState} canViewStudents={access.students} onNav={onNav} /> : null}
@@ -1039,18 +1401,23 @@ export function GroupsPage({ route = 'groups', onNav, branchId, user }) {
   const sections = useMemo(() => availableDetailSections(access), [access]);
   const validGroupId = /^\d+$/.test(rawId || '') && Number(rawId) > 0;
   const requestedSection = (branchRoute ? routed.segments[4] : routed.segments[2]) || 'overview';
+  const creating = rawId === 'new';
+  const editing = validGroupId && requestedSection === 'edit';
   const section = sections.some((item) => item.id === requestedSection) ? requestedSection : 'overview';
   const range = routeRange(routed.params);
   const preserveRange = routed.params.has('from') || routed.params.has('to');
 
   useEffect(() => {
-    if (!access.cohorts || !validGroupId || requestedSection === section) return;
+    if (!access.cohorts || !validGroupId || editing || requestedSection === section) return;
     const suffix = preserveRange ? `?from=${range.from}&to=${range.to}` : '';
     navigate(onNav, `${groupsBase(nestedBranch)}/${rawId}/overview${suffix}`, { replace: true, scroll: false });
-  }, [access.cohorts, nestedBranch, onNav, preserveRange, range.from, range.to, rawId, requestedSection, section, validGroupId]);
+  }, [access.cohorts, editing, nestedBranch, onNav, preserveRange, range.from, range.to, rawId, requestedSection, section, validGroupId]);
 
   if (!access.cohorts) return <div className="gp3-page"><EmptyState icon={Icons.shield} eyebrow="Group workspace" title="Group information is outside this scope" description="This workspace stays closed because the signed-in role does not include group records." /></div>;
   if (!rawId) return <GroupsDirectory route={route} onNav={onNav} branchId={branchId} access={access} />;
+  if ((creating || editing) && !access.cohortsWrite) return <div className="gp3-page"><EmptyState icon={Icons.shield} eyebrow="Group administration" title="Group changes are outside this scope" description="Your current role can review group records but cannot create or edit them." action={<button type="button" className="gp3-button" onClick={() => navigate(onNav, groupsBase(nestedBranch))}>Back to groups</button>} /></div>;
+  if (creating) return <GroupEditor branchId={nestedBranch} access={access} onNav={onNav} />;
+  if (editing) return <GroupEditor id={rawId} branchId={nestedBranch} access={access} onNav={onNav} />;
   if (!/^\d+$/.test(rawId) || Number(rawId) < 1) return <InvalidGroup onNav={onNav} basePath={groupsBase(nestedBranch)} />;
   return <GroupDetail groupId={rawId} section={section} sections={sections} route={route} onNav={onNav} branchId={nestedBranch} access={access} />;
 }

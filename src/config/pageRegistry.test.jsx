@@ -31,6 +31,8 @@ describe('leadership page registry', () => {
       'branches',
       'groups',
       'exams',
+      'staff',
+      'departments',
       'star-ai',
       'content',
       'recognition',

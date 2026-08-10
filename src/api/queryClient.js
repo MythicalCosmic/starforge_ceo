@@ -30,7 +30,10 @@ export const queryClient = new QueryClient({
       gcTime: 5 * 60_000,
       retry: retryQuery,
       refetchOnReconnect: true,
-      refetchOnWindowFocus: true,
+      // Leadership views expose explicit refresh controls. Refetching every
+      // stale register when focus returns from DevTools creates a large burst
+      // without improving correctness.
+      refetchOnWindowFocus: false,
       structuralSharing: true,
     },
   },

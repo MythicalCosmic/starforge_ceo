@@ -342,8 +342,8 @@ describe('Finance workspace redesign', () => {
     expect(list).toContain('1 active');
 
     const detail = renderToStaticMarkup(<FinancePage route="finance/invoices/18" onNav={vi.fn()} user={director} />);
-    expect(detail).toContain('href="#/students/directory/44/finance"');
-    expect(detail).toContain('href="#/groups/12/finance"');
+    expect(detail).toContain('href="/students/directory/44/finance"');
+    expect(detail).toContain('href="/groups/12/finance"');
   });
 
   it('translates payment providers and billing periods in management registers', () => {
@@ -369,23 +369,23 @@ describe('Finance workspace redesign', () => {
 
   it('makes expense, refund, and loan registers and overview previews openable', () => {
     const overview = renderToStaticMarkup(<FinancePage route="finance/overview" onNav={vi.fn()} user={director} />);
-    expect(overview).toContain('href="#/finance/expenses/4"');
-    expect(overview).toContain('href="#/finance/refunds/3"');
+    expect(overview).toContain('href="/finance/expenses/4"');
+    expect(overview).toContain('href="/finance/refunds/3"');
 
     const expenses = renderToStaticMarkup(<FinancePage route="finance/expenses" onNav={vi.fn()} user={director} />);
     expect(expenses).toContain('aria-label="Open Classroom rent"');
     expect(expenses).toContain('class="fw-finance-record-link"');
-    expect(expenses).toContain('href="#/finance/expenses/4"');
+    expect(expenses).toContain('href="/finance/expenses/4"');
 
     const refunds = renderToStaticMarkup(<FinancePage route="finance/refunds" onNav={vi.fn()} user={director} />);
     expect(refunds).toContain('aria-label="Open Schedule change"');
     expect(refunds).toContain('class="fw-finance-record-link"');
-    expect(refunds).toContain('href="#/finance/refunds/3"');
+    expect(refunds).toContain('href="/finance/refunds/3"');
 
     const loans = renderToStaticMarkup(<FinancePage route="finance/loans" onNav={vi.fn()} user={director} />);
     expect(loans).toContain('aria-label="Open Laptop advance"');
     expect(loans).toContain('class="fw-finance-record-link"');
-    expect(loans).toContain('href="#/finance/loans/6"');
+    expect(loans).toContain('href="/finance/loans/6"');
   });
 
   it('renders dedicated safe detail pages from verified finance endpoints', () => {
@@ -393,14 +393,14 @@ describe('Finance workspace redesign', () => {
     expect(expenseHtml.match(/<h1>/g)).toHaveLength(1);
     expect(expenseHtml).toContain('<h1>Classroom rent</h1>');
     expect(expenseHtml).toContain('Approval and payment trail');
-    expect(expenseHtml).toContain('href="#/branches/2/finance"');
+    expect(expenseHtml).toContain('href="/branches/2/finance"');
     expect(workspaceTitle).toHaveBeenCalledWith('Classroom rent', 'Finance', 'expense-4');
 
     const refundHtml = renderToStaticMarkup(<FinancePage route="finance/refunds/3" onNav={vi.fn()} user={director} />);
     expect(refundHtml.match(/<h1>/g)).toHaveLength(1);
     expect(refundHtml).toContain('<h1>Refund 3</h1>');
-    expect(refundHtml).toContain('href="#/finance/invoices/18"');
-    expect(refundHtml).not.toContain('href="#/finance/payments/9"');
+    expect(refundHtml).toContain('href="/finance/invoices/18"');
+    expect(refundHtml).not.toContain('href="/finance/payments/9"');
     expect(refundHtml).toContain('Payment reference');
     expect(workspaceTitle).toHaveBeenCalledWith('Refund 3', 'Finance', 'refund-3');
 
@@ -409,7 +409,7 @@ describe('Finance workspace redesign', () => {
     expect(loanHtml).toContain('<h1>Laptop advance</h1>');
     expect(loanHtml).toContain('Recorded repayments');
     expect(loanHtml).toContain('Payroll repayment');
-    expect(loanHtml).not.toContain('href="#/branches/2/finance"');
+    expect(loanHtml).not.toContain('href="/branches/2/finance"');
     expect(workspaceTitle).toHaveBeenCalledWith('Laptop advance', 'Finance', 'loan-6');
 
     expect(workspaceRequests.map(({ path }) => path)).toEqual(expect.arrayContaining([
@@ -424,8 +424,8 @@ describe('Finance workspace redesign', () => {
     ['finance/expenses/999', 'finance/refunds/999', 'finance/loans/999'].forEach((route) => {
       const html = renderToStaticMarkup(<FinancePage route={route} onNav={vi.fn()} user={director} />);
 
-      expect(html).toContain('This view needs another moment');
-      expect(html).toContain('The rest of the workspace remains available.');
+      expect(html).toContain('This view could not be opened');
+      expect(html).toContain('Please try again');
       expect(html).not.toContain('database');
       expect(html).not.toContain('serializer');
       expect(html).not.toContain('traceback');
@@ -496,24 +496,24 @@ describe('Finance workspace redesign', () => {
   it('links only payment relationships that include direct readable fields', () => {
     const readable = renderToStaticMarkup(<FinancePage route="finance/payments/9" onNav={vi.fn()} user={director} />);
 
-    expect(readable).toContain('href="#/finance/invoices/18"');
-    expect(readable).toContain('href="#/students/directory/44/finance"');
-    expect(readable).toContain('href="#/people/parents/71"');
-    expect(readable).toContain('href="#/finance/cashier/81"');
-    expect(readable).toContain('href="#/branches/2/finance"');
+    expect(readable).toContain('href="/finance/invoices/18"');
+    expect(readable).toContain('href="/students/directory/44/finance"');
+    expect(readable).toContain('href="/people/parents/71"');
+    expect(readable).toContain('href="/finance/cashier/81"');
+    expect(readable).toContain('href="/branches/2/finance"');
     expect(readable).toContain('Bank Transfer');
 
     const cashier = renderToStaticMarkup(<FinancePage route="finance/cashier/81" onNav={vi.fn()} user={director} />);
     expect(cashier).toContain('Shift details');
     expect(cashier).toContain('Dilshod Karimov');
-    expect(cashier).toContain('href="#/branches/2/finance"');
+    expect(cashier).toContain('href="/branches/2/finance"');
 
     const bare = renderToStaticMarkup(<FinancePage route="finance/payments/10" onNav={vi.fn()} user={director} />);
-    expect(bare).not.toContain('href="#/finance/invoices/18"');
-    expect(bare).not.toContain('href="#/students/directory/44/finance"');
-    expect(bare).not.toContain('href="#/people/parents/71"');
-    expect(bare).not.toContain('href="#/finance/cashier/81"');
-    expect(bare).not.toContain('href="#/branches/2/finance"');
+    expect(bare).not.toContain('href="/finance/invoices/18"');
+    expect(bare).not.toContain('href="/students/directory/44/finance"');
+    expect(bare).not.toContain('href="/people/parents/71"');
+    expect(bare).not.toContain('href="/finance/cashier/81"');
+    expect(bare).not.toContain('href="/branches/2/finance"');
     expect(bare).toContain('Bare identifiers remain unlinked');
   });
 

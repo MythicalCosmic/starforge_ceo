@@ -147,9 +147,9 @@ describe('branch executive directory', () => {
 
     expect(html).toContain('Branch workspace');
     expect(html).toContain('All branches');
-    expect(html).toContain('href="#/branches"');
-    expect(html).toContain('href="#/branches/2/students"');
-    expect(html).toContain('href="#/branches/2/teachers"');
+    expect(html).toContain('href="/branches"');
+    expect(html).toContain('href="/branches/2/students"');
+    expect(html).toContain('href="/branches/2/teachers"');
   });
 
   it('does not present pending comparison registers as verified zeros', () => {
