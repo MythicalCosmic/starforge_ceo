@@ -8,6 +8,8 @@ const harness = vi.hoisted(() => ({
   loginWithPassword: vi.fn(),
   clearQueryCache: vi.fn(),
   removeSessionItem: vi.fn(),
+  configureBusinessFormatting: vi.fn(),
+  configureHttpSessionPolicy: vi.fn(),
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -40,6 +42,18 @@ vi.mock('../api/config.js', () => ({
 
 vi.mock('../api/queryClient.js', () => ({
   queryClient: { clear: harness.clearQueryCache },
+}));
+
+vi.mock('../api/http.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  configureHttpSessionPolicy: harness.configureHttpSessionPolicy,
+  resetHttpSessionPolicy: vi.fn(),
+}));
+
+vi.mock('../lib/formatters.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  configureBusinessFormatting: harness.configureBusinessFormatting,
+  resetBusinessFormatting: vi.fn(),
 }));
 
 vi.mock('../api/auth.js', () => ({
@@ -89,6 +103,8 @@ describe('cross-tab authentication boundaries', () => {
     harness.loginWithPassword.mockReset().mockResolvedValue({ must_change_password: false });
     harness.clearQueryCache.mockReset();
     harness.removeSessionItem.mockReset();
+    harness.configureBusinessFormatting.mockReset();
+    harness.configureHttpSessionPolicy.mockReset();
 
     vi.stubGlobal('sessionStorage', {
       removeItem: harness.removeSessionItem,
@@ -174,5 +190,28 @@ describe('cross-tab authentication boundaries', () => {
     expect(harness.loginWithPassword).toHaveBeenCalledOnce();
     const setSession = harness.setters[0];
     expect(setSession).toHaveBeenCalledWith(expect.objectContaining({ status: 'anonymous' }));
+  });
+
+  it('does not let a stale bootstrap overwrite the winning session policy', async () => {
+    let resolveFirst;
+    let resolveSecond;
+    harness.getCurrentUser
+      .mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const provider = AuthProvider({ children: null });
+
+    const first = provider.props.value.retry();
+    const second = provider.props.value.retry();
+    const winningUser = { ...user, id: 8, organization_timezone: 'Europe/Paris', read_only_session: true };
+    resolveSecond(winningUser);
+    await second;
+    resolveFirst({ ...user, organization_timezone: 'Asia/Tashkent', read_only_session: false });
+
+    await expect(first).resolves.toBeNull();
+    expect(harness.configureBusinessFormatting).toHaveBeenCalledOnce();
+    expect(harness.configureBusinessFormatting).toHaveBeenCalledWith(winningUser);
+    expect(harness.configureHttpSessionPolicy).toHaveBeenCalledOnce();
+    expect(harness.configureHttpSessionPolicy).toHaveBeenCalledWith(winningUser);
   });
 });

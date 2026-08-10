@@ -131,6 +131,58 @@
   text-align: center;
 }
 
+.ad-shell-v2 .ad-session-policy-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--sf-warn) 42%, var(--sf-border));
+  border-radius: 12px;
+  background: linear-gradient(105deg, color-mix(in srgb, var(--sf-warn-soft) 76%, var(--sf-surface)), var(--sf-surface));
+  color: var(--sf-text);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--sf-warn) 7%, transparent);
+}
+
+.ad-shell-v2 .ad-session-policy-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--sf-warn) 16%, var(--sf-surface));
+  color: var(--sf-warn-ink);
+}
+
+.ad-shell-v2 .ad-session-policy-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ad-shell-v2 .ad-session-policy-copy strong {
+  font-size: 12px;
+  font-weight: 790;
+}
+
+.ad-shell-v2 .ad-session-policy-copy small {
+  color: var(--sf-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.ad-shell-v2 .ad-session-policy-state {
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--sf-warn) 28%, var(--sf-border));
+  border-radius: 999px;
+  color: var(--sf-warn-ink);
+  font-size: 9px;
+  font-weight: 830;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
 .ad-shell-v2[data-navigation='sidebar'] .ad-main {
   min-height: calc(100dvh - 64px);
   scroll-margin-top: 74px;

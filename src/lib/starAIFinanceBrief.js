@@ -10,7 +10,7 @@ function finite(value) {
 }
 
 function money(value) {
-  return formatBusinessMoney(value) || '—';
+  return formatBusinessMoney(value, 'UZS') || '—';
 }
 
 function readable(state) {

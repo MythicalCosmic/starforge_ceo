@@ -6,11 +6,21 @@ import { groupNav } from '../config/roles.js';
 import { usePopover } from '../hooks/useOutsideClick.js';
 import { PreferencesMenu } from './PreferencesMenu.jsx';
 
-function destinationLabel(item, t) {
+const ACCOUNT_SECTION_LABELS = Object.freeze({
+  notifications: 'Notifications',
+  security: 'Security',
+  devices: 'Recognized devices',
+  access: 'My access',
+  workspace: 'Workspace preferences',
+});
+
+function destinationLabel(item, t, route = '') {
   if (item.id === 'settings') {
     return t('shell.workspacePreferences', { defaultValue: 'Workspace preferences' });
   }
   if (item.id === 'account') {
+    const section = String(route).split('?', 1)[0].split('/').filter(Boolean)[1];
+    if (ACCOUNT_SECTION_LABELS[section]) return ACCOUNT_SECTION_LABELS[section];
     return t('shell.myProfile', { defaultValue: 'My profile' });
   }
   return t(item.labelKey, { defaultValue: item.label || item.id });
@@ -344,6 +354,7 @@ export function Topbar({
   cfg,
   current,
   active,
+  route,
   scope,
   navigationLayout = 'sidebar',
   navigatorOpen = false,
@@ -356,7 +367,7 @@ export function Topbar({
   const hasEngagement = cfg.nav.some((item) => item.id === 'engagement');
   const hasAccount = cfg.nav.some((item) => item.id === 'account');
   const currentLabel = current
-    ? destinationLabel(current, t)
+    ? destinationLabel(current, t, route)
     : t('shell.workspace', { defaultValue: 'Workspace' });
 
   return (

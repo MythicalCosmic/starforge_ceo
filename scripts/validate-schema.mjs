@@ -29,13 +29,29 @@ const httpMethods = new Set([
 ]);
 const canonicalPath = (path) => path.replace(/\{[^}]+\}/g, '{}');
 const schemaPathEntries = Object.entries(schema.paths || {});
-const configuredPaths = Object.values(BACKEND_CATALOG).flatMap((module) =>
+// Focused workspaces intentionally sit outside the generic read catalog. Keep
+// their release-critical reads in the same live-schema gate so a green catalog
+// result cannot conceal drift in the login, executive, assessment, session, or
+// student leadership paths.
+const criticalFocusedGets = [
+  '/api/v1/auth/session/',
+  '/api/v1/users/sessions/',
+  '/api/v1/students/{pk}/leadership-profile/',
+  '/api/v1/academics/exams/{pk}/readiness/',
+  '/api/v1/academics/exams/{pk}/history/',
+  '/api/v1/intelligence/executive-summary/',
+];
+const criticalFocusedOperations = [
+  { method: 'delete', path: '/api/v1/users/sessions/{pk}/' },
+];
+const catalogPaths = Object.values(BACKEND_CATALOG).flatMap((module) =>
   module.tabs.flatMap((resource) => [
     resource.path,
     ...(resource.detailPath ? [resource.detailPath] : []),
     ...(resource.related || []).map((relation) => relation.path),
   ]),
 );
+const configuredPaths = [...catalogPaths, ...criticalFocusedGets];
 const duplicates = configuredPaths.filter(
   (path, index) => configuredPaths.indexOf(path) !== index,
 );
@@ -44,6 +60,13 @@ const missingGets = configuredPaths.filter((path) => {
   return !schemaPathEntries.some(
     ([schemaPath, operations]) =>
       canonicalPath(schemaPath) === canonical && Boolean(operations?.get),
+  );
+});
+const missingOperations = criticalFocusedOperations.filter(({ method, path }) => {
+  const canonical = canonicalPath(path);
+  return !schemaPathEntries.some(
+    ([schemaPath, operations]) =>
+      canonicalPath(schemaPath) === canonical && Boolean(operations?.[method]),
   );
 });
 const result = {
@@ -62,13 +85,17 @@ const result = {
     (total, module) => total + module.tabs.length,
     0,
   ),
+  catalogGets: catalogPaths.length,
+  criticalFocusedGets: criticalFocusedGets.length,
+  criticalFocusedOperations: criticalFocusedOperations.length,
   configuredGets: configuredPaths.length,
   missingGets,
+  missingOperations,
   duplicates: [...new Set(duplicates)],
 };
 
 console.log(JSON.stringify(result, null, 2));
 
-if (missingGets.length || duplicates.length) {
+if (missingGets.length || missingOperations.length || duplicates.length) {
   process.exitCode = 1;
 }

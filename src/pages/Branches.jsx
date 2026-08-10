@@ -111,7 +111,7 @@ function number(value) {
 
 function money(value) {
   const parsed = finite(value);
-  return parsed == null || parsed < 0 ? EMPTY : formatBusinessMoney(parsed) || EMPTY;
+  return parsed == null || parsed < 0 ? EMPTY : formatBusinessMoney(parsed, 'UZS') || EMPTY;
 }
 
 function percent(value) {

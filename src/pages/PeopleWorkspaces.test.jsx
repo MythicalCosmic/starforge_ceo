@@ -9,6 +9,7 @@ const omittedTeacherEvidence = vi.hoisted(() => ({ cohort: false, signal: false 
 const teacherSignalOverride = vi.hoisted(() => ({ value: null }));
 const studentInvoices = vi.hoisted(() => []);
 const attendanceOverride = vi.hoisted(() => ({ rows: null }));
+const studentLeadershipOverride = vi.hoisted(() => ({ value: null }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn(), danger: vi.fn() }));
 
 vi.mock('@tanstack/react-query', async (importOriginal) => ({
@@ -35,6 +36,77 @@ const student = {
   is_active: true,
   is_blocked: false,
 };
+
+function studentLeadershipProfile() {
+  return {
+    generated_at: '2026-08-10T10:00:00Z',
+    window: { date_from: '2026-05-13', date_to: '2026-08-10', inclusive: true, timezone: 'Europe/Berlin' },
+    identity: {
+      id: 44,
+      public_student_id: 'DEMO-44',
+      username: 'mohira',
+      full_name: 'Mohira Olimova',
+      first_name: 'Mohira',
+      middle_name: '',
+      last_name: 'Olimova',
+      phone: '+998900000000',
+      email: 'mohira@example.test',
+      birthdate: '2009-04-12',
+      gender: 'f',
+      status: 'accepted',
+      is_active: true,
+      branch: { id: 2, name: 'Central Campus' },
+      current_group: { id: 7, name: 'North Stars', level: 'Intermediate', department: { id: 3, name: 'English' } },
+      academic_level: 'Intermediate',
+      location: 'Tashkent',
+      previous_school: 'School 21',
+      enrollment_date: '2026-01-10',
+      block: { is_blocked: false, blocked_at: null, reason: '' },
+      photo: { available: false, download_url: null },
+    },
+    record_metadata: { created_at: '2026-01-10T10:00:00Z', updated_at: '2026-08-09T10:00:00Z' },
+    learning: {
+      teachers: [{ id: 9, name: 'Dilshod Rahimov', responsibility: 'primary' }],
+      subjects: [{ id: 8, code: 'ENG', name: 'English' }],
+      recent_grades: [{ id: 1 }],
+      recent_exam_results: [],
+      assignments: { assigned: 4, completed: 3, open: 1, late: 0 },
+      latest_transcript: null,
+    },
+    attendance: {
+      metric_definition: '(present + late) / non-excused outcomes',
+      present: 8,
+      late: 1,
+      absent: 1,
+      excused: 2,
+      attended: 9,
+      countable_sessions: 10,
+      attendance_rate_fraction: 0.9,
+      current_attendance_streak: 3,
+      last_attendance: null,
+      per_group: [],
+    },
+    family: { guardians: [], pickup_authorizations: [], consent_flags: null },
+    finance: {
+      window: {
+        billed: { amount_uzs: '1250.00', amount_minor: 125000, currency: 'EUR' },
+        collected: { amount_uzs: '1000.00', amount_minor: 100000, currency: 'EUR' },
+        refunded: { amount_uzs: '0.00', amount_minor: 0, currency: 'EUR' },
+      },
+      all_time: {
+        outstanding: { amount_uzs: '250.00', amount_minor: 25000, currency: 'EUR' },
+        overdue: { amount_uzs: '0.00', amount_minor: 0, currency: 'EUR' },
+        open_invoice_count: 1,
+        overdue_invoice_count: 0,
+      },
+      fee_schedules: [],
+      discounts: [],
+      last_payment: null,
+    },
+    coverage: Object.fromEntries(['identity', 'learning', 'attendance', 'family', 'safeguarding', 'finance'].map((key) => [key, { status: 'available' }])),
+    warnings: [],
+  };
+}
 
 const cohort = {
   id: 7,
@@ -86,9 +158,24 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
         retry: vi.fn(),
       };
     }
+    if (path === '/api/v1/students/44/leadership-profile/' && !studentLeadershipOverride.value) {
+      return {
+        data: null,
+        rows: [],
+        total: 0,
+        pagination: null,
+        loading: false,
+        pending: false,
+        paused: false,
+        error: { status: 404 },
+        complete: false,
+        retry: vi.fn(),
+      };
+    }
     let data = { count: 0, results: [] };
     if (path === '/api/v1/students/') data = { count: 1, results: [student] };
     if (path === '/api/v1/students/44/') data = student;
+    if (path === '/api/v1/students/44/leadership-profile/' && studentLeadershipOverride.value) data = studentLeadershipOverride.value;
     if (path === '/api/v1/students/44/events/') data = {
       count: 1,
       results: [{
@@ -118,17 +205,18 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
       data = { count: results.length, results };
     }
     if (path === '/api/v1/finance/invoices/') data = { count: studentInvoices.length, results: studentInvoices };
-    const rows = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
+    const resolvedRows = Array.isArray(data) ? data : Array.isArray(data.results) ? data.results : [];
+    const rows = enabled ? resolvedRows : [];
     const metadata = path === '/api/v1/students/'
       ? directoryMetadata.students
       : path === '/api/v1/teachers/'
         ? directoryMetadata.teachers
         : null;
     return {
-      data,
+      data: enabled ? data : null,
       rows,
-      total: Number(metadata?.total ?? data.count ?? rows.length),
-      pagination: metadata,
+      total: enabled ? Number(metadata?.total ?? data.count ?? rows.length) : 0,
+      pagination: enabled ? metadata : null,
       loading: false,
       pending: false,
       paused: false,
@@ -157,6 +245,7 @@ describe('People workspace redesign', () => {
     teacherSignalOverride.value = null;
     studentInvoices.splice(0);
     attendanceOverride.rows = null;
+    studentLeadershipOverride.value = null;
   });
 
   it('uses product language for student lifecycle states', () => {
@@ -264,6 +353,53 @@ describe('People workspace redesign', () => {
     expect(html).toContain('href="#/branches/2/overview"');
     expect(html).toContain('href="#/groups/7/overview"');
     expect(html).toContain('href="#/teachers/9/overview"');
+  });
+
+  it('uses one exact-scope leadership snapshot for the student overview before loading drill-down registers', () => {
+    studentLeadershipOverride.value = studentLeadershipProfile();
+
+    const html = renderToStaticMarkup(<StudentsPage route="students/44/overview" onNav={vi.fn()} user={user} />);
+    const enabledPaths = workspaceCalls.filter((call) => call.enabled).map((call) => call.path);
+
+    expect(html).toContain('Permission-pruned leadership snapshot');
+    expect(html).toContain('exact student scope');
+    expect(html).toContain('<span>Visible attendance</span><strong>90%</strong>');
+    expect(html).toContain('<span>Issued billing</span><strong>EUR');
+    expect(html).toContain('href="#/teachers/9/overview"');
+    expect(enabledPaths).toContain('/api/v1/students/44/leadership-profile/');
+    expect(enabledPaths).not.toContain('/api/v1/students/44/');
+    expect(enabledPaths).not.toContain('/api/v1/attendance/records/');
+    expect(enabledPaths).not.toContain('/api/v1/academics/grades/');
+    expect(enabledPaths).not.toContain('/api/v1/finance/invoices/');
+    expect(enabledPaths).not.toContain('/api/v1/cohorts/7/');
+  });
+
+  it('does not probe legacy student endpoints after the leadership aggregate fails', () => {
+    unavailablePaths.add('/api/v1/students/44/leadership-profile/');
+
+    const html = renderToStaticMarkup(<StudentsPage route="students/44/attendance" onNav={vi.fn()} user={user} />);
+    const enabledPaths = workspaceCalls.filter((call) => call.enabled).map((call) => call.path);
+
+    expect(html).toContain('This view needs another moment');
+    expect(enabledPaths).toContain('/api/v1/students/44/leadership-profile/');
+    expect(enabledPaths).not.toContain('/api/v1/students/44/');
+    expect(enabledPaths).not.toContain('/api/v1/attendance/records/');
+    expect(enabledPaths).not.toContain('/api/v1/intelligence/risk/44/');
+  });
+
+  it('fails closed when a leadership aggregate identifies a different student', () => {
+    const mismatched = studentLeadershipProfile();
+    studentLeadershipOverride.value = {
+      ...mismatched,
+      identity: { ...mismatched.identity, id: 45 },
+    };
+
+    const html = renderToStaticMarkup(<StudentsPage route="students/44/overview" onNav={vi.fn()} user={user} />);
+    const enabledPaths = workspaceCalls.filter((call) => call.enabled).map((call) => call.path);
+
+    expect(html).toContain('Student not found');
+    expect(enabledPaths).not.toContain('/api/v1/students/44/');
+    expect(enabledPaths).not.toContain('/api/v1/attendance/records/');
   });
 
   it('translates enrollment event codes into readable history copy', () => {

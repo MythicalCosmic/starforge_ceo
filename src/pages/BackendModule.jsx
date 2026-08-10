@@ -85,8 +85,8 @@ function formatDate(value, dateOnly = false) {
   return formatOrganizationDate(value, { dateOnly }) || EMPTY;
 }
 
-function formatMoney(value) {
-  return formatBusinessMoney(value) || EMPTY;
+function formatMoney(value, currency) {
+  return formatBusinessMoney(value, currency) || EMPTY;
 }
 
 function formatBytes(value) {
@@ -153,7 +153,10 @@ export function RenderedValue({ field, row, detail = false, links = true }) {
   }
   if (field.format === 'datetime') return formatDate(value);
   if (field.format === 'date') return formatDate(value, true);
-  if (field.format === 'money') return <span className="sf-mono">{formatMoney(value)}</span>;
+  if (field.format === 'money') {
+    const explicitCurrency = /(?:^|_)uzs(?:_|$)/i.test(String(field.key || '')) ? 'UZS' : undefined;
+    return <span className="sf-mono">{formatMoney(value, explicitCurrency)}</span>;
+  }
   if (field.format === 'bytes') return <span className="sf-mono">{formatBytes(value)}</span>;
   if (field.format === 'minutes') {
     const numeric = toFiniteBusinessNumber(value);

@@ -43,6 +43,8 @@ export function hasCapability(capabilities, permission) {
 // /users/me/. Preserve their UI compatibility only when the field is absent;
 // a present but malformed/empty field remains fail-closed.
 export function canUseCapability(user, permission) {
+  const [, action = ''] = String(permission || '').split(':');
+  if (user?.read_only_session === true && action !== 'read') return false;
   const capabilities = effectiveCapabilities(user);
   return capabilities === null || hasCapability(capabilities, permission);
 }

@@ -160,4 +160,19 @@ describe('backend-off design preview', () => {
     expect(response.data.finance.collected).toEqual({ amount_minor: collectedMinor, currency: 'UZS' });
     expect(response.data.coverage.finance.status).toBe('complete');
   });
+
+  it('permission-prunes manager student leadership snapshots', async () => {
+    vi.stubGlobal('window', { location: { search: '?role=manager' } });
+
+    const profile = await mockHttpRequest(
+      'GET',
+      '/api/v1/students/101/leadership-profile/',
+    );
+
+    expect(profile.identity.branch).toMatchObject({ id: 1, name: 'Central Campus' });
+    expect(profile.coverage.family).toEqual({ status: 'not_authorized' });
+    expect(profile.coverage.finance).toEqual({ status: 'not_authorized' });
+    expect(profile).not.toHaveProperty('family');
+    expect(profile).not.toHaveProperty('finance');
+  });
 });

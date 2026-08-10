@@ -1,13 +1,17 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { configureBusinessFormatting, resetBusinessFormatting } from '../lib/formatters.js';
 import { managementQueryState } from '../lib/managementQuery.js';
 import { RenderedValue } from './BackendModule.jsx';
 
 function renderField(format, value, extra = {}) {
+  const key = extra.key || 'value';
   return renderToStaticMarkup(
-    <RenderedValue field={{ key: 'value', format, ...extra }} row={{ value }} />,
+    <RenderedValue field={{ key, format, ...extra }} row={{ value, [key]: value }} />,
   );
 }
+
+afterEach(() => resetBusinessFormatting());
 
 describe('management record numeric presentation', () => {
   it.each(['number', 'percent', 'count', 'bytes', 'minutes'])(
@@ -31,6 +35,13 @@ describe('management record numeric presentation', () => {
   it('shows malformed numeric text as unavailable', () => {
     expect(renderField('number', 'not-a-number')).toContain('—');
     expect(renderField('percent', 'not-a-rate')).toContain('—');
+  });
+
+  it('preserves explicit UZS fields while using the presentation currency for neutral money', () => {
+    configureBusinessFormatting({ primary_currency: 'EUR' });
+
+    expect(renderField('money', '1250', { key: 'budget' })).toContain('EUR');
+    expect(renderField('money', '1250', { key: 'amount_uzs' })).toContain('UZS');
   });
 });
 

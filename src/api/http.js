@@ -18,7 +18,21 @@ export class ApiError extends Error {
   }
 }
 
+let readOnlySession = false;
+
+// The backend remains authoritative and rejects every unsafe request made by
+// an impersonation/restricted session. Mirroring that policy here prevents a
+// stale or accidentally visible control from sending a mutation at all.
+export function configureHttpSessionPolicy(value) {
+  readOnlySession = value === true || value?.read_only_session === true;
+}
+
+export function resetHttpSessionPolicy() {
+  readOnlySession = false;
+}
+
 function invalidateUnauthorizedSession(responseId) {
+  resetHttpSessionPolicy();
   queryClient.clear();
   try {
     sessionStorage.removeItem(API_CONFIG.legacyTokenKey);
@@ -158,15 +172,22 @@ export async function httpRequest(method, path, {
   if (!trustedPath || !safeSegments) {
     throw new ApiError(0, 'This view could not be prepared. Please try again.');
   }
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod);
+  if (readOnlySession && unsafe && path !== '/api/v1/auth/logout/') {
+    throw new ApiError(
+      403,
+      'This is a view-only session. Sign in directly to make changes.',
+      { code: 'read_only_session' },
+    );
+  }
   if (import.meta.env.DEV && API_CONFIG.useMock) {
     const { mockHttpRequest } = await import('./mockFixtures.js');
-    return mockHttpRequest(method, path, { params, body, signal, withMeta, auth });
+    return mockHttpRequest(normalizedMethod, path, { params, body, signal, withMeta, auth });
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   const id = requestId();
-  const normalizedMethod = String(method || 'GET').toUpperCase();
-  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod);
   const suppliedCsrfToken = typeof csrfToken === 'string' ? csrfToken.trim() : '';
   const requestCsrfToken = unsafe ? suppliedCsrfToken || csrfCookie().trim() : '';
   const safeIdempotencyKey = typeof idempotencyKey === 'string' &&

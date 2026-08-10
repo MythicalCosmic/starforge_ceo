@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_CONFIG } from './config.js';
-import { ApiError, httpRequest } from './http.js';
+import {
+  ApiError,
+  configureHttpSessionPolicy,
+  httpRequest,
+  resetHttpSessionPolicy,
+} from './http.js';
 
 function memoryStorage(entries = []) {
   const values = new Map(entries);
@@ -34,6 +39,7 @@ describe('httpRequest', () => {
   let browserWindow;
 
   beforeEach(() => {
+    resetHttpSessionPolicy();
     session = memoryStorage();
     persistent = memoryStorage();
     browserWindow = new EventTarget();
@@ -44,6 +50,7 @@ describe('httpRequest', () => {
   });
 
   afterEach(() => {
+    resetHttpSessionPolicy();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -102,6 +109,18 @@ describe('httpRequest', () => {
     expect(init.headers).not.toHaveProperty('Authorization');
     expect(init.headers['X-CSRFToken']).toBe('login-csrf');
     expect(init.headers['X-Session-Transport']).toBe('cookie');
+  });
+
+  it('blocks unsafe requests locally for view-only sessions but still permits logout', async () => {
+    configureHttpSessionPolicy({ read_only_session: true });
+
+    await expect(httpRequest('PATCH', '/api/v1/users/me/', { body: { first_name: 'Changed' } }))
+      .rejects.toMatchObject({ status: 403, code: 'read_only_session' });
+    expect(fetch).not.toHaveBeenCalled();
+
+    fetch.mockResolvedValue(response({ body: { success: true, data: null } }));
+    await expect(httpRequest('POST', '/api/v1/auth/logout/')).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it('does not forward unknown session transports and falls back to the CSRF cookie', async () => {

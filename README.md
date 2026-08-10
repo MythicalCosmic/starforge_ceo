@@ -168,10 +168,11 @@ honest empty state with a preview notice. It has no persistent record store,
 mutation layer, authorization proof, or production-contract value, and it
 makes no business-data request to a live tenant.
 
-Use `?role=manager` to inspect the conservative manager navigation. URL role
-switching works only in the Vite development server with preview mode explicitly
-enabled. Every production build rejects `VITE_USE_MOCK=true`; live role and
-scope always come from `/api/v1/users/me/`.
+Use `?role=manager` to inspect the conservative manager navigation and
+`?read_only=true` to inspect restricted-session UI. These URL switches work
+only in the Vite development server with preview mode explicitly enabled.
+Every production build rejects `VITE_USE_MOCK=true`; live role, scope, and
+session policy always come from `/api/v1/users/me/`.
 
 Never put a session key, password, API key, or other credential in a `VITE_*`
 variable. Vite values are public bundle content. The browser session key is
@@ -197,10 +198,14 @@ stored by, browser JavaScript.
    explicit unconfirmed-session warning and retry action.
 
 The hardened companion response exposes deterministic effective permissions,
-branch/department scopes, readable membership names, organization locale, and
-primary currency directly from `/users/me/`. Organization timezone and a
-server-enforced read-only-session flag remain explicit production contract
-gaps in the [backend product requirements](docs/BACKEND_PRODUCT_REQUIREMENTS_2026-08-01.md).
+branch/department scopes, readable membership names, organization locale,
+organization timezone, primary currency, and the server-enforced read-only
+session state directly from `/users/me/`. The console applies the locale and
+timezone to business dates, uses the presentation currency only for
+currency-neutral values, and preserves explicit response currencies such as
+finance v1's `_uzs` ledger fields. It removes mutation controls for restricted
+sessions and also blocks unsafe requests locally while the backend remains
+authoritative.
 
 ## Data loading and cache
 

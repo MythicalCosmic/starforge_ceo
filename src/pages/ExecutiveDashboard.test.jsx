@@ -163,6 +163,11 @@ describe('executive dashboard snapshot', () => {
     const summary = requests.find((request) => request.path === '/api/v1/intelligence/executive-summary/');
     expect(summary.params).toEqual({ branch: '2', date_from: '2026-05-01', date_to: '2026-08-02' });
     expect(summary.options.enabled).toBe(true);
+    const attendance = requests.find((request) => request.path === '/api/v1/attendance/records/');
+    expect(attendance.params).toMatchObject({
+      date_from: '2026-05-01T00:00:00+05:00',
+      date_to: '2026-08-02T23:59:59+05:00',
+    });
     ['/api/v1/students/stats/', '/api/v1/payments/', '/api/v1/finance/expenses/'].forEach((path) => {
       expect(requests.find((request) => request.path === path)?.options.enabled).toBe(false);
     });
@@ -170,6 +175,19 @@ describe('executive dashboard snapshot', () => {
     expect(html).toContain('90.6%');
     expect(html).toContain('Exact management snapshot');
     expect(html).toContain('Headline student, attendance, and money totals share one permission-pruned management snapshot');
+  });
+
+  it('does not relabel the UZS ledger when the tenant presentation currency differs', () => {
+    const html = renderToStaticMarkup(
+      <ExecutiveDashboardPage
+        route="overview"
+        onNav={vi.fn()}
+        user={{ first_name: 'Demo', primary_currency: 'EUR' }}
+      />,
+    );
+
+    expect(html).toContain('Issued billing in view</span><strong>UZS\u00a01,250,000</strong>');
+    expect(html).not.toContain('Issued billing in view</span><strong>EUR');
   });
 
   it('disables the organization snapshot when a teacher filter needs relationship-scoped detail', () => {

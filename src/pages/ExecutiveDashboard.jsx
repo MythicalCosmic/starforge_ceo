@@ -22,6 +22,7 @@ import {
   formatOrganizationTime,
   isValidDateInput,
   organizationDateInput,
+  organizationDateTimeInput,
   organizationHour,
   shiftDateInput,
 } from '../lib/formatters.js';
@@ -101,14 +102,14 @@ function percent(value) {
 
 function money(value) {
   const amount = finite(value);
-  return amount == null ? '\u2014' : formatBusinessMoney(amount) || '\u2014';
+  return amount == null ? '\u2014' : formatBusinessMoney(amount, 'UZS') || '\u2014';
 }
 
 function snapshotMoney(value) {
   const rawMinor = value?.amount_minor;
   const normalizedMinor = typeof rawMinor === 'string' ? rawMinor.trim() : rawMinor;
   if (
-    String(value?.currency || '').toUpperCase() !== 'UZS' ||
+    String(value?.currency || '').trim().toUpperCase() !== 'UZS' ||
     (typeof normalizedMinor !== 'number' && typeof normalizedMinor !== 'string') ||
     (typeof normalizedMinor === 'string' && !/^\d+$/.test(normalizedMinor))
   ) return null;
@@ -417,11 +418,14 @@ export function ExecutiveDashboardPage({ user, route, onNav }) {
   const branchSignalsState = useWorkspaceData('/api/v1/intelligence/branches/', PAGE_100, { enabled: detailReady });
   const teacherSignalsState = useWorkspaceData('/api/v1/intelligence/teachers/', PAGE_100, { enabled: detailReady });
   const riskState = useWorkspaceData('/api/v1/intelligence/risk/', { page_size: 100 }, { enabled: detailReady });
+  const attendanceFrom = organizationDateTimeInput(filters.from);
+  const attendanceTo = organizationDateTimeInput(filters.to, { endOfDay: true });
+  const attendanceWindowValid = Boolean(attendanceFrom && attendanceTo);
   const attendanceState = useWorkspaceData('/api/v1/attendance/records/', {
     page_size: 100,
-    date_from: `${filters.from}T00:00:00+05:00`,
-    date_to: `${filters.to}T23:59:59+05:00`,
-  }, { enabled: detailReady });
+    date_from: attendanceFrom,
+    date_to: attendanceTo,
+  }, { enabled: detailReady && attendanceWindowValid });
   const financialWindow = {
     page_size: 100,
     branch: scopeReady && filters.branch !== 'all' ? filters.branch : undefined,

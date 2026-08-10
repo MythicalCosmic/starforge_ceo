@@ -13,6 +13,7 @@ import {
   formatBusinessMoney,
   formatBusinessNumber,
   formatOrganizationDate,
+  formatOrganizationTime,
   organizationDateInput,
 } from '../lib/formatters.js';
 import { canUseCapability } from '../lib/permissions.js';
@@ -116,13 +117,7 @@ function localDate(value) {
 }
 
 function timeOnly(value) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '—';
-  return new Intl.DateTimeFormat('en', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'Asia/Tashkent',
-  }).format(parsed);
+  return formatOrganizationTime(value, { includeTimeZone: false }) || '—';
 }
 
 function todayInOrganization() {

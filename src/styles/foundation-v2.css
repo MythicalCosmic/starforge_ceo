@@ -80,6 +80,7 @@ textarea:focus-visible,
   .ad-scrim,
   .ad-skip-link,
   .ad-preview-note,
+  .ad-session-policy-note,
   .sf-toast-viewport { display: none !important; }
 
   .sf-route-stage { animation: none !important; }

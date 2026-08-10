@@ -128,12 +128,12 @@ function paymentIntentKey() {
 
 function money(value) {
   const parsed = finiteAmount(value);
-  return parsed == null ? '—' : formatBusinessMoney(parsed) || '—';
+  return parsed == null ? '—' : formatBusinessMoney(parsed, 'UZS') || '—';
 }
 
 function signedMoney(value) {
   const parsed = finiteSignedAmount(value);
-  return parsed == null ? '—' : formatBusinessMoney(parsed) || '—';
+  return parsed == null ? '—' : formatBusinessMoney(parsed, 'UZS') || '—';
 }
 
 function id(value) {

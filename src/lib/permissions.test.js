@@ -51,6 +51,13 @@ describe('effective permission presentation', () => {
     expect(canUseCapability({ effective_permissions: null }, 'teachers:write')).toBe(false);
   });
 
+  it('suppresses mutation controls for a backend-declared view-only session', () => {
+    const user = { read_only_session: true, effective_permissions: ['*:*'] };
+    expect(canUseCapability(user, 'teachers:read')).toBe(true);
+    expect(canUseCapability(user, 'teachers:write')).toBe(false);
+    expect(canUseCapability(user, 'academics:catalogue')).toBe(false);
+  });
+
   it('extracts declared grants from legacy prose and authorizes any supported grant', () => {
     expect(declaredPermissions('students:read; finance events require finance:read'))
       .toEqual(['students:read', 'finance:read']);

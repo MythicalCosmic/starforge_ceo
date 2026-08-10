@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
+  businessFormatting,
+  configureBusinessFormatting,
   formatBusinessMoney,
   formatBusinessNumber,
   formatGender,
@@ -7,9 +9,13 @@ import {
   fractionToPercent,
   isValidDateInput,
   organizationDateInput,
+  organizationDateTimeInput,
+  resetBusinessFormatting,
   shiftDateInput,
   toFiniteBusinessNumber,
 } from './formatters.js';
+
+afterEach(() => resetBusinessFormatting());
 
 describe('executive format contracts', () => {
   it('accepts fraction boundaries and rejects percent-shaped values', () => {
@@ -36,6 +42,10 @@ describe('executive format contracts', () => {
   it('formats large integer money without binary rounding', () => {
     expect(formatBusinessMoney('9007199254740993', 'UZS'))
       .toContain('9,007,199,254,740,993');
+    expect(formatBusinessMoney('9007199254740993.50', 'UZS'))
+      .toContain('9,007,199,254,740,993.5');
+    expect(formatBusinessMoney('9007199254740993.50', 'UZS'))
+      .not.toContain('9,007,199,254,740,994');
   });
 
   it('keeps date-only values on their written calendar day', () => {
@@ -52,6 +62,50 @@ describe('executive format contracts', () => {
   it('derives date inputs in the organization timezone instead of UTC', () => {
     expect(organizationDateInput(new Date('2026-07-31T23:30:00Z'))).toBe('2026-08-01');
     expect(shiftDateInput('2026-08-01', -29)).toBe('2026-07-03');
+  });
+
+  it('uses validated organization presentation defaults from the session bootstrap', () => {
+    configureBusinessFormatting({
+      organization_locale: 'de_DE',
+      organization_timezone: 'Pacific/Kiritimati',
+      primary_currency: 'EUR',
+    });
+
+    expect(businessFormatting()).toEqual({
+      locale: 'de-DE',
+      timeZone: 'Pacific/Kiritimati',
+      currency: 'EUR',
+    });
+    expect(organizationDateInput(new Date('2026-07-31T11:30:00Z'))).toBe('2026-08-01');
+    expect(organizationDateTimeInput('2026-08-01')).toBe('2026-08-01T00:00:00+14:00');
+    expect(organizationDateTimeInput('2026-08-01', { endOfDay: true }))
+      .toBe('2026-08-01T23:59:59+14:00');
+    expect(formatBusinessMoney('1250.50')).toContain('EUR');
+    expect(formatBusinessMoney('1250.50', 'UZS')).toContain('UZS');
+  });
+
+  it('falls back safely when bootstrap formatting values are malformed', () => {
+    configureBusinessFormatting({
+      organization_locale: 'not a locale!',
+      organization_timezone: 'Outside/Reality',
+      primary_currency: 'bad-value',
+    });
+
+    expect(businessFormatting()).toEqual({
+      locale: 'en',
+      timeZone: 'Asia/Tashkent',
+      currency: 'UZS',
+    });
+    expect(() => formatOrganizationDate('2026-08-01T00:00:00Z')).not.toThrow();
+  });
+
+  it('uses the correct offset on both sides of an organization DST change', () => {
+    configureBusinessFormatting({ organization_timezone: 'America/New_York' });
+
+    expect(organizationDateTimeInput('2026-03-08'))
+      .toBe('2026-03-08T00:00:00-05:00');
+    expect(organizationDateTimeInput('2026-03-08', { endOfDay: true }))
+      .toBe('2026-03-08T23:59:59-04:00');
   });
 
   it('rejects impossible calendar inputs before shifting them', () => {

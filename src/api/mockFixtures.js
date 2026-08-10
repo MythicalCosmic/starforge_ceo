@@ -782,6 +782,10 @@ const STATIC = Object.freeze({
   '/api/v1/users/devices/': [
     { id: 'preview-device', platform: 'web', device_name: 'Design preview', is_current: true, last_seen_at: '2026-08-02T01:00:00Z', sample_only: true },
   ],
+  '/api/v1/users/sessions/': [
+    { id: 9801, platform: 'web', device: 'Linux', browser: 'Chrome', created_at: '2026-08-02T00:45:00Z', last_activity_at: '2026-08-02T01:00:00Z', expires_at: '2026-08-16T00:45:00Z', idle_expires_at: '2026-08-03T01:00:00Z', current_session: true, read_only: false, sample_only: true },
+    { id: 9802, platform: 'ios', device: 'iPhone', browser: 'Safari', created_at: '2026-07-30T06:30:00Z', last_activity_at: '2026-08-01T15:20:00Z', expires_at: '2026-08-13T06:30:00Z', idle_expires_at: '2026-08-02T15:20:00Z', current_session: false, read_only: false, sample_only: true },
+  ],
   '/api/v1/notifications/unread-count/': { count: 1, sample_only: true },
 });
 
@@ -979,6 +983,287 @@ function amountMinor(rows, key, predicate = () => true) {
   return Math.round(rows.filter(predicate).reduce((total, row) => total + Number(row[key] || 0), 0) * 100);
 }
 
+function leadershipMoney(amount) {
+  const value = Number(amount || 0);
+  return {
+    amount_uzs: value.toFixed(2),
+    amount_minor: Math.round(value * 100),
+    currency: 'UZS',
+  };
+}
+
+function buildStudentLeadershipProfile(studentId, params = {}) {
+  const student = scopedRows(STUDENTS, '/api/v1/students/')
+    .find((item) => String(item.id) === String(studentId));
+  if (!student) return null;
+
+  const dateFrom = String(params.date_from || '2026-05-05').slice(0, 10);
+  const dateTo = String(params.date_to || PREVIEW_NOW).slice(0, 10);
+  const inWindow = (value) => {
+    const date = String(value || '').slice(0, 10);
+    return Boolean(date && date >= dateFrom && date <= dateTo);
+  };
+  const cohort = cohortById(student.current_cohort);
+  const branch = ORG_BRANCHES.find((item) => item.id === student.branch);
+  const department = DEPARTMENTS.find((item) => item.id === cohort?.department);
+
+  const attendanceRows = ATTENDANCE
+    .filter((row) => row.student === student.id && inWindow(row.lesson_starts_at))
+    .sort((left, right) => String(left.lesson_starts_at).localeCompare(String(right.lesson_starts_at)));
+  const attendanceTotals = attendanceSummary(attendanceRows);
+  const latestAttendance = attendanceRows.at(-1) || null;
+  const latestAbsenceIndex = attendanceRows.findLastIndex((row) => row.status === 'absent');
+  const currentAttendanceStreak = attendanceRows
+    .slice(latestAbsenceIndex + 1)
+    .filter((row) => ['present', 'late'].includes(row.status)).length;
+  const attendanceByCohort = new Map();
+  attendanceRows.forEach((row) => {
+    if (!attendanceByCohort.has(row.cohort)) attendanceByCohort.set(row.cohort, []);
+    attendanceByCohort.get(row.cohort).push(row);
+  });
+
+  const publishedGrades = GRADES
+    .filter((grade) => grade.student === student.id && grade.is_published)
+    .sort((left, right) => String(right.computed_at).localeCompare(String(left.computed_at)))
+    .slice(0, 10);
+  const publishedResults = EXAM_RESULTS
+    .map((result) => ({ result, exam: EXAMS.find((exam) => exam.id === result.exam) }))
+    .filter(({ result, exam }) => result.student === student.id && exam?.is_published && inWindow(exam.exam_date))
+    .sort((left, right) => String(right.exam.exam_date).localeCompare(String(left.exam.exam_date)))
+    .slice(0, 10);
+  const subjectIds = new Set([
+    ...publishedGrades.map((grade) => grade.subject),
+    ...publishedResults.map(({ exam }) => exam.subject),
+  ]);
+  const assignments = ASSIGNMENTS.filter((assignment) => (
+    assignment.cohort === student.current_cohort &&
+    ['published', 'closed'].includes(assignment.status) &&
+    inWindow(assignment.due_at)
+  ));
+
+  const guardians = GUARDIANS.filter((guardian) => guardian.student === student.id).map((guardian) => {
+    const parent = PARENTS.find((item) => item.id === guardian.parent);
+    return {
+      id: guardian.id,
+      parent: guardian.parent,
+      name: guardian.parent_name,
+      relationship: guardian.relationship,
+      is_primary: guardian.is_primary,
+      contacts: {
+        phone: parent?.phone || null,
+        email: parent?.email || null,
+        verification_status: 'not_recorded',
+      },
+      custody_notes: guardian.custody_notes,
+    };
+  });
+  const pickupAuthorizations = PICKUPS
+    .filter((pickup) => pickup.student === student.id && pickup.is_active)
+    .map((pickup) => ({
+      id: pickup.id,
+      name: pickup.full_name,
+      phone: pickup.phone,
+      relationship: pickup.relationship,
+    }));
+
+  const studentInvoices = INVOICES.filter((invoice) => invoice.student === student.id);
+  const billedStatuses = new Set(['issued', 'partially_paid', 'paid', 'overdue']);
+  const openStatuses = new Set(['issued', 'partially_paid', 'overdue']);
+  const windowInvoices = studentInvoices.filter((invoice) => billedStatuses.has(invoice.status) && inWindow(invoice.issue_date));
+  const allocations = studentInvoices.flatMap((invoice) => (invoice.allocations || []).map((allocation) => ({
+    ...allocation,
+    invoice,
+  })));
+  const windowAllocations = allocations.filter((allocation) => inWindow(allocation.created_at));
+  const completedRefunds = REFUNDS.filter((refund) => (
+    refund.state === 'completed' &&
+    studentInvoices.some((invoice) => invoice.id === refund.invoice) &&
+    inWindow(refund.created_at)
+  ));
+  const openInvoices = studentInvoices.filter((invoice) => openStatuses.has(invoice.status));
+  const overdueInvoices = studentInvoices.filter((invoice) => invoice.status === 'overdue');
+  const latestAllocation = allocations
+    .slice()
+    .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))[0] || null;
+  const latestPayment = latestAllocation
+    ? PAYMENTS.find((payment) => payment.id === latestAllocation.payment_id)
+    : null;
+  const coverageWindow = { date_from: dateFrom, date_to: dateTo, inclusive: true };
+  const includeFamily = previewRole() !== 'manager';
+  const includeFinance = previewRole() !== 'manager';
+
+  return {
+    generated_at: '2026-08-02T01:00:00+05:00',
+    window: { ...coverageWindow, timezone: branch?.timezone || 'Asia/Tashkent' },
+    identity: {
+      id: student.id,
+      public_student_id: student.student_id,
+      username: student.username || null,
+      full_name: student.full_name,
+      first_name: student.first_name,
+      middle_name: student.middle_name || '',
+      last_name: student.last_name,
+      phone: student.phone || '',
+      email: student.email || '',
+      birthdate: student.birthdate || null,
+      gender: student.gender || '',
+      status: student.status,
+      is_active: student.is_active,
+      branch: { id: student.branch, name: student.branch_name },
+      current_group: cohort ? {
+        id: cohort.id,
+        name: cohort.name,
+        level: cohort.level || '',
+        department: department ? { id: department.id, name: department.name } : null,
+      } : null,
+      academic_level: student.academic_level || '',
+      location: student.location || '',
+      previous_school: student.previous_school || '',
+      enrollment_date: student.enrollment_date || null,
+      block: {
+        is_blocked: student.is_blocked === true,
+        blocked_at: student.blocked_at || null,
+        reason: student.block_reason || '',
+      },
+      photo: { available: false, download_url: null },
+    },
+    record_metadata: {
+      created_at: student.created_at,
+      updated_at: student.updated_at,
+      created_by: null,
+      updated_by: null,
+      custom_fields: null,
+    },
+    learning: {
+      teachers: cohort ? cohort.teachers.map((assignment) => ({
+        id: assignment.teacher,
+        name: assignment.teacher_name,
+        responsibility: assignment.teacher_type_name || assignment.role || '',
+      })) : [],
+      subjects: SUBJECTS.filter((subject) => subjectIds.has(subject.id)).map((subject) => ({
+        id: subject.id,
+        code: subject.code,
+        name: subject.name,
+      })),
+      recent_grades: publishedGrades.map((grade) => ({
+        id: grade.id,
+        subject: { id: grade.subject, name: grade.subject_name },
+        term: { id: grade.term, name: grade.term === 900 ? 'Spring 2026' : 'Summer 2026' },
+        value_raw_pct: Number(grade.value_raw),
+        value_display: grade.value_display,
+        published_at: grade.computed_at,
+        computed_at: grade.computed_at,
+      })),
+      recent_exam_results: publishedResults.map(({ result, exam }) => ({
+        id: result.id,
+        exam: { id: exam.id, title: exam.title, date: exam.exam_date },
+        subject: { id: exam.subject, name: exam.subject_name },
+        score: Number(result.score).toFixed(2),
+        maximum: Number(exam.max_score).toFixed(2),
+        score_fraction: Number((Number(result.score) / Number(exam.max_score)).toFixed(4)),
+        last_graded_at: result.graded_at,
+      })),
+      assignments: {
+        assigned: assignments.length,
+        completed: 0,
+        open: assignments.length,
+        late: 0,
+      },
+      latest_transcript: null,
+    },
+    attendance: {
+      metric_definition: '(present + late) / (present + late + absent); excused is excluded',
+      present: attendanceRows.filter((row) => row.status === 'present').length,
+      late: attendanceRows.filter((row) => row.status === 'late').length,
+      absent: attendanceTotals.absent,
+      excused: attendanceTotals.excused,
+      attended: attendanceTotals.attended,
+      countable_sessions: attendanceTotals.denominator,
+      attendance_rate_fraction: attendanceTotals.attendance_rate_fraction,
+      current_attendance_streak: currentAttendanceStreak,
+      last_attendance: latestAttendance ? {
+        lesson: latestAttendance.lesson,
+        group: latestAttendance.cohort,
+        group_name: latestAttendance.cohort_name,
+        starts_at: latestAttendance.lesson_starts_at,
+        status: latestAttendance.status,
+      } : null,
+      per_group: [...attendanceByCohort.entries()].map(([cohortId, rows]) => {
+        const totals = attendanceSummary(rows);
+        return {
+          group: { id: cohortId, name: rows[0]?.cohort_name || `Group ${cohortId}` },
+          attended: totals.attended,
+          countable_sessions: totals.denominator,
+          attendance_rate_fraction: totals.attendance_rate_fraction,
+          excused: totals.excused,
+        };
+      }),
+    },
+    ...(includeFamily ? { family: {
+      guardians,
+      pickup_authorizations: pickupAuthorizations,
+      consent_flags: null,
+      safeguarding: {
+        medical_notes: student.medical_notes || '',
+        emergency_contacts: student.emergency_contacts || [],
+      },
+    } } : {}),
+    ...(includeFinance ? { finance: {
+      window: {
+        billed: leadershipMoney(windowInvoices.reduce((total, invoice) => total + Number(invoice.total_uzs || 0), 0)),
+        collected: leadershipMoney(windowAllocations.reduce((total, allocation) => total + Number(allocation.amount_uzs || 0), 0)),
+        refunded: leadershipMoney(completedRefunds.reduce((total, refund) => total + Number(refund.amount_uzs || 0), 0)),
+      },
+      all_time: {
+        outstanding: leadershipMoney(openInvoices.reduce((total, invoice) => total + Number(invoice.outstanding_uzs || 0), 0)),
+        overdue: leadershipMoney(overdueInvoices.reduce((total, invoice) => total + Number(invoice.outstanding_uzs || 0), 0)),
+        open_invoice_count: openInvoices.length,
+        overdue_invoice_count: overdueInvoices.length,
+      },
+      fee_schedules: FEE_SCHEDULES
+        .filter((schedule) => schedule.is_active && schedule.cohort === student.current_cohort)
+        .map((schedule) => ({
+          id: schedule.id,
+          name: schedule.name,
+          group: schedule.cohort,
+          billing_period: schedule.billing_period,
+          amount: leadershipMoney(schedule.amount_uzs),
+          due_day_of_month: schedule.due_day_of_month,
+        })),
+      discounts: [],
+      last_payment: latestAllocation ? {
+        payment: latestAllocation.payment_id,
+        allocated: leadershipMoney(latestAllocation.amount_uzs),
+        provider: latestPayment?.provider || null,
+        status: latestPayment?.status || 'unavailable',
+        paid_at: latestPayment?.paid_at || null,
+      } : null,
+    } } : {}),
+    coverage: {
+      identity: { status: 'available' },
+      learning: { status: 'available', window: coverageWindow },
+      attendance: { status: 'available', window: coverageWindow },
+      family: { status: includeFamily ? 'available' : 'not_authorized' },
+      safeguarding: { status: includeFamily ? 'available' : 'not_authorized' },
+      finance: includeFinance
+        ? { status: 'available', window: coverageWindow }
+        : { status: 'not_authorized' },
+    },
+    warnings: [
+      ...(includeFamily ? [{
+        code: 'family_verification_not_recorded',
+        message: 'Contact verification and consent flags are not recorded by this service.',
+        affected_sections: ['family'],
+      }] : []),
+      {
+        code: 'record_actor_not_recorded',
+        message: 'Creation and update actors were not recorded for this legacy record.',
+        affected_sections: ['record_metadata'],
+      },
+    ],
+  };
+}
+
 function buildExecutiveSnapshot(params = {}) {
   const roleBranch = previewRole() === 'manager' ? CENTRAL_BRANCH_ID : null;
   const parsedBranch = Number(params.branch) || null;
@@ -1079,6 +1364,8 @@ function attendanceDashboard(cohortId, params) {
 
 function fixtureFor(path, params = {}) {
   if (path === '/api/v1/intelligence/executive-summary/') return buildExecutiveSnapshot(params);
+  const studentLeadership = path.match(/^\/api\/v1\/students\/(\d+)\/leadership-profile\/$/);
+  if (studentLeadership) return buildStudentLeadershipProfile(studentLeadership[1], params);
   if (path === '/api/v1/students/stats/') return studentStats(previewRole() === 'manager' ? CENTRAL_BRANCH_ID : Number(params.branch) || null);
   if (path === '/api/v1/students/comparison/') {
     return previewRole() === 'manager'

@@ -99,7 +99,59 @@ function completeSum(rows, getter) {
 
 function money(value) {
   const parsed = finite(value);
-  return parsed === null ? '\u2014' : formatBusinessMoney(parsed) || '\u2014';
+  return parsed === null ? '\u2014' : formatBusinessMoney(parsed, 'UZS') || '\u2014';
+}
+
+function fraction(value) {
+  const parsed = finite(value);
+  return parsed !== null && parsed <= 1 ? parsed : null;
+}
+
+function leadershipMoney(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '\u2014';
+  const currency = String(value.currency || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) return '\u2014';
+  const decimalMajor = typeof value.amount_uzs === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.amount_uzs.trim())
+    ? value.amount_uzs.trim()
+    : null;
+  if (decimalMajor !== null) return formatBusinessMoney(decimalMajor, currency) || '\u2014';
+  const rawMinor = typeof value.amount_minor === 'string' ? value.amount_minor.trim() : value.amount_minor;
+  if ((typeof rawMinor !== 'number' && typeof rawMinor !== 'string') ||
+      (typeof rawMinor === 'string' && !/^[+-]?\d+$/.test(rawMinor))) return '\u2014';
+  const minor = Number(rawMinor);
+  return Number.isSafeInteger(minor)
+    ? formatBusinessMoney(String(minor / 100), currency) || '\u2014'
+    : '\u2014';
+}
+
+function leadershipProfileFor(value, studentId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const identityId = cleanId(value.identity?.id);
+  return identityId && identityId === cleanId(studentId) ? value : null;
+}
+
+function leadershipIdentity(profile) {
+  if (!profile) return null;
+  const identity = profile.identity;
+  const group = identity.current_group;
+  const block = identity.block || {};
+  const safeguarding = profile.family?.safeguarding;
+  return {
+    ...identity,
+    student_id: identity.public_student_id,
+    branch: identity.branch?.id,
+    branch_name: identity.branch?.name,
+    current_cohort: group?.id ?? null,
+    current_cohort_name: group?.name || '',
+    academic_level: identity.academic_level || group?.level || '',
+    is_blocked: block.is_blocked === true,
+    blocked_at: block.blocked_at,
+    block_reason: block.reason,
+    medical_notes: safeguarding?.medical_notes,
+    emergency_contacts: safeguarding?.emergency_contacts || [],
+    created_at: profile.record_metadata?.created_at,
+    updated_at: profile.record_metadata?.updated_at,
+  };
 }
 
 function ageFrom(value) {
@@ -328,27 +380,51 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
   const canBranches = canUseCapability(user, 'org:read');
   const canTeachers = canUseCapability(user, 'teachers:read');
   const canSchedule = canUseCapability(user, 'schedule:read');
+  const leadership = useWorkspaceData(`/api/v1/students/${id}/leadership-profile/`);
+  const profile = leadershipProfileFor(leadership.data, id);
+  const leadershipStatus = Number(leadership.error?.status);
+  const compatibilityFallback = [404, 405, 501].includes(leadershipStatus) ||
+    (!leadership.error && leadership.data == null);
+  const legacyProfile = !leadership.pending && !profile && compatibilityFallback;
+  const recordAccessResolved = Boolean(profile) || legacyProfile;
+  const coverageAvailable = (key) => profile?.coverage?.[key]?.status === 'available';
+  const viewAttendance = profile
+    ? coverageAvailable('attendance') && Boolean(profile.attendance)
+    : legacyProfile && canAttendance;
+  const viewAcademics = profile
+    ? Boolean(profile.learning) && Array.isArray(profile.learning.recent_grades)
+    : legacyProfile && canAcademics;
+  const viewLearning = profile
+    ? coverageAvailable('learning') && Boolean(profile.learning)
+    : legacyProfile && canAcademics;
+  const viewFinance = profile
+    ? coverageAvailable('finance') && Boolean(profile.finance)
+    : legacyProfile && canFinance;
+  const viewFamily = profile
+    ? coverageAvailable('family') && Boolean(profile.family)
+    : legacyProfile && canFamily;
   const availableSections = DETAIL_SECTIONS.filter((item) => {
-    if (item.id === 'attendance') return canAttendance;
-    if (item.id === 'learning') return canAcademics || canIntelligence;
-    if (item.id === 'finance') return canFinance;
-    if (item.id === 'family') return canFamily;
+    if (item.id === 'attendance') return viewAttendance;
+    if (item.id === 'learning') return viewLearning || canIntelligence;
+    if (item.id === 'finance') return viewFinance;
+    if (item.id === 'family') return viewFamily;
     if (item.id === 'timeline') return canIntelligence;
     return true;
   });
   const active = availableSections.some((item) => item.id === section) ? section : 'overview';
-  const student = useWorkspaceData(`/api/v1/students/${id}/`);
-  const events = useWorkspaceData(`/api/v1/students/${id}/events/`, { page_size: 100 }, { enabled: active === 'enrollment' });
-  const journey = useWorkspaceData(`/api/v1/intelligence/journey/${id}/`, undefined, { enabled: active === 'timeline' && canIntelligence });
-  const guardians = useWorkspaceData('/api/v1/parents/guardians/', { page_size: 100, student: id }, { enabled: active === 'family' && canFamily });
-  const pickups = useWorkspaceData('/api/v1/parents/pickups/', { page_size: 100, student: id }, { enabled: active === 'family' && canFamily });
-  const attendance = useWorkspaceData('/api/v1/attendance/records/', { page_size: 100, student: id }, { enabled: canAttendance && ['overview', 'attendance'].includes(active) });
-  const grades = useWorkspaceData('/api/v1/academics/grades/', { page_size: 100, student: id }, { enabled: canAcademics && ['overview', 'learning'].includes(active) });
-  const invoices = useWorkspaceData('/api/v1/finance/invoices/', { page_size: 100, student: id }, { enabled: canFinance && ['overview', 'finance'].includes(active) });
-  const risk = useWorkspaceData(`/api/v1/intelligence/risk/${id}/`, undefined, { enabled: active === 'learning' && canIntelligence });
-  const cohortId = cleanId(student.data?.current_cohort);
-  const cohort = useWorkspaceData(cohortId ? `/api/v1/cohorts/${cohortId}/` : null, undefined, { enabled: Boolean(cohortId) && ['overview', 'enrollment'].includes(active) && canGroups });
-  const data = student.data;
+  const student = useWorkspaceData(`/api/v1/students/${id}/`, undefined, { enabled: legacyProfile });
+  const events = useWorkspaceData(`/api/v1/students/${id}/events/`, { page_size: 100 }, { enabled: recordAccessResolved && active === 'enrollment' });
+  const journey = useWorkspaceData(`/api/v1/intelligence/journey/${id}/`, undefined, { enabled: recordAccessResolved && active === 'timeline' && canIntelligence });
+  const guardians = useWorkspaceData('/api/v1/parents/guardians/', { page_size: 100, student: id }, { enabled: active === 'family' && viewFamily && legacyProfile });
+  const pickups = useWorkspaceData('/api/v1/parents/pickups/', { page_size: 100, student: id }, { enabled: active === 'family' && viewFamily && legacyProfile });
+  const attendance = useWorkspaceData('/api/v1/attendance/records/', { page_size: 100, student: id }, { enabled: viewAttendance && (active === 'attendance' || (active === 'overview' && legacyProfile)) });
+  const grades = useWorkspaceData('/api/v1/academics/grades/', { page_size: 100, student: id }, { enabled: viewAcademics && (active === 'learning' || (active === 'overview' && legacyProfile)) });
+  const invoices = useWorkspaceData('/api/v1/finance/invoices/', { page_size: 100, student: id }, { enabled: viewFinance && (active === 'finance' || (active === 'overview' && legacyProfile)) });
+  const risk = useWorkspaceData(`/api/v1/intelligence/risk/${id}/`, undefined, { enabled: recordAccessResolved && active === 'learning' && canIntelligence });
+  const data = profile ? leadershipIdentity(profile) : student.data;
+  const profileState = profile || !legacyProfile ? leadership : student;
+  const cohortId = cleanId(data?.current_cohort);
+  const cohort = useWorkspaceData(cohortId ? `/api/v1/cohorts/${cohortId}/` : null, undefined, { enabled: Boolean(cohortId) && (active === 'enrollment' || (active === 'overview' && legacyProfile)) && canGroups });
   useWorkspaceTitle(data?.full_name, 'Students', active);
   const invoiceStatuses = new Set(['draft', 'issued', 'partially_paid', 'paid', 'overdue', 'void']);
   const billableStatuses = new Set(['issued', 'partially_paid', 'paid', 'overdue']);
@@ -365,6 +441,31 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
   const counted = normalizedAttendance.filter((statusValue) => ['present', 'late', 'absent'].includes(statusValue)).length;
   const attendanceAvailable = readable(attendance);
   const gradesAvailable = readable(grades);
+  const aggregateAttendance = profile?.attendance;
+  const aggregateAttendanceRate = fraction(aggregateAttendance?.attendance_rate_fraction);
+  const aggregateAttendanceCount = finiteCount(aggregateAttendance?.countable_sessions);
+  const aggregateLearning = profile?.learning;
+  const aggregateRecentGrades = Array.isArray(aggregateLearning?.recent_grades) ? aggregateLearning.recent_grades : null;
+  const aggregateRecentExams = Array.isArray(aggregateLearning?.recent_exam_results) ? aggregateLearning.recent_exam_results : null;
+  const aggregateFinance = profile?.finance;
+  const aggregateLearningEvidence = aggregateRecentGrades === null && aggregateRecentExams === null
+    ? null
+    : (aggregateRecentGrades?.length || 0) + (aggregateRecentExams?.length || 0);
+  const guardianRows = profile
+    ? (profile.family?.guardians || []).map((guardian) => ({
+        ...guardian,
+        parent_name: guardian.name,
+        phone: guardian.contacts?.phone,
+        email: guardian.contacts?.email,
+      }))
+    : guardians.rows;
+  const pickupRows = profile
+    ? (profile.family?.pickup_authorizations || []).map((pickup) => ({
+        ...pickup,
+        full_name: pickup.name,
+        is_active: true,
+      }))
+    : pickups.rows;
   const invoiceCoverageMessage = !invoicesAvailable
     ? 'Billing information is unavailable'
     : invoices.complete !== true
@@ -373,14 +474,16 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
         ? 'One or more invoice lifecycle states are unavailable'
         : null;
   const status = studentStatusPresentation(data?.status);
-  const teacherId = cleanId(cohort.data?.primary_teacher);
+  const aggregateTeacher = Array.isArray(aggregateLearning?.teachers) ? aggregateLearning.teachers[0] : null;
+  const teacherId = cleanId(cohort.data?.primary_teacher ?? aggregateTeacher?.id);
+  const teacherName = cohort.data?.primary_teacher_name || aggregateTeacher?.name;
   const studentBranchId = cleanId(data?.branch);
   const groupPath = cohortId ? contextualPath(branchId, 'groups', cohortId) : null;
   const teacherPath = teacherId ? contextualPath(branchId, 'teachers', teacherId) : null;
   const branchPath = studentBranchId ? `branches/${studentBranchId}/overview` : null;
 
   return (
-    <WorkspaceState state={student} empty={!data} emptyTitle="Student not found" emptyBody="This record may be outside your leadership scope.">
+    <WorkspaceState state={profileState} empty={!data} emptyTitle="Student not found" emptyBody="This record may be outside your leadership scope.">
       {data && <>
         <ProfileHero
           name={data.full_name}
@@ -397,18 +500,35 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
                 <h2>{groupPath && canGroups ? <RouteLink to={groupPath} onNav={onNav}>{data.current_cohort_name || `Group ${cohortId}`}</RouteLink> : data.current_cohort_name || 'Awaiting group placement'}</h2>
                 <p>
                   {branchPath && canBranches ? <RouteLink to={branchPath} onNav={onNav}>{data.branch_name || `Branch ${studentBranchId}`}</RouteLink> : data.branch_name || 'Branch not recorded'}
-                  {teacherPath && canTeachers && <> <i>·</i> <RouteLink to={teacherPath} onNav={onNav}>{cohort.data?.primary_teacher_name || `Teacher ${teacherId}`}</RouteLink></>}
+                  {teacherPath && canTeachers && <> <i>·</i> <RouteLink to={teacherPath} onNav={onNav}>{teacherName || `Teacher ${teacherId}`}</RouteLink></>}
                   {data.academic_level && <> <i>·</i> {data.academic_level}</>}
                 </p>
               </div>
               <StatusPill value={status.label} tone={status.tone} />
             </section>
             <div className="fw-summary-grid is-record-metrics">
-              {canAttendance && <div className="fw-summary-card"><span>Visible attendance</span><strong>{attendanceAvailable && counted ? `${formatBusinessNumber(attended / counted * 100, { maximumFractionDigits: 1 })}%` : '\u2014'}</strong><small>{attendanceAvailable ? `${formatBusinessNumber(counted)} recognized non-excused outcomes from ${formatBusinessNumber(attendance.rows.length)} loaded` : 'Attendance information is unavailable'}</small></div>}
-              {canAcademics && <div className="fw-summary-card"><span>Learning records</span><strong>{gradesAvailable ? displayCount(grades.total) : '\u2014'}</strong><small>{gradesAvailable ? 'Grade register total' : 'Learning information is unavailable'}</small></div>}
-              {canFinance && <div className="fw-summary-card"><span>Issued billing</span><strong>{invoicesExact ? money(invoiceTotal) : '\u2014'}</strong><small>{invoiceCoverageMessage || (invoiceTotal === null ? 'One or more invoice amounts are unavailable' : `${formatBusinessNumber(issuedInvoices.length)} issued invoices`)}</small></div>}
-              {canFinance && <div className="fw-summary-card"><span>Outstanding balance</span><strong>{invoicesExact ? money(invoiceOutstanding) : '\u2014'}</strong><small>{!invoicesAvailable ? 'Balance information is unavailable' : invoiceCoverageMessage || (invoiceOutstanding === null ? 'One or more balances are unavailable' : 'Invoice value less verified allocations')}</small></div>}
+              {viewAttendance && <div className="fw-summary-card"><span>Visible attendance</span><strong>{profile
+                ? aggregateAttendanceCount > 0 && aggregateAttendanceRate !== null
+                  ? `${formatBusinessNumber(aggregateAttendanceRate * 100, { maximumFractionDigits: 1 })}%`
+                  : '\u2014'
+                : attendanceAvailable && counted
+                  ? `${formatBusinessNumber(attended / counted * 100, { maximumFractionDigits: 1 })}%`
+                  : '\u2014'}</strong><small>{profile
+                ? aggregateAttendanceCount === null
+                  ? 'Attendance coverage is unavailable'
+                  : `${formatBusinessNumber(aggregateAttendanceCount)} non-excused outcomes in the leadership window`
+                : attendanceAvailable
+                  ? `${formatBusinessNumber(counted)} recognized non-excused outcomes from ${formatBusinessNumber(attendance.rows.length)} loaded`
+                  : 'Attendance information is unavailable'}</small></div>}
+              {viewLearning && <div className="fw-summary-card"><span>Learning records</span><strong>{profile ? displayCount(aggregateLearningEvidence) : gradesAvailable ? displayCount(grades.total) : '\u2014'}</strong><small>{profile ? aggregateLearningEvidence === null ? 'Learning evidence is outside this exact scope' : 'Recent published grades and exam results' : gradesAvailable ? 'Grade register total' : 'Learning information is unavailable'}</small></div>}
+              {viewFinance && <div className="fw-summary-card"><span>Issued billing</span><strong>{profile ? leadershipMoney(aggregateFinance?.window?.billed) : invoicesExact ? money(invoiceTotal) : '\u2014'}</strong><small>{profile ? 'Permission-pruned value in the leadership window' : invoiceCoverageMessage || (invoiceTotal === null ? 'One or more invoice amounts are unavailable' : `${formatBusinessNumber(issuedInvoices.length)} issued invoices`)}</small></div>}
+              {viewFinance && <div className="fw-summary-card"><span>Outstanding balance</span><strong>{profile ? leadershipMoney(aggregateFinance?.all_time?.outstanding) : invoicesExact ? money(invoiceOutstanding) : '\u2014'}</strong><small>{profile ? `${displayCount(aggregateFinance?.all_time?.open_invoice_count)} open invoices across recorded history` : !invoicesAvailable ? 'Balance information is unavailable' : invoiceCoverageMessage || (invoiceOutstanding === null ? 'One or more balances are unavailable' : 'Invoice value less verified allocations')}</small></div>}
             </div>
+            {profile && <div className="fw-leadership-source" role="note">
+              <span className="fw-leadership-source-icon" aria-hidden="true">{cloneElement(Icons.shield, { size: 17 })}</span>
+              <span><strong>Permission-pruned leadership snapshot</strong><small>{formatOrganizationDate(profile.window?.date_from, { dateOnly: true }) || 'Window start unavailable'} through {formatOrganizationDate(profile.window?.date_to, { dateOnly: true }) || 'window end unavailable'} · {profile.window?.timezone || 'organization timezone unavailable'}</small></span>
+              <StatusPill value="Exact student scope" tone="success" />
+            </div>}
             <DetailSection eyebrow="Identity" title="Student and contact information">
               <DetailGrid columns={4} fields={[
                 { label: 'Student ID', value: data.student_id }, { label: 'Username', value: data.username },
@@ -436,7 +556,7 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
                 { label: 'Enrollment status', value: status.label }, { label: 'Enrollment date', value: formatOrganizationDate(data.enrollment_date, { dateOnly: true }) },
                 { label: 'Academic level', value: data.academic_level }, { label: 'Branch', value: branchPath && canBranches ? <RouteLink to={branchPath} onNav={onNav}>{data.branch_name || `Branch ${studentBranchId}`}</RouteLink> : data.branch_name },
                 { label: 'Current group', value: groupPath && canGroups ? <RouteLink to={groupPath} onNav={onNav}>{data.current_cohort_name || `Group ${cohortId}`}</RouteLink> : data.current_cohort_name },
-                { label: 'Primary teacher', value: teacherPath && canTeachers ? <RouteLink to={teacherPath} onNav={onNav}>{cohort.data?.primary_teacher_name || `Teacher ${teacherId}`}</RouteLink> : cohort.data?.primary_teacher_name },
+                { label: 'Primary teacher', value: teacherPath && canTeachers ? <RouteLink to={teacherPath} onNav={onNav}>{teacherName || `Teacher ${teacherId}`}</RouteLink> : teacherName },
                 { label: 'Group start', value: formatOrganizationDate(cohort.data?.start_date, { dateOnly: true }) },
                 { label: 'Group end', value: formatOrganizationDate(cohort.data?.end_date, { dateOnly: true }) },
                 { label: 'Default room', value: cohort.data?.default_room_name },
@@ -450,7 +570,23 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
             ]} /></DetailSection>
           </>}
           {active === 'learning' && <>
-            {canAcademics && <DetailSection eyebrow="Results" title="Academic grade records"><CoverageBar state={grades} label="grades" /><WorkspaceTable label="Grade records" rows={grades.rows} columns={[
+            {aggregateLearning && <DetailSection eyebrow="Leadership snapshot" title="Current learning position" description="Bounded recent evidence from the same permission-pruned student snapshot."><DetailGrid columns={4} fields={[
+              { label: 'Teachers', value: Array.isArray(aggregateLearning.teachers) ? aggregateLearning.teachers.map((teacher) => teacher.name).join(', ') : null, wide: true },
+              { label: 'Subjects', value: (aggregateLearning.subjects || []).map((subject) => subject.name).join(', '), wide: true },
+              { label: 'Open assignments', value: finiteCount(aggregateLearning.assignments?.open) },
+              { label: 'Late assignments', value: finiteCount(aggregateLearning.assignments?.late) },
+              { label: 'Recent grades', value: aggregateRecentGrades?.length },
+              { label: 'Recent exam results', value: aggregateRecentExams?.length },
+              { label: 'Latest transcript', value: humanLabel(aggregateLearning.latest_transcript?.status, 'Not available') },
+            ]} /></DetailSection>}
+            {aggregateRecentExams && <DetailSection eyebrow="Assessments" title="Recent published exam results"><WorkspaceTable label="Recent exam results" rows={aggregateRecentExams} columns={[
+              { key: 'exam', label: 'Exam', render: (row) => cleanId(row.exam?.id) ? <RouteLink to={`exams/exams/${cleanId(row.exam.id)}`} onNav={onNav}>{row.exam.title || `Exam ${cleanId(row.exam.id)}`}</RouteLink> : row.exam?.title },
+              { key: 'subject', label: 'Subject', render: (row) => row.subject?.name },
+              { key: 'score', label: 'Score', render: (row) => `${row.score} / ${row.maximum}` },
+              { key: 'score_fraction', label: 'Result', render: (row) => fraction(row.score_fraction) === null ? '\u2014' : `${formatBusinessNumber(fraction(row.score_fraction) * 100, { maximumFractionDigits: 1 })}%` },
+              { key: 'last_graded_at', label: 'Graded', render: (row) => formatOrganizationDate(row.last_graded_at) },
+            ]} /></DetailSection>}
+            {viewAcademics && <DetailSection eyebrow="Results" title="Academic grade records"><CoverageBar state={grades} label="grades" /><WorkspaceTable label="Grade records" rows={grades.rows} columns={[
               { key: 'subject_name', label: 'Subject', render: (row) => cleanId(row.subject) ? <RouteLink to={`academics/subjects/${cleanId(row.subject)}`} onNav={onNav}>{row.subject_name || `Subject ${cleanId(row.subject)}`}</RouteLink> : row.subject_name },
               { key: 'term', label: 'Term reference', render: (row) => cleanId(row.term) ? <RouteLink to={`academics/terms/${cleanId(row.term)}`} onNav={onNav}>Term {cleanId(row.term)}</RouteLink> : '\u2014' },
               { key: 'value_raw', label: 'Recorded value' }, { key: 'value_display', label: 'Grade' },
@@ -461,31 +597,42 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
               { label: 'Signals', value: (risk.data?.flags || []).map((flag) => flag.reason || flag.code).join('; '), wide: true },
             ]} /></DetailSection>}
           </>}
-          {active === 'attendance' && <DetailSection eyebrow="Read-only" title="Attendance record" description="Leadership can review patterns but cannot alter teacher marks here."><CoverageBar state={attendance} label="marks" /><WorkspaceTable label="Attendance marks" rows={attendance.rows} columns={[
+          {active === 'attendance' && <>{aggregateAttendance && <div className="fw-summary-grid is-record-metrics">
+            <div className="fw-summary-card"><span>Attendance rate</span><strong>{aggregateAttendanceCount > 0 && aggregateAttendanceRate !== null ? `${formatBusinessNumber(aggregateAttendanceRate * 100, { maximumFractionDigits: 1 })}%` : '\u2014'}</strong><small>{aggregateAttendance.metric_definition || 'Metric definition unavailable'}</small></div>
+            <div className="fw-summary-card"><span>Present</span><strong>{displayCount(aggregateAttendance.present)}</strong><small>Recorded in the leadership window</small></div>
+            <div className="fw-summary-card"><span>Late</span><strong>{displayCount(aggregateAttendance.late)}</strong><small>Included as attended</small></div>
+            <div className="fw-summary-card"><span>Absent</span><strong>{displayCount(aggregateAttendance.absent)}</strong><small>{displayCount(aggregateAttendance.excused)} excused outcomes excluded</small></div>
+          </div>}<DetailSection eyebrow="Read-only" title="Attendance record" description="Leadership can review patterns but cannot alter teacher marks here."><CoverageBar state={attendance} label="marks" /><WorkspaceTable label="Attendance marks" rows={attendance.rows} columns={[
             { key: 'lesson_starts_at', label: 'Lesson date', render: (row) => formatOrganizationDate(row.lesson_starts_at || row.lesson_start || row.marked_at) },
             { key: 'lesson_title', label: 'Lesson', render: (row) => cleanId(row.lesson) && canSchedule ? <RouteLink to={`schedule/lessons/${cleanId(row.lesson)}`} onNav={onNav}>{row.lesson_title || `Lesson ${cleanId(row.lesson)}`}</RouteLink> : row.lesson_title },
             { key: 'cohort_name', label: 'Group', render: (row) => cleanId(row.cohort) && canGroups ? <RouteLink to={contextualPath(branchId, 'groups', cleanId(row.cohort))} onNav={onNav}>{row.cohort_name || `Group ${cleanId(row.cohort)}`}</RouteLink> : row.cohort_name },
             { key: 'teacher_name', label: 'Teacher', render: (row) => cleanId(row.teacher) && canTeachers ? <RouteLink to={contextualPath(branchId, 'teachers', cleanId(row.teacher))} onNav={onNav}>{row.teacher_name || `Teacher ${cleanId(row.teacher)}`}</RouteLink> : row.teacher_name },
             { key: 'status', label: 'Status', render: (row) => <StatusPill value={row.status} /> },
             { key: 'note', label: 'Note' },
-          ]} /></DetailSection>}
-          {active === 'finance' && <DetailSection eyebrow="Finance" title="Invoices connected to this student"><CoverageBar state={invoices} label="invoices" /><WorkspaceTable label="Student invoices" rows={invoices.rows} columns={[
+          ]} /></DetailSection></>}
+          {active === 'finance' && <>{aggregateFinance && <div className="fw-summary-grid is-record-metrics">
+            <div className="fw-summary-card"><span>Billed in window</span><strong>{leadershipMoney(aggregateFinance.window?.billed)}</strong><small>Issued billing in the bounded snapshot</small></div>
+            <div className="fw-summary-card"><span>Collected in window</span><strong>{leadershipMoney(aggregateFinance.window?.collected)}</strong><small>Verified allocations in the bounded snapshot</small></div>
+            <div className="fw-summary-card"><span>All-time outstanding</span><strong>{leadershipMoney(aggregateFinance.all_time?.outstanding)}</strong><small>{displayCount(aggregateFinance.all_time?.open_invoice_count)} open invoices</small></div>
+            <div className="fw-summary-card"><span>All-time overdue</span><strong>{leadershipMoney(aggregateFinance.all_time?.overdue)}</strong><small>{displayCount(aggregateFinance.all_time?.overdue_invoice_count)} overdue invoices</small></div>
+          </div>}<DetailSection eyebrow="Finance" title="Invoices connected to this student"><CoverageBar state={invoices} label="invoices" /><WorkspaceTable label="Student invoices" rows={invoices.rows} columns={[
             { key: 'number', label: 'Invoice', render: (row) => cleanId(row.id) ? <RouteLink to={`finance/invoices/${cleanId(row.id)}`} onNav={onNav}>{row.number || `Invoice ${cleanId(row.id)}`}</RouteLink> : row.number },
             { key: 'period', label: 'Period' }, { key: 'cohort_name', label: 'Group', render: (row) => cleanId(row.cohort) && canGroups ? <RouteLink to={contextualPath(branchId, 'groups', cleanId(row.cohort))} onNav={onNav}>{row.cohort_name || `Group ${cleanId(row.cohort)}`}</RouteLink> : row.cohort_name },
             { key: 'total_uzs', label: 'Total', render: (row) => money(row.total_uzs) },
             { key: 'outstanding_uzs', label: 'Balance', render: (row) => money(invoiceBalance(row)) },
             { key: 'status', label: 'Status', render: (row) => <StatusPill value={row.status} /> },
             { key: 'due_date', label: 'Due', render: (row) => formatOrganizationDate(row.due_date, { dateOnly: true }) },
-          ]} /></DetailSection>}
+          ]} /></DetailSection></>}
           {active === 'family' && <>
-            <DetailSection eyebrow="Family network" title="Guardians"><WorkspaceTable label="Guardians" rows={guardians.rows} columns={[
+            <DetailSection eyebrow="Family network" title="Guardians"><WorkspaceTable label="Guardians" rows={guardianRows} columns={[
               { key: 'parent_name', label: 'Parent or guardian', render: (row) => cleanId(row.parent) ? <RouteLink to={`people/parents/${cleanId(row.parent)}`} onNav={onNav}>{row.parent_name || `Guardian ${cleanId(row.parent)}`}</RouteLink> : row.parent_name }, { key: 'relationship', label: 'Relationship' },
               { key: 'is_primary', label: 'Primary', render: (row) => row.is_primary ? 'Yes' : 'No' }, { key: 'custody_notes', label: 'Care notes' },
             ]} /></DetailSection>
-            <DetailSection eyebrow="Safeguarding" title="Pickup permissions"><WorkspaceTable label="Pickup permissions" rows={pickups.rows} columns={[
+            <DetailSection eyebrow="Safeguarding" title="Pickup permissions"><WorkspaceTable label="Pickup permissions" rows={pickupRows} columns={[
               { key: 'full_name', label: 'Authorized person' }, { key: 'relationship', label: 'Relationship' },
               { key: 'phone', label: 'Phone' }, { key: 'is_active', label: 'Active', render: (row) => row.is_active ? 'Yes' : 'No' },
             ]} /></DetailSection>
+            {profile?.warnings?.some((warning) => warning.affected_sections?.includes('family')) && <div className="fw-data-note">Family contact verification is not recorded by the current service. Contact values are shown as recorded, not as verified.</div>}
             <DetailSection eyebrow="Care context" title="Emergency and support information"><DetailGrid columns={2} fields={[
               { label: 'Enrollment hold', value: data.is_blocked ? 'Yes' : 'No' }, { label: 'Hold placed', value: formatOrganizationDate(data.blocked_at) },
               { label: 'Hold reason', value: data.block_reason, wide: true },

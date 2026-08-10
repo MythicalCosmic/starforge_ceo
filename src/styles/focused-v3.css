@@ -194,6 +194,11 @@
 .fw-data-note,
 .fw-safety-block { margin-bottom: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--sf-warn) 24%, var(--sf-border)); border-radius: 10px; background: color-mix(in srgb, var(--sf-warn-soft) 28%, transparent); color: var(--sf-muted); font-size: 11px; line-height: 1.55; }
 .fw-safety-block { border-color: color-mix(in srgb, var(--sf-success) 25%, var(--sf-border)); background: color-mix(in srgb, var(--sf-success-soft) 28%, transparent); }
+.fw-leadership-source { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--sf-success) 25%, var(--sf-border)); border-radius: 12px; background: linear-gradient(105deg, color-mix(in srgb, var(--sf-success-soft) 34%, var(--sf-surface)), var(--sf-surface)); }
+.fw-leadership-source-icon { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--sf-success) 14%, var(--sf-surface)); color: var(--sf-success-ink); }
+.fw-leadership-source > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
+.fw-leadership-source strong { color: var(--sf-ink-2); font-size: 11px; font-weight: 790; }
+.fw-leadership-source small { color: var(--sf-muted); font-size: 10px; line-height: 1.45; }
 .fw-pagination {
   display: flex;
   min-height: 58px;
@@ -448,6 +453,8 @@
   .fw-pagination { align-items: stretch; flex-direction: column; }
   .fw-pagination > div { flex-wrap: wrap; justify-content: center; }
   .fw-record-placement { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .fw-leadership-source { grid-template-columns: auto minmax(0, 1fr); }
+  .fw-leadership-source > .fw-status { grid-column: 2; justify-self: start; }
   .fw-subject-cloud { max-width: 100%; justify-content: flex-start; }
   .fw-person-card > header { grid-template-columns: auto minmax(0, 1fr); }
   .fw-person-card > header > .fw-status { grid-column: 2; justify-self: start; }

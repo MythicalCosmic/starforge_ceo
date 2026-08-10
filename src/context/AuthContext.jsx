@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { API_CONFIG } from '../api/config.js';
-import { ApiError } from '../api/http.js';
+import {
+  ApiError,
+  configureHttpSessionPolicy,
+  resetHttpSessionPolicy,
+} from '../api/http.js';
 import { queryClient } from '../api/queryClient.js';
 import {
   AUTH_SESSION_CHANGED,
@@ -11,6 +15,10 @@ import {
   logoutCurrentSession,
 } from '../api/auth.js';
 import { resolveRole } from '../config/resolveRole.js';
+import {
+  configureBusinessFormatting,
+  resetBusinessFormatting,
+} from '../lib/formatters.js';
 
 const AuthContext = createContext(null);
 const SESSION_PREVIEW_PREFIXES = Object.freeze(['sf-star-ai-conversations-']);
@@ -34,6 +42,8 @@ function clearPrivateTabState({ clearDevice = false } = {}) {
     // Protected UI and in-memory records are still cleared below.
   }
   clearSessionPreviewData();
+  resetBusinessFormatting();
+  resetHttpSessionPolicy();
   queryClient.clear();
 }
 
@@ -48,6 +58,9 @@ const anonymousState = () => ({
 function mockUser() {
   const role = resolveRole() || 'ceo';
   const director = role === 'ceo';
+  const readOnly = import.meta.env.DEV && typeof window !== 'undefined'
+    ? ['1', 'true', 'yes', 'on'].includes(String(new URLSearchParams(window.location?.search || '').get('read_only') || '').toLowerCase())
+    : false;
   return {
     id: `mock-${role}`,
     principal_kind: 'staff',
@@ -58,6 +71,10 @@ function mockUser() {
     is_active: true,
     must_change_password: false,
     tenant_slug: 'mock',
+    organization_locale: 'en',
+    organization_timezone: 'Asia/Tashkent',
+    primary_currency: 'UZS',
+    read_only_session: readOnly,
     effective_permissions: director
       ? ['*:*']
       : [
@@ -153,19 +170,28 @@ export function AuthProvider({ children }) {
     const epoch = ++epochRef.current;
 
     if (API_CONFIG.useMock) {
-      const next = classifyUser(mockUser());
-      if (epoch === epochRef.current) setSession(next);
+      const user = mockUser();
+      if (epoch !== epochRef.current) return null;
+      const next = classifyUser(user);
+      configureBusinessFormatting(user);
+      configureHttpSessionPolicy(user);
+      setSession(next);
       return next;
     }
 
     setSession((current) => ({ ...current, status: 'checking', error: null }));
     try {
       const user = await getCurrentUser();
+      if (epoch !== epochRef.current) return null;
       const next = classifyUser(user, forcePasswordChange);
-      if (epoch === epochRef.current) setSession(next);
+      configureBusinessFormatting(user);
+      configureHttpSessionPolicy(user);
+      setSession(next);
       return next;
     } catch (error) {
       if (epoch !== epochRef.current) return null;
+      resetBusinessFormatting();
+      resetHttpSessionPolicy();
       if (error?.status === 401) {
         const next = anonymousState();
         setSession(next);
@@ -310,12 +336,16 @@ export function AuthProvider({ children }) {
     setSession((current) => ({ ...current, status: 'checking', error: null }));
     try {
       await logoutCurrentSession();
+      resetBusinessFormatting();
+      resetHttpSessionPolicy();
       epochRef.current += 1;
       setSession(anonymousState());
     } catch (error) {
       // Cached/private UI is already cleared by logoutCurrentSession. The
       // opaque cookie cannot be removed by JavaScript, so never claim that a
       // failed remote revocation ended the private session.
+      resetBusinessFormatting();
+      resetHttpSessionPolicy();
       epochRef.current += 1;
       setSession({
         status: 'signout-unconfirmed',

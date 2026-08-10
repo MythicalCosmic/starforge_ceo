@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { cloneElement, useCallback, useEffect, useRef, useState } from 'react';
+import { Icons } from '../components/Icons.jsx';
 import { Sidebar } from './Sidebar.jsx';
 import { BranchSidebar } from './BranchSidebar.jsx';
 import { Topbar } from './Topbar.jsx';
@@ -169,6 +170,7 @@ export function Shell({
           cfg={cfg}
           current={current}
           active={active}
+          route={route}
           scope={topbarScope}
           navigationLayout={sidebarLayout ? 'sidebar' : 'top'}
           navigatorOpen={navigatorOpen}
@@ -180,6 +182,18 @@ export function Shell({
           {API_CONFIG.useMock && (
             <div className="ad-preview-note" role="status">
               Design preview · Sample information only
+            </div>
+          )}
+          {user?.read_only_session === true && (
+            <div className="ad-session-policy-note" role="status" aria-label="View-only session">
+              <span className="ad-session-policy-icon" aria-hidden="true">
+                {cloneElement(Icons.shield, { size: 16 })}
+              </span>
+              <span className="ad-session-policy-copy">
+                <strong>View-only session</strong>
+                <small>Restricted access keeps permitted leadership views available while changes stay disabled.</small>
+              </span>
+              <span className="ad-session-policy-state">Protected</span>
             </div>
           )}
           {children}

@@ -30,6 +30,9 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
       must_change_password: false,
       tenant_slug: 'demo',
       role_memberships: [{ id: 1, account_type_name: 'Director', account_kind: 'staff' }],
+    } : path === '/api/v1/users/sessions/' ? {
+      count: 1,
+      results: [{ id: 8, platform: 'web', device: 'Linux', browser: 'Chrome', current_session: true, read_only: false, last_activity_at: '2026-08-10T10:00:00Z', idle_expires_at: '2026-08-10T11:00:00Z' }],
     } : { count: 0, results: [] };
     const rows = Array.isArray(data.results) ? data.results : [];
     return { data, rows, total: rows.length, pending: false, paused: false, error: null, complete: true, retry: vi.fn() };
@@ -53,5 +56,20 @@ describe('account workspace assurance', () => {
     expect(html).toContain('id="account-new-password"');
     expect(html).toContain('maxLength="128"');
     expect(html).toContain('autoComplete="new-password"');
+    expect(html).toContain('Active sign-ins');
+    expect(html).toContain('Current sign-in');
+  });
+
+  it('replaces account mutations with clear view-only guidance for restricted sessions', () => {
+    const html = renderToStaticMarkup(<AccountPage
+      route="account/security"
+      onNav={vi.fn()}
+      user={{ read_only_session: true }}
+    />);
+
+    expect(html).toContain('Password changes are unavailable in a view-only session.');
+    expect(html).toContain('current · view only');
+    expect(html).not.toContain('id="account-current-password"');
+    expect(html).not.toContain('Update password');
   });
 });
