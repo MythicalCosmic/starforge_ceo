@@ -32,6 +32,26 @@ body {
   overflow-x: clip;
 }
 
+/* Give otherwise-unstyled content links the product's own visual language.
+   Component links (navigation, cards, and buttons) keep their more specific
+   treatments, while record-to-record links no longer fall back to browser blue. */
+:where(a[href]) {
+  color: var(--sf-primary);
+  text-decoration-color: color-mix(in srgb, var(--sf-primary) 42%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: .2em;
+  transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+
+:where(a[href]:visited) {
+  color: var(--sf-primary);
+}
+
+:where(a[href]:hover) {
+  color: var(--sf-primary-hover);
+  text-decoration-color: currentColor;
+}
+
 /* Browsers scale an unstyled <small> to roughly 83% of its inherited size.
    Keep secondary labels readable instead of allowing an 11px parent to fall
    below the product's minimum text size. */
