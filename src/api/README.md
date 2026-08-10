@@ -62,7 +62,10 @@ npm run dev
 `vite.config.js` proxies `/api` to `VITE_API_PROXY_TARGET`. This is necessary
 because the deployed backend does not currently allow a browser origin such as
 `http://localhost:5173` through CORS. Production Nginx performs the equivalent
-same-origin proxy with `API_UPSTREAM`.
+same-origin proxy with `API_UPSTREAM`. For the loopback development server only,
+Vite rewrites an incoming browser `Origin`/`Referer` to the already validated
+upstream origin; this lets the production Django CSRF policy validate cookie
+login without adding localhost to the backend's trusted production origins.
 
 The public deployment's account data is separate from the backend repository's
 local seed tenant. Use a real director or department-head account for the

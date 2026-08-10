@@ -29,6 +29,29 @@ function validatedProxyTarget(value) {
   return url.origin;
 }
 
+// A browser sees the Vite server as same-origin, but Django still receives the
+// browser's local Origin/Referer headers after proxying. Align those security
+// headers with the already validated upstream so production CSRF checks see
+// the same origin as the rewritten Host header. This is development-only; the
+// production console and API share an origin and do not use Vite's proxy.
+export function alignDevProxySecurityHeaders(proxyRequest, request, upstreamOrigin) {
+  if (typeof request.headers.origin === 'string' && request.headers.origin) {
+    proxyRequest.setHeader('Origin', upstreamOrigin);
+  }
+  if (typeof request.headers.referer !== 'string' || !request.headers.referer) return;
+  try {
+    const incomingReferer = new URL(request.headers.referer);
+    const upstreamReferer = new URL(upstreamOrigin);
+    // Assign the path instead of resolving it as a relative URL. A path that
+    // begins with `//` must never be reinterpreted as a different hostname.
+    upstreamReferer.pathname = incomingReferer.pathname;
+    upstreamReferer.search = incomingReferer.search;
+    proxyRequest.setHeader('Referer', upstreamReferer.href);
+  } catch {
+    proxyRequest.removeHeader('Referer');
+  }
+}
+
 // Vite configuration for the StarForge console SPA.
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -78,6 +101,11 @@ export default defineConfig(({ command, mode }) => {
                 target: apiProxyTarget,
                 changeOrigin: true,
                 secure: apiProxyTarget.startsWith('https:'),
+                configure(proxy) {
+                  proxy.on('proxyReq', (proxyRequest, request) => {
+                    alignDevProxySecurityHeaders(proxyRequest, request, apiProxyTarget);
+                  });
+                },
               },
             },
           }

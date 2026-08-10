@@ -94,7 +94,8 @@ Copy-Item .env.example .env.local
 npm run dev
 ```
 
-The default `.env.example` uses:
+To connect this checkout to the currently verified live tenant, set `.env.local`
+to:
 
 ```dotenv
 VITE_API_URL=
@@ -104,23 +105,18 @@ VITE_USE_MOCK=false
 
 With an empty browser-facing API URL, Vite proxies `/api/*` to the HTTPS tenant
 host. This keeps requests same-origin in the browser and avoids weakening the
-backend's production CORS policy for local development.
+backend's production CORS policy for local development. The loopback-only proxy
+also aligns browser `Origin` and `Referer` headers with that validated upstream,
+so Django's normal cookie/CSRF checks remain active during a local live login.
 
 Open `http://127.0.0.1:5173`, sign in with a real director or department-head
 account, and verify the tenant and role shown by the shell.
 
 ### Local companion backend
 
-The companion backend is currently being updated outside this repository. The
-requirements and release gates in `docs/` are the frontend team's handoff; they
-are **not** evidence that those contracts are deployed. Do not migrate, seed, or
-run live-contract validation against a shared or moving backend checkout. Use
-the design preview below until the backend owner confirms the immutable
-production candidate.
-
-After that confirmation, an entirely local live-data workflow can use the
-matching companion checkout at `../starforge_edu` and its Docker development
-stack:
+`npm run validate:schema` checks the current live contract without authenticating
+or mutating data. For isolated development data, use the matching companion
+checkout at `../starforge_edu` and its Docker development stack:
 
 ```bash
 cd ../starforge_edu
