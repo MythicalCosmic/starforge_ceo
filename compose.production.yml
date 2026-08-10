@@ -1,0 +1,35 @@
+name: starforge-ceo-console
+
+services:
+  console:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_REVISION: "${BUILD_REVISION:?Set BUILD_REVISION to the deployed Git commit}"
+        VITE_USE_MOCK: "false"
+    image: "${CONSOLE_IMAGE:?Set CONSOLE_IMAGE to an immutable release tag}"
+    environment:
+      API_UPSTREAM: "${API_UPSTREAM:?Set API_UPSTREAM to the verified HTTPS backend origin}"
+    user: "101:101"
+    expose:
+      - "8080"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 10s
+    networks:
+      edge:
+        aliases:
+          - starforge-ceo-console
+
+networks:
+  edge:
+    external: true

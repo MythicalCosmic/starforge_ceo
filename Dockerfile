@@ -22,6 +22,11 @@ RUN test "${VITE_USE_MOCK}" = "false" \
 
 FROM nginx:1.30.4-alpine3.24@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46 AS runtime
 
+ARG BUILD_REVISION=unknown
+LABEL org.opencontainers.image.title="StarForge CEO Console" \
+      org.opencontainers.image.source="https://github.com/MythicalCosmic/starforge_ceo" \
+      org.opencontainers.image.revision="${BUILD_REVISION}"
+
 RUN rm -f /etc/nginx/conf.d/default.conf \
     && mkdir -p /usr/share/nginx/html
 
