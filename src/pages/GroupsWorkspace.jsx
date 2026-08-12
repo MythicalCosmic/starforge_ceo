@@ -31,6 +31,7 @@ import '../styles/groups-v3.css';
 const PAGE_SIZE = 100;
 const DETAIL_SECTIONS = Object.freeze([
   { id: 'overview', label: 'Overview', description: 'Position and teaching team', icon: Icons.home },
+  { id: 'settings', label: 'Group settings', description: 'Details, teachers, and membership', icon: Icons.settings },
   { id: 'students', label: 'Students', description: 'Current and past members', icon: Icons.cohort },
   { id: 'attendance', label: 'Attendance', description: 'Read-only monthly record', icon: Icons.check },
   { id: 'schedule', label: 'Schedule', description: 'Lessons, room, and teacher', icon: Icons.cal },
@@ -226,6 +227,7 @@ function groupAccess(user) {
 
 function availableDetailSections(access) {
   return DETAIL_SECTIONS.filter((item) => {
+    if (item.id === 'settings') return access.cohortsWrite;
     if (item.id === 'students') return access.students;
     if (item.id === 'attendance') return access.students && access.attendance && access.schedule;
     if (item.id === 'schedule') return access.schedule;
@@ -397,11 +399,11 @@ function DirectoryFilters({ filters, branches, teachers, levels, complete, branc
   );
 }
 
-function GroupEditor({ id, branchId, access, onNav }) {
+function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded = false }) {
   const editing = Boolean(id);
   const basePath = groupsBase(branchId);
-  const cancelPath = editing ? `${basePath}/${id}/overview` : basePath;
-  const record = useWorkspaceData(editing ? `/api/v1/cohorts/${id}/` : null, undefined, { enabled: editing });
+  const cancelPath = editing ? `${basePath}/${id}/${embedded ? 'overview' : 'settings'}` : basePath;
+  const record = useWorkspaceData(editing && !recordData ? `/api/v1/cohorts/${id}/` : null, undefined, { enabled: editing && !recordData });
   const [form, setForm] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const toast = useToast();
@@ -417,14 +419,13 @@ function GroupEditor({ id, branchId, access, onNav }) {
     default_room: '',
     is_archived: false,
   };
-  const source = form || record.data || initial;
+  const storedRecord = recordData || record.data;
+  const source = form || storedRecord || initial;
   const effectiveBranch = String(branchId || source.branch || '');
-  const effectiveDepartment = String(source.department || '');
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: PAGE_SIZE, ordering: 'name' }, { enabled: !branchId && access.organization });
   const departments = useWorkspaceData('/api/v1/org/departments/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && access.organization });
-  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, department: effectiveDepartment || undefined, ordering: 'last_name' }, { enabled: Boolean(effectiveBranch) && access.teachers });
   const rooms = useWorkspaceData('/api/v1/org/rooms/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, is_active: true, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && access.organization });
-  useWorkspaceTitle(editing ? record.data?.name || 'Edit group' : 'Create group', 'Groups', editing ? 'edit' : 'new');
+  useWorkspaceTitle(embedded ? null : editing ? storedRecord?.name || 'Edit group' : 'Create group', 'Groups', editing ? 'settings' : 'new');
 
   const change = (key, value) => setForm((current) => ({ ...(current || source), [key]: value }));
   const changeBranch = (value) => setForm((current) => ({
@@ -442,9 +443,10 @@ function GroupEditor({ id, branchId, access, onNav }) {
     ),
     onSuccess: (saved) => {
       setSaveError(null);
+      setForm(saved || null);
       queryClient.invalidateQueries({ queryKey: ['api'] });
       toast.success(editing ? 'Group record updated.' : 'Group created and ready for student enrollment.', { title: editing ? 'Changes saved' : 'Group created' });
-      navigate(onNav, `${basePath}/${saved?.id || id}/overview`);
+      if (!embedded) navigate(onNav, `${basePath}/${saved?.id || id}/settings`);
     },
     onError: (failure) => {
       setSaveError(failure);
@@ -452,10 +454,10 @@ function GroupEditor({ id, branchId, access, onNav }) {
     },
   });
 
-  if (editing && record.pending) return <div className="gp3-page"><LoadingPanel lines={9} /></div>;
-  if (editing && (record.error || !record.data)) return <div className="gp3-page"><QueryFailure error={record.error} retry={record.retry} title="This group could not be opened for editing" /></div>;
-  if (branchId && record.data && String(record.data.branch) !== String(branchId)) return <InvalidGroup onNav={onNav} basePath={basePath} mismatch />;
-  if (record.data?.is_archived) {
+  if (editing && !recordData && record.pending) return <div className="gp3-page"><LoadingPanel lines={9} /></div>;
+  if (editing && !recordData && (record.error || !record.data)) return <div className="gp3-page"><QueryFailure error={record.error} retry={record.retry} title="This group could not be opened for editing" /></div>;
+  if (branchId && storedRecord && String(storedRecord.branch) !== String(branchId)) return <InvalidGroup onNav={onNav} basePath={basePath} mismatch />;
+  if (storedRecord?.is_archived) {
     return <div className="gp3-page"><div className="gp3-back-row"><RouteLink to={cancelPath} onNav={onNav}><span aria-hidden="true">←</span> Back to group</RouteLink></div><EmptyState icon={Icons.shield} eyebrow="Archived group" title="Unarchive this group before editing" description="Archived records remain protected from accidental changes. Use the group overview to restore it first." /></div>;
   }
 
@@ -478,38 +480,41 @@ function GroupEditor({ id, branchId, access, onNav }) {
       start_date: source.start_date,
       end_date: source.end_date,
       capacity: source.capacity === '' || source.capacity == null ? null : Number(source.capacity),
-      primary_teacher: source.primary_teacher ? Number(source.primary_teacher) : null,
       default_room: source.default_room ? Number(source.default_room) : null,
       is_archived: Boolean(source.is_archived),
     });
   };
 
-  return (
-    <div className="gp3-page gp3-editor-page">
-      <div className="gp3-back-row"><RouteLink to={cancelPath} onNav={onNav}><span aria-hidden="true">←</span> {editing ? 'Back to group' : 'Back to groups'}</RouteLink></div>
-      <header className="gp3-page-head">
-        <div><span className="gp3-eyebrow">Group administration</span><h1>{editing ? `Edit ${text(record.data?.name)}` : 'Create a group'}</h1><p>Define the group once, then enroll students and assign additional or substitute teachers from its operating workspace.</p></div>
-      </header>
+  const formView = (
       <form className="fw-form gp3-editor-form" onSubmit={submit}>
         {saveError ? <div className="fw-form-error" role="alert"><strong>{mutationMessage(saveError, 'Review the group details and try again.')}</strong>{validationDetails.length > 1 ? <ul>{validationDetails.slice(1).map((line) => <li key={line}>{line}</li>)}</ul> : null}</div> : null}
         <section className="fw-form-section">
           <header><h2>Group identity</h2><p>Branch and department scope control which students, teachers, and rooms can be connected.</p></header>
           <label className="is-wide">Group name<input required maxLength="120" value={source.name || ''} onChange={(event) => change('name', event.target.value)} placeholder="For example, IELTS Evening A" /></label>
-          {!branchId ? <label>Branch<select required value={source.branch || ''} onChange={(event) => changeBranch(event.target.value)}><option value="">Select branch</option>{selectedOption(source.branch, branches.rows, 'branch')}{branches.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : <label>Branch<input value={record.data?.branch_name || `Branch ${branchId}`} disabled /></label>}
+          {!branchId ? <label>Branch<select required value={source.branch || ''} onChange={(event) => changeBranch(event.target.value)}><option value="">Select branch</option>{selectedOption(source.branch, branches.rows, 'branch')}{branches.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : <label>Branch<input value={storedRecord?.branch_name || `Branch ${branchId}`} disabled /></label>}
           <label>Department<select value={source.department || ''} onChange={(event) => change('department', event.target.value)} disabled={!effectiveBranch || departments.pending}><option value="">No department</option>{selectedOption(source.department, departments.rows, 'department')}{departments.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
           <label>Academic level<input maxLength="64" value={source.level || ''} onChange={(event) => change('level', event.target.value)} placeholder="Optional level" /></label>
           <label>Capacity<input type="number" inputMode="numeric" min="0" max="32767" value={source.capacity ?? ''} onChange={(event) => change('capacity', event.target.value)} placeholder="Optional" /></label>
         </section>
         <section className="fw-form-section">
-          <header><h2>Dates and default resources</h2><p>The main teacher and room are optional. Additional teaching roles can be assigned after saving.</p></header>
+          <header><h2>Dates and default room</h2><p>Save the group details here. Teaching assignments and student membership are managed separately below.</p></header>
           <label>Start date<input required type="date" value={source.start_date || ''} max={source.end_date || undefined} onChange={(event) => change('start_date', event.target.value)} /></label>
           <label>End date<input required type="date" value={source.end_date || ''} min={source.start_date || undefined} onChange={(event) => change('end_date', event.target.value)} /></label>
-          {access.teachers ? <label>Main teacher<select value={source.primary_teacher || ''} onChange={(event) => change('primary_teacher', event.target.value)} disabled={!effectiveBranch || teachers.pending}><option value="">Assign later</option>{selectedOption(source.primary_teacher, teachers.rows, 'teacher')}{teachers.rows.map((item) => <option value={item.id} key={item.id}>{item.full_name || item.name}</option>)}</select></label> : null}
           {access.organization ? <label>Default room<select value={source.default_room || ''} onChange={(event) => change('default_room', event.target.value)} disabled={!effectiveBranch || rooms.pending}><option value="">No default room</option>{selectedOption(source.default_room, rooms.rows, 'room')}{rooms.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : null}
           {editing ? <label className="fw-check is-wide"><input type="checkbox" checked={Boolean(source.is_archived)} onChange={(event) => change('is_archived', event.target.checked)} /><span><strong>Archive after saving</strong><small>Archived groups remain visible but cannot be changed until restored.</small></span></label> : null}
         </section>
-        <div className="fw-form-actions"><button type="button" className="gp3-button" onClick={() => navigate(onNav, cancelPath)} disabled={mutation.isPending}>Cancel</button><button type="submit" className="gp3-button is-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving group…' : editing ? 'Save changes' : 'Create group'}</button></div>
+        <div className="fw-form-actions">{embedded ? null : <button type="button" className="gp3-button" onClick={() => navigate(onNav, cancelPath)} disabled={mutation.isPending}>Cancel</button>}<button type="submit" className="gp3-button is-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving group…' : editing ? 'Save group details' : 'Create group'}</button></div>
       </form>
+  );
+
+  if (embedded) return formView;
+  return (
+    <div className="gp3-page gp3-editor-page">
+      <div className="gp3-back-row"><RouteLink to={cancelPath} onNav={onNav}><span aria-hidden="true">←</span> {editing ? 'Back to group' : 'Back to groups'}</RouteLink></div>
+      <header className="gp3-page-head">
+        <div><span className="gp3-eyebrow">Group administration</span><h1>{editing ? `Edit ${text(storedRecord?.name)}` : 'Create a group'}</h1><p>Create the group record first. Its settings page opens next so you can assign the teaching team and enroll eligible students safely.</p></div>
+      </header>
+      {formView}
     </div>
   );
 }
@@ -765,7 +770,7 @@ function GroupHero({ cohort, basePath, access, onNav }) {
             {text(cohort.department_name)}<span>·</span>{text(cohort.level, 'Level not recorded')}
           </p></div>
         </div>
-        <div className="gp3-hero-meta"><Status value={cohort.is_archived ? 'archived' : 'active'}>{cohort.is_archived ? 'Archived' : 'Active'}</Status><span>{dateOnly(cohort.start_date)} – {dateOnly(cohort.end_date)}</span>{access.cohortsWrite && !cohort.is_archived ? <RouteLink className="gp3-button" to={`${basePath}/${cohort.id}/edit`} onNav={onNav}><Icon source={Icons.settings} size={14} /> Edit group</RouteLink> : null}{access.cohortsWrite && cohort.is_archived ? <RestoreGroupButton cohortId={cohort.id} /> : null}</div>
+        <div className="gp3-hero-meta"><Status value={cohort.is_archived ? 'archived' : 'active'}>{cohort.is_archived ? 'Archived' : 'Active'}</Status><span>{dateOnly(cohort.start_date)} – {dateOnly(cohort.end_date)}</span>{access.cohortsWrite && !cohort.is_archived ? <RouteLink className="gp3-button" to={`${basePath}/${cohort.id}/settings`} onNav={onNav}><Icon source={Icons.settings} size={14} /> Group settings</RouteLink> : null}{access.cohortsWrite && cohort.is_archived ? <RestoreGroupButton cohortId={cohort.id} /> : null}</div>
       </header>
     </>
   );
@@ -790,7 +795,7 @@ function TeacherRoster({ rows, cohort, onNav }) {
   ))}</div>;
 }
 
-function TeacherAssignmentManager({ cohort, rows }) {
+function TeacherAssignmentManager({ cohort, rows, standalone = false }) {
   const [teacherId, setTeacherId] = useState('');
   const [typeId, setTypeId] = useState('');
   const [error, setError] = useState(null);
@@ -800,8 +805,10 @@ function TeacherAssignmentManager({ cohort, rows }) {
     branch: cohort.branch,
     department: cohort.department || undefined,
     is_active: true,
-    ordering: 'last_name',
   });
+  const teacherRows = useMemo(() => teachers.rows.slice().sort((left, right) => (
+    text(left.full_name || left.name).localeCompare(text(right.full_name || right.name))
+  )), [teachers.rows]);
   const types = useWorkspaceData('/api/v1/cohorts/teacher-types/', undefined, { staleTime: 5 * 60_000 });
   const activeTypes = types.rows.filter((item) => item.is_active !== false);
   const selectedType = activeTypes.find((item) => String(item.id) === String(typeId))
@@ -832,24 +839,35 @@ function TeacherAssignmentManager({ cohort, rows }) {
     mutation.mutate({ kind: 'remove', assignmentId: assignment.id });
   };
 
+  const content = (
+      <div className="gp3-management-panel">
+        {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The teaching assignment could not be changed.')}</div> : null}
+        {teachers.error ? <QueryFailure error={teachers.error} retry={teachers.retry} title="Teacher choices could not be loaded" /> : null}
+        {types.error ? <QueryFailure error={types.error} retry={types.retry} title="Teaching roles could not be loaded" /> : null}
+        {(teachers.pending || types.pending) && !teachers.rows.length ? <LoadingPanel lines={2} /> : null}
+        {!teachers.error && !types.error ? <form className="gp3-inline-form" onSubmit={(event) => {
+          event.preventDefault();
+          if (!teacherId || !selectedType?.id) return;
+          const selectedTeacher = teacherRows.find((teacher) => String(teacher.id) === String(teacherId));
+          const warning = selectedType?.slug === 'main-teacher' && cohort.primary_teacher
+            ? `Replace the current main teacher with ${text(selectedTeacher?.full_name || selectedTeacher?.name, 'this teacher')}? The previous main teacher will no longer own this group.`
+            : `Assign ${text(selectedTeacher?.full_name || selectedTeacher?.name, 'this teacher')} as ${text(selectedType?.name, 'a teacher')} for ${text(cohort.name)}?`;
+          if (!window.confirm(warning)) return;
+          mutation.mutate({ kind: 'assign', teacher: teacherId, teacherType: selectedType.id });
+        }}>
+          <label><span>Teacher</span><select required value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Select an active teacher</option>{teacherRows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.is_substitute ? ' · Substitute' : ''}</option>)}</select></label>
+          <label><span>Assignment type</span><select required value={typeId || selectedType?.id || ''} onChange={(event) => setTypeId(event.target.value)}><option value="">Select a role</option>{activeTypes.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label>
+          <button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !teacherId || !selectedType?.id}>{mutation.isPending ? 'Updating…' : selectedType?.slug === 'main-teacher' ? 'Set main teacher' : 'Assign teacher'}</button>
+        </form> : null}
+        <div className="gp3-safety-note"><Icon source={Icons.shield} size={16} /><span><strong>Assignment safeguard</strong><small>Only active teachers in this group’s branch and department are offered. You will be asked to confirm before the teaching team changes.</small></span></div>
+        {rows.length ? <div className="gp3-assignment-actions">{rows.map((assignment) => <div key={assignment.id || `${assignment.teacher}-${assignment.teacher_type}`}><span><strong>{text(assignment.teacher_name)}</strong><small>{text(assignment.teacher_type_name || assignment.role, 'Teacher')}</small></span>{/^\d+$/.test(String(assignment.id || '')) ? <button type="button" className="gp3-button is-danger" onClick={() => remove(assignment)} disabled={mutation.isPending}>Remove</button> : null}</div>)}</div> : null}
+      </div>
+  );
+  if (standalone) return <section className="gp3-settings-card"><header><span><Icon source={Icons.user} size={17} /></span><div><h2>Teaching team</h2><p>Assign the main teacher and any additional teaching roles.</p></div></header>{content}</section>;
   return (
     <details className="gp3-manage-disclosure">
       <summary><span><Icon source={Icons.settings} size={15} /> Manage teaching team</span><small>Assign a main, additional, video, assistant, or substitute role</small></summary>
-      <div className="gp3-management-panel">
-        {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The teaching assignment could not be changed.')}</div> : null}
-        {(teachers.pending || types.pending) && !teachers.rows.length ? <LoadingPanel lines={2} /> : null}
-        <form className="gp3-inline-form" onSubmit={(event) => {
-          event.preventDefault();
-          if (!teacherId || !selectedType?.id) return;
-          mutation.mutate({ kind: 'assign', teacher: teacherId, teacherType: selectedType.id });
-        }}>
-          <label><span>Teacher</span><select required value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Select an active teacher</option>{teachers.rows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.is_substitute ? ' · Substitute' : ''}</option>)}</select></label>
-          <label><span>Assignment type</span><select required value={typeId || selectedType?.id || ''} onChange={(event) => setTypeId(event.target.value)}><option value="">Select a role</option>{activeTypes.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label>
-          <button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !teacherId || !selectedType?.id}>{mutation.isPending ? 'Updating…' : selectedType?.slug === 'main-teacher' ? 'Set main teacher' : 'Assign teacher'}</button>
-        </form>
-        <p className="gp3-management-note">Teacher choices are restricted to this group’s branch and department. Main-teacher changes replace the current primary assignment; other types add to the team.</p>
-        {rows.length ? <div className="gp3-assignment-actions">{rows.map((assignment) => <div key={assignment.id || `${assignment.teacher}-${assignment.teacher_type}`}><span><strong>{text(assignment.teacher_name)}</strong><small>{text(assignment.teacher_type_name || assignment.role, 'Teacher')}</small></span>{/^\d+$/.test(String(assignment.id || '')) ? <button type="button" className="gp3-button is-danger" onClick={() => remove(assignment)} disabled={mutation.isPending}>Remove</button> : null}</div>)}</div> : null}
-      </div>
+      {content}
     </details>
   );
 }
@@ -935,7 +953,6 @@ function OverviewSection({ cohort, membersState, teachersState, dashboardState, 
         </Panel>
         {access.teachers ? <Panel eyebrow="Teaching" title="Assigned teachers" detail="Open a teacher to continue into their full record.">
           {teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} /> : teachersState.pending ? <LoadingPanel lines={3} /> : <TeacherRoster rows={teachersState.rows} cohort={cohort} onNav={onNav} />}
-          {access.cohortsWrite && !cohort.is_archived && !teachersState.pending ? <TeacherAssignmentManager cohort={cohort} rows={teachersState.rows.length ? teachersState.rows : assignmentRows(cohort)} /> : null}
         </Panel> : null}
       </div>
       {access.schedule ? <Panel eyebrow="Recent activity" title="Lessons in the reporting period" detail={`${dateOnly(range.from)} through ${dateOnly(range.to)}`} action={<RouteLink className="gp3-text-link" to={`${basePath}/${cohort.id}/schedule?from=${range.from}&to=${range.to}`} onNav={onNav}>Full schedule <Icon source={Icons.chevR} size={14} /></RouteLink>}>
@@ -945,8 +962,8 @@ function OverviewSection({ cohort, membersState, teachersState, dashboardState, 
   );
 }
 
-function MembershipManager({ cohort, members, canCreateStudent, onNav }) {
-  const [open, setOpen] = useState(false);
+function MembershipManager({ cohort, members, canCreateStudent, onNav, standalone = false }) {
+  const [moveMode, setMoveMode] = useState(false);
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [candidateId, setCandidateId] = useState('');
@@ -959,16 +976,21 @@ function MembershipManager({ cohort, members, canCreateStudent, onNav }) {
   const students = useWorkspaceData('/api/v1/students/', {
     page_size: PAGE_SIZE,
     branch: cohort.branch,
+    status: 'active',
+    has_cohort: moveMode ? true : false,
     search: search || undefined,
-    ordering: 'last_name',
-  }, { enabled: open });
+    ordering: 'student_id',
+  });
   const groups = useWorkspaceData('/api/v1/cohorts/', {
     page_size: PAGE_SIZE,
     branch: cohort.branch,
     is_archived: false,
     ordering: 'name',
-  }, { enabled: open });
-  const candidates = students.rows.filter((student) => String(student.current_cohort || '') !== String(cohort.id));
+  });
+  const candidates = students.rows.filter((student) => (
+    String(student.current_cohort || '') !== String(cohort.id)
+    && (moveMode ? Boolean(student.current_cohort) : !student.current_cohort)
+  ));
   const selectedCandidate = candidates.find((student) => String(student.id) === String(candidateId));
   const selectedMember = members.find((member) => String(member.student) === String(memberId));
   const targetGroups = groups.rows.filter((group) => String(group.id) !== String(cohort.id));
@@ -1010,11 +1032,15 @@ function MembershipManager({ cohort, members, canCreateStudent, onNav }) {
       setError({ errors: { reason: ['Record why this student is changing groups.'] } });
       return;
     }
+    if (moving && !window.confirm(`Move ${text(selectedCandidate.full_name || selectedCandidate.student_id, 'this student')} from ${text(selectedCandidate.current_cohort_name, 'their current group')} into ${text(cohort.name)}? Their current active group membership will be closed and this change will be recorded.`)) return;
+    if (!moving && !window.confirm(`Enroll ${text(selectedCandidate.full_name || selectedCandidate.student_id, 'this student')} in ${text(cohort.name)}?`)) return;
     mutation.mutate({ kind: moving ? 'move-in' : 'enroll', student: selectedCandidate.id, reason: joinReason.trim() });
   };
   const moveOut = (event) => {
     event.preventDefault();
     if (!selectedMember || !targetId || !moveReason.trim()) return;
+    const target = targetGroups.find((group) => String(group.id) === String(targetId));
+    if (!window.confirm(`Move ${text(selectedMember.student_name, 'this student')} from ${text(cohort.name)} to ${text(target?.name, 'the selected group')}? Their current membership will be closed and the reason will be recorded.`)) return;
     mutation.mutate({ kind: 'move-out', student: selectedMember.student, target: targetId, reason: moveReason.trim() });
   };
   const remove = () => {
@@ -1026,25 +1052,25 @@ function MembershipManager({ cohort, members, canCreateStudent, onNav }) {
     mutation.mutate({ kind: 'remove', student: selectedMember.student, reason: moveReason.trim() });
   };
 
-  return (
-    <details className="gp3-manage-disclosure gp3-membership-manager" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary><span><Icon source={Icons.settings} size={15} /> Manage group membership</span><small>Add, move, or remove students with an auditable reason</small></summary>
+  const content = (
       <div className="gp3-management-panel">
         {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'The membership could not be changed.')}</div> : null}
         <section className="gp3-management-section">
-          <header><div><strong>Add or move a student here</strong><small>Students already assigned elsewhere use the controlled move workflow automatically.</small></div>{canCreateStudent ? <RouteLink className="gp3-button" to={`students/new?branch=${cohort.branch}&cohort=${cohort.id}`} onNav={onNav}><Icon source={Icons.plus} size={14} /> Create student</RouteLink> : null}</header>
+          <header><div><strong>{moveMode ? 'Move a student from another group' : 'Add an unassigned active student'}</strong><small>{moveMode ? 'This closes the student’s current membership and requires a recorded reason and confirmation.' : 'Only active students in this branch who do not currently have a primary group are shown.'}</small></div>{canCreateStudent ? <RouteLink className="gp3-button" to={`students/new?branch=${cohort.branch}&cohort=${cohort.id}`} onNav={onNav}><Icon source={Icons.plus} size={14} /> Create student</RouteLink> : null}</header>
+          <div className="gp3-candidate-modes" role="group" aria-label="Student assignment mode"><button type="button" className={!moveMode ? 'is-active' : ''} onClick={() => { setMoveMode(false); setCandidateId(''); setJoinReason(''); }}>Unassigned students</button><button type="button" className={moveMode ? 'is-active is-warning' : ''} onClick={() => { setMoveMode(true); setCandidateId(''); setJoinReason(''); }}>Move from another group</button></div>
+          {moveMode ? <div className="gp3-move-warning" role="note"><Icon source={Icons.flag} size={17} /><span><strong>Moving a student affects their active enrollment</strong><small>The previous group membership will end immediately. Review the current group, enter a reason, and confirm before continuing.</small></span></div> : null}
           <form className="gp3-search-inline" onSubmit={(event) => { event.preventDefault(); setSearch(searchDraft.trim()); setCandidateId(''); }}><label><span>Find a student</span><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} maxLength="100" placeholder="Name, phone, or student ID" /></label><button type="submit" className="gp3-button">Search</button></form>
           {students.pending ? <LoadingPanel lines={2} /> : students.error ? <QueryFailure error={students.error} retry={students.retry} title="Student choices could not be loaded" /> : (
             <form className="gp3-inline-form" onSubmit={addOrMove}>
-              <label className="is-wide"><span>Student</span><select required value={candidateId} onChange={(event) => { setCandidateId(event.target.value); setError(null); }}><option value="">Select a student</option>{candidates.map((student) => <option value={student.id} key={student.id}>{student.full_name || student.student_id}{student.current_cohort ? ` · Move from ${student.current_cohort_name || `group ${student.current_cohort}`}` : ' · Not assigned to a group'}</option>)}</select></label>
+              <label className="is-wide"><span>Student</span><select required value={candidateId} onChange={(event) => { setCandidateId(event.target.value); setError(null); }}><option value="">{moveMode ? 'Select a student to move' : 'Select an unassigned student'}</option>{candidates.map((student) => <option value={student.id} key={student.id}>{student.full_name || student.student_id}{student.current_cohort ? ` · Current group: ${student.current_cohort_name || `group ${student.current_cohort}`}` : ' · Unassigned'}</option>)}</select></label>
               {selectedCandidate?.current_cohort ? <label className="is-wide"><span>Reason for move</span><input required maxLength="64" value={joinReason} onChange={(event) => setJoinReason(event.target.value)} placeholder="For example, level placement change" /></label> : null}
               <button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !selectedCandidate}>{mutation.isPending ? 'Updating…' : selectedCandidate?.current_cohort ? 'Move into this group' : 'Enroll in this group'}</button>
             </form>
           )}
-          {!students.pending && !students.error && !candidates.length ? <p className="gp3-management-note">No eligible students match this search. Try a different name or create a new student record.</p> : null}
+          {!students.pending && !students.error && !candidates.length ? <p className="gp3-management-note">{moveMode ? 'No active students in another group match this search.' : 'No active unassigned students match this search. Try another name or create a student record.'}</p> : null}
         </section>
         <section className="gp3-management-section">
-          <header><div><strong>Move or remove a current student</strong><small>A move closes the current membership and creates one in the destination group as a single backend transaction.</small></div></header>
+          <header><div><strong>Move or remove a current student</strong><small>These changes require a reason and confirmation because they alter active membership.</small></div></header>
           <form className="gp3-inline-form" onSubmit={moveOut}>
             <label><span>Current student</span><select required value={memberId} onChange={(event) => { setMemberId(event.target.value); setError(null); }}><option value="">Select a student</option>{members.map((member) => <option value={member.student} key={member.id || member.student}>{member.student_name}</option>)}</select></label>
             <label><span>Destination group</span><select required value={targetId} onChange={(event) => setTargetId(event.target.value)} disabled={groups.pending}><option value="">Select another group</option>{targetGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label>
@@ -1053,11 +1079,17 @@ function MembershipManager({ cohort, members, canCreateStudent, onNav }) {
           </form>
         </section>
       </div>
+  );
+  if (standalone) return <section className="gp3-settings-card"><header><span><Icon source={Icons.cohort} size={17} /></span><div><h2>Student membership</h2><p>Add eligible students or use a confirmed move workflow.</p></div></header>{content}</section>;
+  return (
+    <details className="gp3-manage-disclosure gp3-membership-manager">
+      <summary><span><Icon source={Icons.settings} size={15} /> Manage group membership</span><small>Add, move, or remove students with an auditable reason</small></summary>
+      {content}
     </details>
   );
 }
 
-function StudentsSection({ cohort, membersState, dashboardState, canViewAttendance, canWrite, canCreateStudent, onNav }) {
+function StudentsSection({ cohort, membersState, dashboardState, canViewAttendance, onNav }) {
   const dashboardByStudent = new Map((dashboardState.data?.students || []).map((row) => [String(row.student), row]));
   const membersComplete = collectionComplete(membersState);
   function exportStudents() {
@@ -1079,7 +1111,6 @@ function StudentsSection({ cohort, membersState, dashboardState, canViewAttendan
     downloadSpreadsheet(`${safeFilename(cohort.name)}-students-${todayInOrganization()}.csv`, columns, membersState.rows);
   }
   return <Panel eyebrow="Membership" title="Students" detail="Current membership connected to each student's full record." action={<button type="button" className="gp3-button" disabled={!membersState.rows.length} onClick={exportStudents} title="Downloads an Excel-compatible file"><Icon source={Icons.doc} size={14} /> Download spreadsheet</button>}>
-    {canWrite && !cohort.is_archived ? <MembershipManager cohort={cohort} members={membersState.rows} canCreateStudent={canCreateStudent} onNav={onNav} /> : null}
     {membersState.error ? <QueryFailure error={membersState.error} retry={membersState.retry} /> : membersState.pending ? <LoadingPanel lines={7} /> : membersState.rows.length ? <>
       <CoverageNote complete={membersComplete} loaded={membersState.rows.length} total={membersState.total} />
       {canViewAttendance && dashboardState.error ? <div className="gp3-inline-warning" role="status"><Icon source={Icons.flag} size={15} /><span>Attendance summaries are temporarily unavailable. Membership information below is still current.</span><button type="button" onClick={() => dashboardState.retry()}>Retry attendance</button></div> : null}
@@ -1102,6 +1133,15 @@ function StudentsSection({ cohort, membersState, dashboardState, canViewAttendan
       </tbody></table></div>
     </> : <EmptyState icon={Icons.cohort} eyebrow="Membership" title="No students are recorded for this group" description="The group exists, but no membership history is available." />}
   </Panel>;
+}
+
+function GroupSettingsSection({ cohort, membersState, teachersState, access, onNav, branchId }) {
+  return <div className="gp3-settings-stack">
+    <div className="gp3-settings-intro"><span><Icon source={Icons.shield} size={18} /></span><div><strong>Controlled group setup</strong><p>Group details, teaching assignments, and enrollment changes are managed together here. Every relationship change asks for confirmation and keeps its operational history.</p></div></div>
+    <section className="gp3-settings-card"><header><span><Icon source={Icons.settings} size={17} /></span><div><h2>Group details</h2><p>Maintain the group’s identity, dates, capacity, and default room.</p></div></header><div className="gp3-settings-card-body"><GroupEditor id={cohort.id} branchId={branchId} access={access} onNav={onNav} recordData={cohort} embedded /></div></section>
+    {access.teachers ? teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} title="Teaching assignments could not be loaded" /> : teachersState.pending ? <LoadingPanel lines={4} /> : <TeacherAssignmentManager cohort={cohort} rows={teachersState.rows.length ? teachersState.rows : assignmentRows(cohort)} standalone /> : null}
+    {access.students ? membersState.error ? <QueryFailure error={membersState.error} retry={membersState.retry} title="Student membership could not be loaded" /> : membersState.pending ? <LoadingPanel lines={5} /> : <MembershipManager cohort={cohort} members={membersState.rows} canCreateStudent={access.studentsWrite} onNav={onNav} standalone /> : null}
+  </div>;
 }
 
 function AttendanceMatrix({ members, dashboardRows, lessons, records, complete, onNav }) {
@@ -1231,7 +1271,7 @@ function CoverAssignmentManager({ cohort, lessons, access }) {
   const covers = useWorkspaceData('/api/v1/cover/', { page_size: PAGE_SIZE, branch: cohort.branch, status: 'open', ordering: '-created_at' }, { enabled: access.cover });
   const lessonMap = new Map(lessons.map((lesson) => [String(lesson.id), lesson]));
   const rows = covers.rows.filter((cover) => lessonMap.has(String(cover.lesson)));
-  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: PAGE_SIZE, branch: cohort.branch, is_active: true, ordering: 'last_name' }, { enabled: access.coverApprove && rows.length > 0 });
+  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: PAGE_SIZE, branch: cohort.branch, is_active: true }, { enabled: access.coverApprove && rows.length > 0 });
   const mutation = useMutation({
     mutationFn: ({ cover, action, teacher }) => {
       const path = action === 'assign'
@@ -1345,11 +1385,11 @@ function GroupDetail({ groupId, section, sections, route, onNav, branchId, acces
   const cohortState = useWorkspaceData(`${base}/`);
   useWorkspaceTitle(cohortState.data?.name, 'Groups', section);
   const branchVerified = Boolean(cohortState.data && (!branchId || String(cohortState.data.branch) === String(branchId)));
-  const needsMembers = access.students && ['overview', 'students', 'attendance'].includes(section);
+  const needsMembers = access.students && ['overview', 'settings', 'students', 'attendance'].includes(section);
   const needsDashboard = access.attendance && ['overview', 'students', 'attendance'].includes(section);
   const needsLessons = access.schedule && ['overview', 'attendance', 'schedule'].includes(section);
   const membersState = useWorkspaceData(`${base}/members/`, undefined, { enabled: branchVerified && needsMembers });
-  const teachersState = useWorkspaceData(`${base}/teachers/`, undefined, { enabled: branchVerified && section === 'overview' && access.teachers });
+  const teachersState = useWorkspaceData(`${base}/teachers/`, undefined, { enabled: branchVerified && ['overview', 'settings'].includes(section) && access.teachers });
   const dashboardState = useWorkspaceData(`/api/v1/attendance/cohorts/${groupId}/dashboard/`, {
     date_from: `${range.from}T00:00:00+05:00`,
     date_to: `${range.to}T23:59:59.999+05:00`,
@@ -1382,7 +1422,8 @@ function GroupDetail({ groupId, section, sections, route, onNav, branchId, acces
     <label className="gp3-section-select"><span>Group record section</span><select value={section} onChange={(event) => navigate(onNav, `${basePath}/${cohort.id}/${event.target.value}?from=${range.from}&to=${range.to}`)}>{sections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
     <div className="gp3-detail-content">
         {section === 'overview' ? <OverviewSection cohort={cohort} membersState={membersState} teachersState={teachersState} dashboardState={dashboardState} lessonsState={lessonsState} range={range} basePath={basePath} access={access} onNav={onNav} /> : null}
-        {section === 'students' ? <StudentsSection cohort={cohort} membersState={membersState} dashboardState={dashboardState} canViewAttendance={access.attendance} canWrite={access.cohortsWrite} canCreateStudent={access.studentsWrite} onNav={onNav} /> : null}
+        {section === 'settings' ? <GroupSettingsSection cohort={cohort} membersState={membersState} teachersState={teachersState} access={access} onNav={onNav} branchId={branchId} /> : null}
+        {section === 'students' ? <StudentsSection cohort={cohort} membersState={membersState} dashboardState={dashboardState} canViewAttendance={access.attendance} onNav={onNav} /> : null}
         {section === 'attendance' ? <AttendanceSection cohort={cohort} membersState={membersState} dashboardState={dashboardState} recordsState={recordsState} lessonsState={lessonsState} range={range} basePath={basePath} onNav={onNav} /> : null}
         {section === 'schedule' ? <ScheduleSection cohort={cohort} lessonsState={lessonsState} range={range} basePath={basePath} access={access} onNav={onNav} /> : null}
         {section === 'learning' ? <LearningSection assignmentsState={assignmentsState} /> : null}

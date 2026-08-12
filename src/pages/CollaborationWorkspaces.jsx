@@ -22,6 +22,14 @@ const TASK_COLUMNS = Object.freeze([
   { id: 'done', label: 'Done', tone: 'success' },
 ]);
 
+const TASK_TARGET_MODES = Object.freeze([
+  { id: 'self', label: 'Myself', note: 'Keep this in my own worklist', icon: Icons.user },
+  { id: 'people', label: 'People', note: 'Choose one or several owners', icon: Icons.cohort },
+  { id: 'departments', label: 'Departments', note: 'Create shared department work', icon: Icons.folder },
+  { id: 'branches', label: 'Branches', note: 'Create work for selected branches', icon: Icons.globe },
+  { id: 'organization', label: 'Everyone', note: 'Assign a copy to every available staff member', icon: Icons.brand },
+]);
+
 const FIELD_TYPES = Object.freeze([
   ['text', 'Short answer'],
   ['textarea', 'Long answer'],
@@ -70,6 +78,76 @@ function dateTime(value, fallback = 'No deadline') {
   }).format(parsed);
 }
 
+function dateOnly(value, fallback = 'No deadline') {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return fallback;
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: parsed.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+  }).format(parsed);
+}
+
+function taskPrincipalMatches(principal, user) {
+  return Boolean(principal && user &&
+    String(principal.kind) === String(user.principal_kind) &&
+    String(principal.id) === String(user.id));
+}
+
+function taskIsMine(task, user) {
+  if (taskPrincipalMatches(task?.assignee_principal, user)) return true;
+  return !task?.assignee_principal && Boolean(task?.assignee_name) &&
+    task.assignee_name.trim().toLowerCase() === displayName(user).trim().toLowerCase();
+}
+
+function taskWasCreatedByMe(task, user) {
+  if (taskPrincipalMatches(task?.created_by, user)) return true;
+  return !task?.created_by && Boolean(task?.created_by_name) &&
+    task.created_by_name.trim().toLowerCase() === displayName(user).trim().toLowerCase();
+}
+
+function taskIsFinished(task) {
+  return ['done', 'cancelled'].includes(task?.status);
+}
+
+function taskIsOverdue(task) {
+  const due = task?.due_at ? new Date(task.due_at) : null;
+  return Boolean(!taskIsFinished(task) && due && !Number.isNaN(due.getTime()) && due.getTime() < Date.now());
+}
+
+function taskDuePresentation(task) {
+  if (!task?.due_at) return { label: 'No deadline', tone: 'neutral' };
+  if (taskIsFinished(task)) return { label: dateOnly(task.due_at), tone: 'neutral' };
+  const due = new Date(task.due_at);
+  if (Number.isNaN(due.getTime())) return { label: 'No deadline', tone: 'neutral' };
+  const remaining = due.getTime() - Date.now();
+  if (remaining < 0) return { label: `Overdue · ${dateOnly(task.due_at)}`, tone: 'danger' };
+  if (remaining < 72 * 60 * 60 * 1000) return { label: `Due soon · ${dateOnly(task.due_at)}`, tone: 'warn' };
+  return { label: dateOnly(task.due_at), tone: 'neutral' };
+}
+
+function taskScopeLabel(task) {
+  return [task?.branch_name, task?.department_name].filter(Boolean).join(' · ') ||
+    (task?.assignee_name ? 'Individual task' : 'Organization-wide');
+}
+
+function taskOwnerLabel(task) {
+  return task?.assignee_name || task?.department_name || task?.branch_name || 'Shared worklist';
+}
+
+function taskCreatorLabel(task) {
+  return task?.created_by_name || task?.created_by?.display_name || 'Not recorded';
+}
+
+function personScope(person) {
+  const membership = (person?.role_memberships || person?.account_type_assignments || [])
+    .find((item) => item?.branch || item?.department) || {};
+  return {
+    branch: person?.branch ?? membership.branch ?? null,
+    department: person?.department ?? membership.department ?? null,
+  };
+}
+
 function Modal({ open, title, subtitle, onClose, children, wide = false }) {
   useEffect(() => {
     if (!open) return undefined;
@@ -111,7 +189,7 @@ function targetPeople(staff, teachers) {
   const people = [
     ...staff.map((person) => ({ ...person, principalKind: 'staff' })),
     ...teachers.map((person) => ({ ...person, principalKind: 'teacher' })),
-  ];
+  ].filter((person) => person.is_active !== false);
   const deduped = new Map();
   people.forEach((person) => deduped.set(`${person.principalKind}:${person.id}`, person));
   return [...deduped.values()];
@@ -120,61 +198,91 @@ function targetPeople(staff, teachers) {
 function TaskComposer({ open, onClose, user, staff, teachers, departments, branches, onSaved }) {
   const toast = useToast();
   const [draft, setDraft] = useState({
-    title: '', description: '', priority: 'normal', dueAt: '', audiences: ['self'],
+    title: '', description: '', priority: 'normal', dueAt: '', targetMode: 'self', targets: [],
   });
   const [audienceQuery, setAudienceQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const people = useMemo(() => targetPeople(staff, teachers), [staff, teachers]);
-  const audienceOptions = useMemo(() => [
-    { key: 'self', label: 'Myself', note: 'Personal task' },
-    { key: 'organization', label: 'Entire organization', note: `${people.length} available people` },
-    ...branches.map((branch) => ({ key: `branch:${branch.id}`, label: branch.name, note: 'Entire branch' })),
-    ...departments.map((department) => ({ key: `department:${department.id}`, label: department.name, note: department.branch_name || 'Department' })),
-    ...people.map((person) => ({
+  const audienceOptions = useMemo(() => {
+    if (draft.targetMode === 'people') return people.map((person) => ({
       key: `${person.principalKind}:${person.id}`,
       label: displayName(person),
-      note: person.account_type_name || person.department_name || (person.principalKind === 'teacher' ? 'Teacher' : 'Staff'),
-    })),
-  ], [branches, departments, people]);
+      note: [
+        person.account_type_name || (person.principalKind === 'teacher' ? 'Teacher' : 'Staff'),
+        person.department_name,
+        person.branch_name,
+      ].filter(Boolean).join(' · '),
+    }));
+    if (draft.targetMode === 'departments') return departments.map((department) => ({
+      key: String(department.id),
+      label: department.name,
+      note: department.branch_name || 'Department worklist',
+    }));
+    if (draft.targetMode === 'branches') return branches.map((branch) => ({
+      key: String(branch.id),
+      label: branch.name,
+      note: 'Branch worklist',
+    }));
+    return [];
+  }, [branches, departments, draft.targetMode, people]);
   const visibleAudienceOptions = audienceOptions.filter((option) =>
     `${option.label} ${option.note}`.toLowerCase().includes(audienceQuery.trim().toLowerCase()));
 
   const toggleAudience = (key) => setDraft((current) => ({
     ...current,
-    audiences: current.audiences.includes(key)
-      ? current.audiences.filter((item) => item !== key)
-      : [...current.audiences, key],
+    targets: current.targets.includes(key)
+      ? current.targets.filter((item) => item !== key)
+      : [...current.targets, key],
   }));
+
+  const selectTargetMode = (targetMode) => {
+    setAudienceQuery('');
+    setDraft((current) => ({ ...current, targetMode, targets: [] }));
+  };
 
   const resolveTargets = () => {
     const targets = new Map();
-    const addPerson = (person) => targets.set(`${person.principalKind}:${person.id}`, {
-      assignee_principal: { kind: person.principalKind, id: Number(person.id) },
-    });
-    for (const key of draft.audiences) {
-      if (key === 'self') {
-        targets.set(`${user.principal_kind}:${user.id}`, {
-          assignee_principal: { kind: user.principal_kind, id: Number(user.id) },
+    const addPerson = (person) => {
+      const scope = personScope(person);
+      targets.set(`${person.principalKind}:${person.id}`, {
+        assignee_principal: { kind: person.principalKind, id: Number(person.id) },
+        ...(scope.branch ? { branch: Number(scope.branch) } : {}),
+        ...(scope.department ? { department: Number(scope.department) } : {}),
+      });
+    };
+    if (draft.targetMode === 'self') {
+      const scope = personScope(user);
+      targets.set(`${user.principal_kind}:${user.id}`, {
+        assignee_principal: { kind: user.principal_kind, id: Number(user.id) },
+        ...(scope.branch ? { branch: Number(scope.branch) } : {}),
+        ...(scope.department ? { department: Number(scope.department) } : {}),
+      });
+    } else if (draft.targetMode === 'organization') {
+      people.forEach(addPerson);
+    } else if (draft.targetMode === 'people') {
+      draft.targets.forEach((key) => {
+        const person = people.find((candidate) => `${candidate.principalKind}:${candidate.id}` === key);
+        if (person) addPerson(person);
+      });
+    } else if (draft.targetMode === 'departments') {
+      draft.targets.forEach((key) => {
+        const department = departments.find((candidate) => String(candidate.id) === key);
+        if (department) targets.set(`department:${key}`, {
+          department: Number(department.id),
+          ...(department.branch ? { branch: Number(department.branch) } : {}),
         });
-      } else if (key === 'organization') {
-        people.forEach(addPerson);
-      } else if (key.startsWith('branch:')) {
-        const branchId = key.split(':')[1];
-        const matches = people.filter((person) => String(person.branch) === branchId);
-        if (matches.length) matches.forEach(addPerson);
-        else targets.set(key, { branch: Number(branchId) });
-      } else if (key.startsWith('department:')) {
-        const departmentId = key.split(':')[1];
-        const matches = people.filter((person) => String(person.department) === departmentId);
-        if (matches.length) matches.forEach(addPerson);
-        else targets.set(key, { department: Number(departmentId) });
-      } else {
-        const [kind, id] = key.split(':');
-        targets.set(key, { assignee_principal: { kind, id: Number(id) } });
-      }
+      });
+    } else if (draft.targetMode === 'branches') {
+      draft.targets.forEach((key) => targets.set(`branch:${key}`, { branch: Number(key) }));
     }
     return [...targets.values()];
   };
+
+  const selectedCount = draft.targetMode === 'self'
+    ? 1
+    : draft.targetMode === 'organization'
+      ? people.length
+      : draft.targets.length;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -194,7 +302,7 @@ function TaskComposer({ open, onClose, user, staff, teachers, departments, branc
           httpRequest('POST', '/api/v1/tasks/', { body: { ...common, ...target } })));
       }
       toast.success(targets.length === 1 ? 'Task created.' : `${targets.length} coordinated tasks created.`);
-      setDraft({ title: '', description: '', priority: 'normal', dueAt: '', audiences: ['self'] });
+      setDraft({ title: '', description: '', priority: 'normal', dueAt: '', targetMode: 'self', targets: [] });
       setAudienceQuery('');
       onSaved?.();
       onClose?.();
@@ -205,7 +313,7 @@ function TaskComposer({ open, onClose, user, staff, teachers, departments, branc
     }
   };
 
-  return <Modal open={open} onClose={onClose} title="Create task" subtitle="Assign one clear outcome to yourself, selected people, departments, branches, or the whole organization." wide>
+  return <Modal open={open} onClose={onClose} title="Create task" subtitle="Set one clear outcome, then choose exactly who owns it. Multiple people receive individual trackable tasks." wide>
     <form className="collab-composer" onSubmit={submit}>
       <div className="collab-form-grid">
         <label className="is-wide"><span>Task title</span><input autoFocus required maxLength="200" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="What needs to be completed?" /></label>
@@ -213,13 +321,41 @@ function TaskComposer({ open, onClose, user, staff, teachers, departments, branc
         <label><span>Priority</span><select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
         <label><span>Deadline</span><input type="datetime-local" value={draft.dueAt} onChange={(event) => setDraft({ ...draft, dueAt: event.target.value })} /></label>
       </div>
-      <section className="collab-audience-picker">
-        <header><div><span>Recipients</span><strong>Choose one or many destinations</strong></div><b>{draft.audiences.length} selected</b></header>
-        <label className="collab-audience-search"><span aria-hidden="true">{cloneElement(Icons.search, { size: 14 })}</span><input value={audienceQuery} onChange={(event) => setAudienceQuery(event.target.value)} placeholder="Find a person, department, or branch" /></label>
-        <div>{visibleAudienceOptions.map((option) => <label key={option.key} className={draft.audiences.includes(option.key) ? 'is-selected' : ''}><input type="checkbox" checked={draft.audiences.includes(option.key)} onChange={() => toggleAudience(option.key)} /><span><strong>{option.label}</strong><small>{option.note}</small></span></label>)}</div>
+      <section className="collab-targets">
+        <header><div><span>Ownership</span><strong>Who should receive this task?</strong></div><b>{selectedCount} {selectedCount === 1 ? 'task' : 'tasks'}</b></header>
+        <div className="collab-target-modes">{TASK_TARGET_MODES.map((mode) => <button type="button" key={mode.id} className={draft.targetMode === mode.id ? 'is-selected' : ''} onClick={() => selectTargetMode(mode.id)}><span>{cloneElement(mode.icon, { size: 16 })}</span><strong>{mode.label}</strong><small>{mode.id === 'organization' ? `${people.length} available people` : mode.note}</small></button>)}</div>
+        {draft.targetMode === 'self' && <div className="collab-target-summary"><SfAvatar name={displayName(user, 'My account')} size={38} decorative /><span><strong>{displayName(user, 'My account')}</strong><small>This task will stay in your personal worklist.</small></span>{cloneElement(Icons.check, { size: 18 })}</div>}
+        {draft.targetMode === 'organization' && <div className="collab-target-summary"><span className="collab-target-summary-icon">{cloneElement(Icons.globe, { size: 19 })}</span><span><strong>Every available staff member</strong><small>A separate, individually trackable task will be created for each of {people.length} people.</small></span>{cloneElement(Icons.check, { size: 18 })}</div>}
+        {audienceOptions.length > 0 && <div className="collab-audience-picker is-embedded">
+          <label className="collab-audience-search"><span aria-hidden="true">{cloneElement(Icons.search, { size: 14 })}</span><input value={audienceQuery} onChange={(event) => setAudienceQuery(event.target.value)} placeholder={`Find ${draft.targetMode}`} /></label>
+          <div>{visibleAudienceOptions.map((option) => <label key={option.key} className={draft.targets.includes(option.key) ? 'is-selected' : ''}><input type="checkbox" checked={draft.targets.includes(option.key)} onChange={() => toggleAudience(option.key)} /><span><strong>{option.label}</strong><small>{option.note}</small></span></label>)}</div>
+        </div>}
       </section>
-      <footer><ActionButton onClick={onClose}>Cancel</ActionButton><ActionButton type="submit" tone="primary" disabled={busy || !draft.title.trim() || !draft.audiences.length} icon={Icons.plus}>{busy ? 'Creating…' : 'Create task'}</ActionButton></footer>
+      <footer><span className="collab-submit-note">{selectedCount ? `${selectedCount} ${selectedCount === 1 ? 'task' : 'tasks'} will be created` : 'Choose at least one owner'}</span><ActionButton onClick={onClose}>Cancel</ActionButton><ActionButton type="submit" tone="primary" disabled={busy || !draft.title.trim() || !selectedCount} icon={Icons.plus}>{busy ? 'Creating…' : selectedCount > 1 ? `Create ${selectedCount} tasks` : 'Create task'}</ActionButton></footer>
     </form>
+  </Modal>;
+}
+
+function TaskDetail({ task, open, onClose, onTransition, canTransition, moving }) {
+  if (!task) return null;
+  const due = taskDuePresentation(task);
+  const actions = [
+    ...TASK_COLUMNS,
+    { id: 'cancelled', label: 'Cancel task', tone: 'danger' },
+  ];
+  return <Modal open={open} onClose={onClose} title={task.title} subtitle="Everything needed to understand ownership, timing, and progress." wide>
+    <div className="task-detail">
+      <header>
+        <div><StatusPill value={task.priority} tone={task.priority === 'urgent' ? 'danger' : task.priority === 'high' ? 'warn' : 'neutral'} /><StatusPill value={task.status} /></div>
+        <span className={`task-due is-${due.tone}`}>{cloneElement(Icons.cal, { size: 14 })}{due.label}</span>
+      </header>
+      <section className="task-detail-people">
+        <article><SfAvatar name={taskOwnerLabel(task)} size={40} decorative /><span><small>Owner</small><strong>{taskOwnerLabel(task)}</strong><em>{taskScopeLabel(task)}</em></span></article>
+        <article><span className="task-detail-icon">{cloneElement(Icons.user, { size: 18 })}</span><span><small>Created by</small><strong>{taskCreatorLabel(task)}</strong><em>{dateTime(task.created_at, 'Date not recorded')}</em></span></article>
+      </section>
+      <section className="task-detail-notes"><span>Task notes</span><p>{task.description || 'No additional notes were added to this task.'}</p></section>
+      {canTransition && <section className="task-detail-progress"><header><span>Progress</span><strong>Update the task directly</strong></header><div>{actions.map((action) => <button type="button" key={action.id} className={`is-${action.tone}${task.status === action.id ? ' is-current' : ''}`} disabled={moving || task.status === action.id} onClick={() => onTransition(task, action.id)}><i />{action.label}{task.status === action.id && cloneElement(Icons.check, { size: 14 })}</button>)}</div></section>}
+    </div>
   </Modal>;
 }
 
@@ -232,37 +368,117 @@ export function TasksPage({ user }) {
   const departments = useWorkspaceData('/api/v1/org/departments/', { page_size: 100 }, { enabled: canWrite && canUseCapability(user, 'org:read') });
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: 100 }, { enabled: canWrite && canUseCapability(user, 'org:read') });
   const [view, setView] = useState('board');
+  const [perspective, setPerspective] = useState('all');
   const [scope, setScope] = useState('active');
+  const [query, setQuery] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
   const [moving, setMoving] = useState(null);
-  const visible = rowsOf(tasks).filter((task) => {
-    if (scope === 'all') return true;
-    if (scope === 'done') return task.status === 'done';
-    if (scope === 'urgent') return task.priority === 'urgent' && task.status !== 'done';
-    return !['done', 'cancelled'].includes(task.status);
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [statusOverrides, setStatusOverrides] = useState({});
+  const taskRows = rowsOf(tasks);
+  const effectiveTasks = taskRows.map((task) => statusOverrides[String(task.id)]
+    ? { ...task, status: statusOverrides[String(task.id)] }
+    : task);
+  useEffect(() => {
+    setStatusOverrides((current) => {
+      const next = { ...current };
+      let changed = false;
+      taskRows.forEach((task) => {
+        const id = String(task.id);
+        if (next[id] && next[id] === task.status) {
+          delete next[id];
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [taskRows]);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = effectiveTasks.filter((task) => {
+    if (perspective === 'mine' && !taskIsMine(task, user)) return false;
+    if (perspective === 'created' && !taskWasCreatedByMe(task, user)) return false;
+    if (perspective === 'shared' && (task.assignee_principal || task.assignee_name)) return false;
+    if (scope === 'active' && taskIsFinished(task)) return false;
+    if (scope === 'overdue' && !taskIsOverdue(task)) return false;
+    if (scope === 'done' && task.status !== 'done') return false;
+    if (normalizedQuery && ![
+      task.title,
+      task.description,
+      taskOwnerLabel(task),
+      taskCreatorLabel(task),
+      taskScopeLabel(task),
+    ].some((value) => String(value || '').toLowerCase().includes(normalizedQuery))) return false;
+    return true;
+  }).sort((left, right) => {
+    const overdueDifference = Number(taskIsOverdue(right)) - Number(taskIsOverdue(left));
+    if (overdueDifference) return overdueDifference;
+    const leftDue = left.due_at ? new Date(left.due_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const rightDue = right.due_at ? new Date(right.due_at).getTime() : Number.MAX_SAFE_INTEGER;
+    return leftDue - rightDue;
   });
+  const metrics = {
+    active: effectiveTasks.filter((task) => !taskIsFinished(task)).length,
+    mine: effectiveTasks.filter((task) => taskIsMine(task, user) && !taskIsFinished(task)).length,
+    overdue: effectiveTasks.filter(taskIsOverdue).length,
+    blocked: effectiveTasks.filter((task) => task.status === 'blocked').length,
+  };
+  const canTransitionAny = canUseCapability(user, 'tasks:transition_any') || canUseCapability(user, 'tasks:assign_any');
+  const canTransitionTask = (task) => canTransitionAny || taskIsMine(task, user);
   const transition = async (task, status) => {
+    const id = String(task.id);
     setMoving(task.id);
+    setStatusOverrides((current) => ({ ...current, [id]: status }));
     try {
-      await httpRequest('POST', `/api/v1/tasks/${task.id}/transition/`, { body: { status } });
+      const updated = await httpRequest('POST', `/api/v1/tasks/${task.id}/transition/`, { body: { status } });
+      setStatusOverrides((current) => ({ ...current, [id]: updated?.status || status }));
       await tasks.retry();
       toast.success('Task status updated.');
     } catch (error) {
+      setStatusOverrides((current) => {
+        const next = { ...current };
+        if (current[id] === status) delete next[id];
+        return next;
+      });
       toast.danger(userFacingError(error, { fallback: 'The task could not be updated.' }));
     } finally {
       setMoving(null);
     }
   };
+  const selectedTask = effectiveTasks.find((task) => String(task.id) === String(selectedTaskId)) || null;
   return <div className="fw-page collab-page">
-    <WorkspaceHeader eyebrow="Shared execution" title="Tasks" description="A focused workspace for personal priorities and coordinated work across people, departments, branches, or the whole organization." actions={<>{canWrite && <ActionButton tone="primary" icon={Icons.plus} onClick={() => setComposerOpen(true)}>Create task</ActionButton>}</>} />
-    <section className="collab-toolbar"><div className="collab-segments">{[['active', 'Active'], ['urgent', 'Urgent'], ['done', 'Completed'], ['all', 'All']].map(([id, label]) => <button type="button" className={scope === id ? 'is-active' : ''} onClick={() => setScope(id)} key={id}>{label}</button>)}</div><div className="collab-segments is-view"><button type="button" className={view === 'board' ? 'is-active' : ''} onClick={() => setView('board')}>Board</button><button type="button" className={view === 'list' ? 'is-active' : ''} onClick={() => setView('list')}>List</button></div></section>
+    <WorkspaceHeader eyebrow="Execution workspace" title="Tasks" description="Plan your own work, assign clear ownership, and follow every commitment without mixing tasks with technical records." actions={<>{canWrite && <ActionButton tone="primary" icon={Icons.plus} onClick={() => setComposerOpen(true)}>Create task</ActionButton>}</>} />
+    <section className="task-overview" aria-label="Task overview">
+      <article><span>{cloneElement(Icons.check, { size: 17 })}</span><div><small>Active work</small><strong>{metrics.active}</strong><p>Open commitments in the loaded register</p></div></article>
+      <article><span>{cloneElement(Icons.user, { size: 17 })}</span><div><small>Assigned to me</small><strong>{metrics.mine}</strong><p>Your current personal worklist</p></div></article>
+      <article className={metrics.overdue ? 'is-danger' : ''}><span>{cloneElement(Icons.cal, { size: 17 })}</span><div><small>Overdue</small><strong>{metrics.overdue}</strong><p>Needs a decision or a new deadline</p></div></article>
+      <article className={metrics.blocked ? 'is-warn' : ''}><span>{cloneElement(Icons.flag, { size: 17 })}</span><div><small>Blocked</small><strong>{metrics.blocked}</strong><p>Waiting for help or a dependency</p></div></article>
+    </section>
+    <section className="task-controls">
+      <div className="task-perspectives"><span>Worklist</span><div>{[['all', 'All work'], ['mine', 'Assigned to me'], ['created', 'Created by me'], ['shared', 'Shared work']].map(([id, label]) => <button type="button" className={perspective === id ? 'is-active' : ''} onClick={() => setPerspective(id)} key={id}>{label}</button>)}</div></div>
+      <label className="task-search"><span>{cloneElement(Icons.search, { size: 15 })}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks, owners, or departments" /></label>
+      <div className="collab-segments is-view"><button type="button" className={view === 'board' ? 'is-active' : ''} onClick={() => setView('board')}>Board</button><button type="button" className={view === 'list' ? 'is-active' : ''} onClick={() => setView('list')}>List</button></div>
+      <div className="collab-segments task-state-filter">{[['active', 'Active'], ['overdue', 'Overdue'], ['done', 'Completed'], ['all', 'All states']].map(([id, label]) => <button type="button" className={scope === id ? 'is-active' : ''} onClick={() => setScope(id)} key={id}>{label}</button>)}</div>
+    </section>
     <WorkspaceState state={tasks} empty={!visible.length} emptyTitle="No tasks in this view" emptyBody="Create a task or choose another filter.">
       {view === 'board' ? <div className="task-board">{TASK_COLUMNS.map((column) => {
         const columnTasks = visible.filter((task) => task.status === column.id || (column.id === 'done' && task.status === 'cancelled'));
-        return <section className="task-column" key={column.id}><header><span><i className={`is-${column.tone}`} />{column.label}</span><b>{columnTasks.length}</b></header><div>{columnTasks.map((task) => <article className={`task-note is-${task.priority}`} key={task.id}><header><StatusPill value={task.priority} tone={task.priority === 'urgent' ? 'danger' : task.priority === 'high' ? 'warn' : 'neutral'} /><time>{dateTime(task.due_at)}</time></header><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}<footer><span><SfAvatar name={task.assignee_name || task.created_by_name || 'Team'} size={24} decorative /><small>{task.assignee_name || task.department_name || task.branch_name || 'Shared backlog'}</small></span>{canWrite ? <select aria-label={`Update ${task.title} status`} disabled={String(moving) === String(task.id)} value={task.status === 'cancelled' ? 'done' : task.status} onChange={(event) => transition(task, event.target.value)}>{TASK_COLUMNS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <StatusPill value={task.status} />}</footer></article>)}</div></section>;
-      })}</div> : <div className="task-list">{visible.map((task) => <article key={task.id}><button type="button" disabled={!canWrite} className={task.status === 'done' ? 'is-complete' : ''} onClick={() => transition(task, task.status === 'done' ? 'open' : 'done')} aria-label={`Toggle ${task.title}`}>{task.status === 'done' && cloneElement(Icons.check, { size: 13 })}</button><div><strong>{task.title}</strong><small>{task.description || task.assignee_name || task.department_name || task.branch_name || 'Shared task'}</small></div><StatusPill value={task.priority} /><time>{dateTime(task.due_at)}</time><StatusPill value={task.status} /></article>)}</div>}
+        return <section className="task-column" key={column.id}><header><span><i className={`is-${column.tone}`} />{column.label}</span><b>{columnTasks.length}</b></header><div>{columnTasks.length ? columnTasks.map((task) => {
+          const due = taskDuePresentation(task);
+          const transitionAllowed = canTransitionTask(task);
+          return <article className={`task-note is-${task.priority}${taskIsOverdue(task) ? ' is-overdue' : ''}`} key={task.id}>
+            <header><StatusPill value={task.priority} tone={task.priority === 'urgent' ? 'danger' : task.priority === 'high' ? 'warn' : 'neutral'} /><span className={`task-due is-${due.tone}`}>{cloneElement(Icons.cal, { size: 12 })}{due.label}</span></header>
+            <button type="button" className="task-note-open" onClick={() => setSelectedTaskId(task.id)}><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}</button>
+            <div className="task-note-scope"><small>{taskScopeLabel(task)}</small><span>Created by {taskCreatorLabel(task)}</span></div>
+            <footer><span><SfAvatar name={taskOwnerLabel(task)} size={26} decorative /><small>{taskOwnerLabel(task)}</small></span>{transitionAllowed ? <select aria-label={`Update ${task.title} status`} disabled={String(moving) === String(task.id)} value={task.status === 'cancelled' ? 'done' : task.status} onChange={(event) => transition(task, event.target.value)}>{TASK_COLUMNS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <StatusPill value={task.status} />}</footer>
+          </article>;
+        }) : <div className="task-column-empty"><span>{cloneElement(Icons.check, { size: 16 })}</span><small>Nothing here</small></div>}</div></section>;
+      })}</div> : <div className="task-list"><header><span aria-hidden="true" /><span>Task</span><span>Owner &amp; scope</span><span>Priority</span><span>Deadline</span><span>Status</span></header>{visible.map((task) => {
+        const due = taskDuePresentation(task);
+        return <article key={task.id}><button type="button" disabled={!canTransitionTask(task) || String(moving) === String(task.id)} className={task.status === 'done' ? 'is-complete' : ''} onClick={() => transition(task, task.status === 'done' ? 'open' : 'done')} aria-label={`Toggle ${task.title}`}>{task.status === 'done' && cloneElement(Icons.check, { size: 13 })}</button><button type="button" className="task-list-title" onClick={() => setSelectedTaskId(task.id)}><strong>{task.title}</strong><small>{task.description || `Created by ${taskCreatorLabel(task)}`}</small></button><div className="task-list-owner"><SfAvatar name={taskOwnerLabel(task)} size={25} decorative /><span><strong>{taskOwnerLabel(task)}</strong><small>{taskScopeLabel(task)}</small></span></div><StatusPill value={task.priority} /><time className={`is-${due.tone}`}>{due.label}</time><StatusPill value={task.status} /></article>;
+      })}</div>}
     </WorkspaceState>
     <TaskComposer open={composerOpen} onClose={() => setComposerOpen(false)} user={user} staff={rowsOf(staff)} teachers={rowsOf(teachers)} departments={rowsOf(departments)} branches={rowsOf(branches)} onSaved={tasks.retry} />
+    <TaskDetail task={selectedTask} open={Boolean(selectedTask)} onClose={() => setSelectedTaskId(null)} onTransition={transition} canTransition={selectedTask ? canTransitionTask(selectedTask) : false} moving={selectedTask ? String(moving) === String(selectedTask.id) : false} />
   </div>;
 }
 

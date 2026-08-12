@@ -377,7 +377,7 @@ function DepartmentEditor({ id, onNav, user }) {
   const toast = useToast();
   const source = form || record.data || { branch: '', name: '', slug: '', description: '', head: '', budget: '', is_active: true };
   const effectiveBranch = source.branch || '';
-  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: 100, branch: effectiveBranch || undefined, is_active: true, ordering: 'last_name' }, { enabled: Boolean(effectiveBranch) && canUseCapability(user, 'teachers:read') });
+  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: 100, branch: effectiveBranch || undefined, is_active: true }, { enabled: Boolean(effectiveBranch) && canUseCapability(user, 'teachers:read') });
   const canWriteFinance = canUseCapability(user, 'finance:write');
   const update = (name, value) => setForm((current) => ({ ...(current || source), [name]: value }));
   const save = useMutation({
@@ -406,7 +406,7 @@ function DepartmentDetail({ id, onNav, user }) {
   const department = useWorkspaceData(`/api/v1/org/departments/${id}/`);
   const branchId = department.data?.branch;
   const staff = useWorkspaceData('/api/v1/org/staff/', { page_size: 100, ordering: 'last_name' }, { enabled: access.staff });
-  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: 25, department: id, ordering: 'last_name' }, { enabled: access.teachers });
+  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: 25, department: id }, { enabled: access.teachers });
   const groups = useWorkspaceData('/api/v1/cohorts/', { page_size: 25, department: id, ordering: 'name' }, { enabled: access.groups });
   const tasks = useWorkspaceData('/api/v1/tasks/', { page_size: 25, department: id, ordering: '-created_at' }, { enabled: access.tasks });
   const payroll = useWorkspaceData('/api/v1/payroll/periods/', { page_size: 25, department: id, ordering: '-created_at' }, { enabled: access.payroll });
