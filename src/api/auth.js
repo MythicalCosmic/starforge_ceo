@@ -173,9 +173,11 @@ export async function changeCurrentPassword({ oldPassword, newPassword }, { noti
 }
 
 export async function logoutCurrentSession() {
+  // Remove private UI state before waiting on the network so choosing sign out
+  // can never leave the authenticated workspace visible on a slow connection.
+  clearBrowserSession({ clearDevice: true, broadcast: false });
   let failure = null;
   try {
-    // End this browser session on the backend before clearing private UI state.
     await httpRequest('POST', '/api/v1/auth/logout/', {
       timeout: 3500,
       // Logout handles an already-ended session as a confirmed outcome itself;
@@ -186,13 +188,7 @@ export async function logoutCurrentSession() {
     // An already-expired or already-revoked session is a confirmed signed-out
     // outcome. Transport, CSRF, and service failures remain unconfirmed.
     if (Number(error?.status) !== 401) failure = error;
-  } finally {
-    // Cached/private data must not stay visible if the network request fails.
-    clearBrowserSession({
-      clearDevice: true,
-      broadcast: true,
-      logoutReason: failure ? 'unconfirmed' : 'confirmed',
-    });
   }
+  broadcastLogout(failure ? 'unconfirmed' : 'confirmed');
   if (failure) throw failure;
 }

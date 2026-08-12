@@ -73,3 +73,14 @@
 @media print {
   .account-notification-row button { pointer-events: none; }
 }
+.account-workspace .fw-table-wrap tr.is-current-session td {
+  background: color-mix(in srgb, var(--sf-success) 9%, var(--sf-surface));
+  box-shadow: inset 0 1px color-mix(in srgb, var(--sf-success) 28%, transparent),
+    inset 0 -1px color-mix(in srgb, var(--sf-success) 28%, transparent);
+}
+
+.account-workspace .fw-table-wrap tr.is-current-session td:first-child {
+  box-shadow: inset 3px 0 var(--sf-success),
+    inset 0 1px color-mix(in srgb, var(--sf-success) 28%, transparent),
+    inset 0 -1px color-mix(in srgb, var(--sf-success) 28%, transparent);
+}

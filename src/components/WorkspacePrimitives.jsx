@@ -194,7 +194,7 @@ function accessibleRowLabel(row, column, index, rowLabel) {
   return fallback == null ? `record ${index + 1}` : String(fallback);
 }
 
-export function WorkspaceTable({ label, columns, rows, rowKey = 'id', rowLabel, onOpen, empty = 'No loaded records in this view.' }) {
+export function WorkspaceTable({ label, columns, rows, rowKey = 'id', rowLabel, rowClassName, onOpen, empty = 'No loaded records in this view.' }) {
   if (!rows.length) return <div className="fw-table-empty">{empty}</div>;
   return (
     <div
@@ -210,7 +210,7 @@ export function WorkspaceTable({ label, columns, rows, rowKey = 'id', rowLabel, 
           {rows.map((row, index) => {
             const key = row?.[rowKey] ?? index;
             return (
-              <tr key={key}>
+              <tr key={key} className={typeof rowClassName === 'function' ? rowClassName(row, index) : rowClassName}>
                 {columns.map((column) => <td data-label={column.label} key={column.key || column.label}>{cellValue(row, column)}</td>)}
                 {onOpen && <td><button type="button" onClick={() => onOpen(row)} aria-label={`Open ${accessibleRowLabel(row, columns[0], index, rowLabel)}`}>{cloneElement(Icons.chevR, { size: 15 })}</button></td>}
               </tr>

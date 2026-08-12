@@ -171,6 +171,20 @@ describe('management session helpers', () => {
     expect(JSON.parse(logoutSignal)).toMatchObject({ reason: 'unconfirmed' });
   });
 
+  it('clears the current browser session before a slow logout request finishes', async () => {
+    session.setItem(API_CONFIG.legacyTokenKey, 'active-token');
+    session.setItem(API_CONFIG.deviceKey, 'current-device');
+    let finishLogout;
+    fetch.mockReturnValue(new Promise((resolve) => { finishLogout = resolve; }));
+
+    const logout = logoutCurrentSession();
+
+    expect(session.getItem(API_CONFIG.legacyTokenKey)).toBeNull();
+    expect(session.getItem(API_CONFIG.deviceKey)).toBeNull();
+    finishLogout(success({}));
+    await expect(logout).resolves.toBeUndefined();
+  });
+
   it('treats an already-ended session as a confirmed logout', async () => {
     const invalidated = vi.fn();
     window.addEventListener('sf-auth-session-invalidated', invalidated);

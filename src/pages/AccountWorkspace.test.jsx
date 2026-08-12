@@ -7,7 +7,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
 }));
 
 vi.mock('../context/AuthContext.jsx', () => ({
-  useAuth: () => ({ changePassword: vi.fn() }),
+  useAuth: () => ({ changePassword: vi.fn(), logout: vi.fn() }),
 }));
 
 vi.mock('../context/ToastContext.jsx', () => ({
@@ -56,20 +56,26 @@ describe('account workspace assurance', () => {
     expect(html).toContain('id="account-new-password"');
     expect(html).toContain('maxLength="128"');
     expect(html).toContain('autoComplete="new-password"');
+    expect(html).not.toContain('Active sign-ins');
+  });
+
+  it('highlights the current sign-in and exposes its real sign-out action on devices', () => {
+    const html = renderToStaticMarkup(<AccountPage route="account/devices" onNav={vi.fn()} />);
+
     expect(html).toContain('Active sign-ins');
-    expect(html).toContain('Current sign-in');
+    expect(html).toContain('is-current-session');
+    expect(html).toContain('current session');
+    expect(html).toContain('Sign out this current device');
   });
 
   it('replaces account mutations with clear view-only guidance for restricted sessions', () => {
     const html = renderToStaticMarkup(<AccountPage
-      route="account/security"
+      route="account/devices"
       onNav={vi.fn()}
       user={{ read_only_session: true }}
     />);
 
-    expect(html).toContain('Password changes are unavailable in a view-only session.');
     expect(html).toContain('current · view only');
-    expect(html).not.toContain('id="account-current-password"');
-    expect(html).not.toContain('Update password');
+    expect(html).not.toContain('Sign out this current device');
   });
 });

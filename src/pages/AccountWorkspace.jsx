@@ -220,14 +220,22 @@ function SecuritySection({ readOnly = false }) {
 
 function SessionsSection({ readOnly = false }) {
   const sessions = useWorkspaceData('/api/v1/users/sessions/', { page_size: 100 });
+  const { logout } = useAuth();
   const [pendingRevocation, setPendingRevocation] = useState(null);
   const toast = useToast();
   const revoke = useMutation({
     mutationFn: (sessionId) => httpRequest('DELETE', `/api/v1/users/sessions/${sessionId}/`),
-    onSuccess: () => {
+    onSuccess: (_data, sessionId) => {
       setPendingRevocation(null);
+      const endedCurrentSession = sessions.rows.some(
+        (row) => String(row.id) === String(sessionId) && row.current_session,
+      );
+      if (endedCurrentSession) {
+        void logout();
+        return;
+      }
       sessions.retry();
-      toast.success('The other sign-in has been ended.');
+      toast.success('The sign-in has been ended.');
     },
     onError: (failure) => {
       setPendingRevocation(null);
@@ -237,7 +245,14 @@ function SessionsSection({ readOnly = false }) {
   const description = readOnly
     ? 'Review coarse device and browser labels from the authenticated session register. Sign in directly to end another session.'
     : 'Review coarse device and browser labels from the authenticated session register. End an unfamiliar sign-in without exposing its credential.';
-  return <WorkspaceState state={sessions} empty={!sessions.rows.length} emptyTitle="No active sign-ins" emptyBody="Active browser and mobile sessions appear here without exposing credentials, network addresses, or full device fingerprints."><DetailSection eyebrow="Session security" title="Active sign-ins" description={description}><WorkspaceTable label="Active sign-ins" rows={sessions.rows} columns={[
+  const endSession = (row) => {
+    if (row.current_session) {
+      void logout();
+      return;
+    }
+    revoke.mutate(row.id);
+  };
+  return <WorkspaceState state={sessions} empty={!sessions.rows.length} emptyTitle="No active sign-ins" emptyBody="Active browser and mobile sessions appear here without exposing credentials, network addresses, or full device fingerprints."><DetailSection eyebrow="Session security" title="Active sign-ins" description={description}><WorkspaceTable label="Active sign-ins" rows={sessions.rows} rowClassName={(row) => row.current_session ? 'is-current-session' : ''} columns={[
     { key: 'device', label: 'Device' },
     { key: 'browser', label: 'Browser' },
     { key: 'platform', label: 'Platform', render: (row) => <StatusPill value={row.platform} /> },
@@ -246,13 +261,11 @@ function SessionsSection({ readOnly = false }) {
     { key: 'policy', label: 'Policy', render: (row) => row.current_session
       ? <StatusPill value={row.read_only || readOnly ? 'Current · view only' : 'Current session'} tone={row.read_only || readOnly ? 'warn' : 'success'} />
       : row.read_only ? <StatusPill value="View only" tone="warn" /> : 'Standard' },
-    { key: 'revoke', label: 'Actions', render: (row) => row.current_session
-      ? 'Current sign-in'
-      : readOnly
+    { key: 'revoke', label: 'Actions', render: (row) => readOnly
         ? 'View only'
         : String(pendingRevocation) === String(row.id)
-          ? <span className="fw-row-actions"><ActionButton icon={Icons.x} tone="ghost" title="Keep sign-in" aria-label="Keep sign-in" disabled={revoke.isPending} onClick={() => setPendingRevocation(null)}><span className="fw-sr">Cancel</span></ActionButton><ActionButton icon={Icons.logout} tone="danger" title="Confirm end sign-in" aria-label="Confirm end sign-in" disabled={revoke.isPending} onClick={() => revoke.mutate(row.id)}><span className="fw-sr">{revoke.isPending ? 'Ending sign-in' : 'Confirm end sign-in'}</span></ActionButton></span>
-          : <ActionButton icon={Icons.logout} tone="ghost" title="End sign-in" disabled={revoke.isPending} onClick={() => setPendingRevocation(row.id)} aria-label={`End ${row.device || 'other'} sign-in`}><span className="fw-sr">End sign-in</span></ActionButton> },
+          ? <span className="fw-row-actions"><ActionButton icon={Icons.x} tone="ghost" title="Keep sign-in" aria-label="Keep sign-in" disabled={revoke.isPending} onClick={() => setPendingRevocation(null)}><span className="fw-sr">Cancel</span></ActionButton><ActionButton icon={Icons.logout} tone="danger" title="Confirm end sign-in" aria-label="Confirm end sign-in" disabled={revoke.isPending} onClick={() => endSession(row)}><span className="fw-sr">{revoke.isPending ? 'Ending sign-in' : 'Confirm end sign-in'}</span></ActionButton></span>
+          : <ActionButton icon={Icons.logout} tone="ghost" title={row.current_session ? 'Sign out this device' : 'End sign-in'} disabled={revoke.isPending} onClick={() => setPendingRevocation(row.id)} aria-label={row.current_session ? 'Sign out this current device' : `End ${row.device || 'other'} sign-in`}><span className="fw-sr">{row.current_session ? 'Sign out this device' : 'End sign-in'}</span></ActionButton> },
   ]} /></DetailSection></WorkspaceState>;
 }
 
@@ -265,13 +278,13 @@ function DevicesSection({ readOnly = false }) {
     onSuccess: () => { setPendingRemoval(null); devices.retry(); toast.success('The recognized device has been removed.'); },
     onError: (failure) => { setPendingRemoval(null); toast.danger(userFacingError(failure, { fallback: 'The device could not be removed.' })); },
   });
-  return <WorkspaceState state={devices} empty={!devices.rows.length} emptyTitle="No recognized devices" emptyBody="Devices appear here after they register for secure notices."><DetailSection eyebrow="Security" title="Recognized devices" description="Remove a device you no longer use or recognize. This list does not expose any private delivery credential."><WorkspaceTable label="Recognized devices" rows={devices.rows} columns={[
+  return <><SessionsSection readOnly={readOnly} /><WorkspaceState state={devices} empty={!devices.rows.length} emptyTitle="No recognized devices" emptyBody="Devices appear here after they register for secure notices."><DetailSection eyebrow="Security" title="Recognized devices" description="Remove a device you no longer use or recognize. This list does not expose any private delivery credential."><WorkspaceTable label="Recognized devices" rows={devices.rows} columns={[
     { key: 'platform', label: 'Platform', render: (row) => <StatusPill value={row.platform} /> }, { key: 'device_id', label: 'Device identifier' }, { key: 'user_agent', label: 'Browser' },
     { key: 'last_seen_at', label: 'Last seen', render: (row) => formatOrganizationDate(row.last_seen_at) }, { key: 'created_at', label: 'First recognized', render: (row) => formatOrganizationDate(row.created_at) },
     { key: 'remove', label: 'Actions', render: (row) => readOnly ? 'View only' : String(pendingRemoval) === String(row.id)
       ? <span className="fw-row-actions"><ActionButton icon={Icons.x} tone="ghost" title="Keep device" aria-label="Keep device" disabled={revoke.isPending} onClick={() => setPendingRemoval(null)}><span className="fw-sr">Cancel</span></ActionButton><ActionButton icon={Icons.logout} tone="danger" title="Confirm remove device" aria-label="Confirm remove device" disabled={revoke.isPending} onClick={() => revoke.mutate(row.id)}><span className="fw-sr">{revoke.isPending ? 'Removing device' : 'Confirm remove device'}</span></ActionButton></span>
       : <ActionButton icon={Icons.logout} tone="ghost" title="Remove device" disabled={revoke.isPending} onClick={() => setPendingRemoval(row.id)} aria-label={`Remove ${row.platform || 'recognized'} device`}><span className="fw-sr">Remove device</span></ActionButton> },
-  ]} /></DetailSection></WorkspaceState>;
+  ]} /></DetailSection></WorkspaceState></>;
 }
 
 function AccessSection({ profile }) {
@@ -295,5 +308,5 @@ export function AccountPage({ route = 'account/profile', onNav, user }) {
   const active = SECTIONS.some((item) => item.id === section) ? section : 'profile';
   const current = SECTIONS.find((item) => item.id === active);
   const navigation = <SectionNav label="My account" items={SECTIONS} active={active} basePath="account" onNav={onNav} />;
-  return <WorkspaceLayout navigation={navigation}><div className="fw-page account-workspace">{active !== 'profile' && <WorkspaceHeader eyebrow="My account" title={current.label} description={current.description} />}{active === 'profile' && <ProfileSection profile={profile} onNav={onNav} readOnly={readOnly} />}{active === 'notifications' && <NotificationSection readOnly={readOnly} />}{active === 'security' && <><SecuritySection readOnly={readOnly} /><SessionsSection readOnly={readOnly} /></>}{active === 'devices' && <DevicesSection readOnly={readOnly} />}{active === 'access' && <AccessSection profile={profile} />}{active === 'workspace' && <WorkspaceSection onNav={onNav} />}</div></WorkspaceLayout>;
+  return <WorkspaceLayout navigation={navigation}><div className="fw-page account-workspace">{active !== 'profile' && <WorkspaceHeader eyebrow="My account" title={current.label} description={current.description} />}{active === 'profile' && <ProfileSection profile={profile} onNav={onNav} readOnly={readOnly} />}{active === 'notifications' && <NotificationSection readOnly={readOnly} />}{active === 'security' && <SecuritySection readOnly={readOnly} />}{active === 'devices' && <DevicesSection readOnly={readOnly} />}{active === 'access' && <AccessSection profile={profile} />}{active === 'workspace' && <WorkspaceSection onNav={onNav} />}</div></WorkspaceLayout>;
 }
