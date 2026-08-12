@@ -52,6 +52,23 @@ export function alignDevProxySecurityHeaders(proxyRequest, request, upstreamOrig
   }
 }
 
+const TUNNEL_ALLOWED_HOSTS = Object.freeze(['.ngrok-free.app']);
+
+function apiProxyFor(apiProxyTarget) {
+  return {
+    '/api': {
+      target: apiProxyTarget,
+      changeOrigin: true,
+      secure: apiProxyTarget.startsWith('https:'),
+      configure(proxy) {
+        proxy.on('proxyReq', (proxyRequest, request) => {
+          alignDevProxySecurityHeaders(proxyRequest, request, apiProxyTarget);
+        });
+      },
+    },
+  };
+}
+
 // Vite configuration for the StarForge console SPA.
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -94,24 +111,21 @@ export default defineConfig(({ command, mode }) => {
     server: {
       port: 5173,
       host: env.VITE_DEV_HOST || '127.0.0.1',
+      // Free ngrok hostnames rotate. Scope access to ngrok's domain instead of
+      // requiring a source edit each time the local tunnel is restarted.
+      allowedHosts: TUNNEL_ALLOWED_HOSTS,
       ...(apiProxyTarget
         ? {
-            proxy: {
-              '/api': {
-                target: apiProxyTarget,
-                changeOrigin: true,
-                secure: apiProxyTarget.startsWith('https:'),
-                configure(proxy) {
-                  proxy.on('proxyReq', (proxyRequest, request) => {
-                    alignDevProxySecurityHeaders(proxyRequest, request, apiProxyTarget);
-                  });
-                },
-              },
-            },
+            proxy: apiProxyFor(apiProxyTarget),
           }
         : {}),
     },
-    preview: { port: 4173, host: env.VITE_DEV_HOST || '127.0.0.1' },
+    preview: {
+      port: 4173,
+      host: env.VITE_DEV_HOST || '127.0.0.1',
+      allowedHosts: TUNNEL_ALLOWED_HOSTS,
+      ...(apiProxyTarget ? { proxy: apiProxyFor(apiProxyTarget) } : {}),
+    },
     build: { outDir: 'dist', sourcemap: false },
   };
 });

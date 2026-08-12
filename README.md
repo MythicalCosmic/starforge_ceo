@@ -112,6 +112,31 @@ so Django's normal cookie/CSRF checks remain active during a local live login.
 Open `http://127.0.0.1:5173`, sign in with a real director or department-head
 account, and verify the tenant and role shown by the shell.
 
+### Fast ngrok preview
+
+Do not tunnel `npm run dev`: Vite development mode serves the application as
+many individual source modules, so tunnel latency is multiplied across the
+initial page load. Stop the development server, run the optimized build on the
+same port, and point ngrok at port 5173:
+
+```bash
+npm run tunnel
+ngrok http 5173
+```
+
+The preview server retains the validated `/api/*` proxy from `.env.local` and
+accepts rotating `*.ngrok-free.app` tunnel names.
+
+### Netlify deployment
+
+`netlify.toml` pins `npm run build`, publishes `dist`, caches content-hashed
+assets, preserves the SPA fallback, and proxies same-origin `/api/*` requests
+to the currently verified tenant. Push the file and trigger a fresh Netlify
+deploy; an old deploy will not receive these routing rules automatically.
+
+Netlify is suitable for the current REST console, but its rewrite proxy is not
+a replacement for the Nginx image when WebSocket-backed features are enabled.
+
 ### Local companion backend
 
 `npm run validate:schema` checks the current live contract without authenticating

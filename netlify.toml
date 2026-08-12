@@ -1,0 +1,43 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22.23.1"
+  NPM_VERSION = "10.9.8"
+  VITE_API_URL = ""
+  VITE_USE_MOCK = "false"
+
+# Keep the browser and the cookie-based management API same-origin. The
+# upstream headers match the trusted backend origin, as they do in the local
+# Vite proxy and the production Nginx image.
+[[redirects]]
+  from = "/api/*"
+  to = "https://starforge.78.111.91.113.nip.io/api/:splat"
+  status = 200
+  force = true
+  headers = { Origin = "https://starforge.78.111.91.113.nip.io", Referer = "https://starforge.78.111.91.113.nip.io/" }
+
+# Keep this last so API traffic can never fall through to the HTML shell.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Netlify-CDN-Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; frame-src 'none'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    Permissions-Policy = "camera=(), display-capture=(), geolocation=(), microphone=(), payment=(), usb=()"
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    X-Robots-Tag = "noindex, nofollow, noarchive"

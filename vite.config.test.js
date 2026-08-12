@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { alignDevProxySecurityHeaders } from './vite.config.js';
+import viteConfig, { alignDevProxySecurityHeaders } from './vite.config.js';
+
+describe('tunnel serving', () => {
+  it('accepts rotating ngrok hosts and keeps the API proxy in production preview', () => {
+    vi.stubEnv('VITE_API_PROXY_TARGET', 'https://tenant.example');
+    const config = viteConfig({ command: 'serve', mode: 'test' });
+
+    expect(config.server.allowedHosts).toEqual(['.ngrok-free.app']);
+    expect(config.preview.allowedHosts).toEqual(['.ngrok-free.app']);
+    expect(config.preview.proxy['/api'].target).toBe('https://tenant.example');
+
+    vi.unstubAllEnvs();
+  });
+});
 
 describe('development API proxy security headers', () => {
   it('aligns browser security headers with the validated upstream origin', () => {

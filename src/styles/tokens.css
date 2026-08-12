@@ -5,7 +5,7 @@
 :root {
   /* Type */
   --sf-font-ui: 'Manrope Variable', Aptos, 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
-  --sf-font-display: 'Newsreader Variable', Georgia, 'Times New Roman', serif;
+  --sf-font-display: Georgia, 'Times New Roman', serif;
   --sf-font-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, ui-monospace, monospace;
 
   /* Default palette: SAROY (terracotta) — warm cream, terracotta, saffron */
