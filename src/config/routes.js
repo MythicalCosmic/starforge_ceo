@@ -53,7 +53,7 @@ export const LEGACY_ROUTES = Object.freeze({
   'communications/conversations': route('messaging/threads'),
   'communications/contacts': route('messaging/contacts'),
   'communications/outreach': route('engagement/campaigns'),
-  'communications/forms': route('engagement/forms'),
+  'communications/forms': route('forms'),
   'communications/notices': route('engagement/notifications'),
 
   governance: route('access/assignments', false),
@@ -64,7 +64,7 @@ export const LEGACY_ROUTES = Object.freeze({
   'governance/ai-budget': route('ai-governance/budget'),
   'governance/ai-usage': route('ai-governance/usage'),
 
-  'organization/tasks': route('operations/tasks'),
+  'organization/tasks': route('tasks'),
   'organization/staff': route('staff'),
   'organization/departments': route('departments'),
   'organization/cover': route('operations/cover'),

@@ -13,6 +13,10 @@ const nav = (id, icon, grpKey, label, extra = {}) => ({
 });
 
 const overview = nav('overview', Icons.home, 'main', 'Overview');
+const tasks = nav('tasks', Icons.check, 'main', 'Tasks', {
+  capabilities: ['tasks:read'],
+  app: 'staff_tasks',
+});
 const branches = nav('branches', Icons.globe, 'main', 'Branches', {
   capabilities: ['org:read', 'intelligence:read'],
   app: 'org',
@@ -115,6 +119,10 @@ const messaging = nav('messaging', Icons.chat, 'comms', 'Messages & contacts', {
   capabilities: ['messaging:read'],
   app: 'messaging',
 });
+const forms = nav('forms', Icons.flag, 'comms', 'Forms & surveys', {
+  capabilities: ['forms:read'],
+  app: 'forms',
+});
 const finance = nav('finance', Icons.trend, 'finance', 'Finance', {
   accent: 'var(--sf-success)',
   capabilities: ['finance:read', 'payments:read', 'sale:read'],
@@ -144,6 +152,7 @@ const settings = nav('settings', Icons.settings, 'system', 'Workspace preference
 
 const coreManagement = [
   overview,
+  tasks,
   branches,
   students,
   teachers,
@@ -167,6 +176,7 @@ const coreManagement = [
   audit,
   engagement,
   messaging,
+  forms,
   payroll,
   starAI,
   aiGovernance,
@@ -175,6 +185,7 @@ const coreManagement = [
 
 const directorManagement = [
   overview,
+  tasks,
   branches,
   students,
   teachers,
@@ -199,6 +210,7 @@ const directorManagement = [
   audit,
   engagement,
   messaging,
+  forms,
   finance,
   payroll,
   starAI,

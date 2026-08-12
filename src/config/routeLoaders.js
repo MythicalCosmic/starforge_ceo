@@ -8,6 +8,7 @@ const loadGroupsPage = () => import('../pages/GroupsWorkspace.jsx');
 const loadExamsPage = () => import('../pages/ExamsWorkspace.jsx');
 const loadFinancePage = () => import('../pages/FinanceWorkspace.jsx');
 const loadWorkforcePage = () => import('../pages/WorkforceWorkspace.jsx');
+const loadCollaborationPages = () => import('../pages/CollaborationWorkspaces.jsx');
 
 const moduleEntry = (load, exportName) => Object.freeze({ load, exportName });
 
@@ -29,6 +30,7 @@ export const ROUTE_MODULES = Object.freeze({
   attendance: moduleEntry(loadManagementPages, 'AttendancePage'),
   academics: moduleEntry(loadManagementPages, 'AcademicsPage'),
   assignments: moduleEntry(loadManagementPages, 'AssignmentsPage'),
+  tasks: moduleEntry(loadCollaborationPages, 'TasksPage'),
   placement: moduleEntry(loadManagementPages, 'PlacementPage'),
   crm: moduleEntry(loadManagementPages, 'CRMPage'),
   recognition: moduleEntry(loadManagementPages, 'RecognitionPage'),
@@ -41,7 +43,8 @@ export const ROUTE_MODULES = Object.freeze({
   reports: moduleEntry(loadManagementPages, 'ReportsPage'),
   audit: moduleEntry(loadManagementPages, 'AuditPage'),
   engagement: moduleEntry(loadManagementPages, 'EngagementPage'),
-  messaging: moduleEntry(loadManagementPages, 'MessagingPage'),
+  messaging: moduleEntry(loadCollaborationPages, 'MessagesPage'),
+  forms: moduleEntry(loadCollaborationPages, 'FormsPage'),
   finance: moduleEntry(loadFinancePage, 'FinancePage'),
   payroll: moduleEntry(loadManagementPages, 'PayrollPage'),
   'star-ai': moduleEntry(() => import('../pages/StarAIWorkspace.jsx'), 'StarAIPage'),

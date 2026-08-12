@@ -82,7 +82,9 @@ describe('restored management routes', () => {
     expect(resolveLegacySegments(['governance', 'ai-budget']))
       .toEqual(['ai-governance', 'budget']);
     expect(resolveLegacySegments(['organization', 'tasks', '5']))
-      .toEqual(['operations', 'tasks', '5']);
+      .toEqual(['tasks', '5']);
+    expect(resolveLegacySegments(['communications', 'forms', '5']))
+      .toEqual(['forms', '5']);
   });
 
   it('leaves current routes unchanged', () => {

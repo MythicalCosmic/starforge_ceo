@@ -11,6 +11,7 @@
   },
   "nav": {
     "overview": "Overview",
+    "tasks": "Tasks",
     "students": "Students",
     "teachers": "Teachers",
     "people": "People & cohorts",
@@ -29,7 +30,8 @@
     "reports": "Reports",
     "audit": "Activity history",
     "engagement": "Community engagement",
-    "messaging": "Messages & contacts",
+    "messaging": "Messages",
+    "forms": "Forms & surveys",
     "insights": "Insights",
     "communications": "Communication",
     "finance": "Finance",

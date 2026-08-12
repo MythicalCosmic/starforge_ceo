@@ -15,6 +15,9 @@ describe('route module loading', () => {
     expect(routeModuleIdsFor('reports/library')).toEqual(['reports']);
     expect(routeModuleIdsFor('staff/42')).toEqual(['staff']);
     expect(routeModuleIdsFor('organization/departments/9')).toEqual(['departments']);
+    expect(routeModuleIdsFor('organization/tasks/9')).toEqual(['tasks']);
+    expect(routeModuleIdsFor('communications/forms/9')).toEqual(['forms']);
+    expect(routeModuleIdsFor('backendMessaging/threads/9')).toEqual(['messaging']);
     expect(routeModuleIdsFor('missing/page')).toEqual([]);
   });
 
