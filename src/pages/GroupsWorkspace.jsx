@@ -46,6 +46,20 @@ const ATTENDANCE_LABELS = Object.freeze({
   excused: 'Excused',
 });
 const ATTENDANCE_SHORT = Object.freeze({ present: 'P', absent: 'A', late: 'L', excused: 'E' });
+const WEEKDAYS = Object.freeze([
+  { value: 'MO', label: 'Monday' },
+  { value: 'TU', label: 'Tuesday' },
+  { value: 'WE', label: 'Wednesday' },
+  { value: 'TH', label: 'Thursday' },
+  { value: 'FR', label: 'Friday' },
+  { value: 'SA', label: 'Saturday' },
+  { value: 'SU', label: 'Sunday' },
+]);
+const DEFAULT_WEEKLY_SLOTS = Object.freeze([
+  { id: 'monday', day: 'MO', start_time: '09:00', end_time: '10:30' },
+  { id: 'wednesday', day: 'WE', start_time: '09:00', end_time: '10:30' },
+  { id: 'friday', day: 'FR', start_time: '09:00', end_time: '10:30' },
+]);
 
 function text(value, fallback = 'Not recorded') {
   const result = String(value ?? '').trim();
@@ -138,6 +152,27 @@ function shiftDate(isoDate, amount) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function weekdayLabel(value) {
+  return WEEKDAYS.find((day) => day.value === value)?.label || value || 'Day not recorded';
+}
+
+function ruleWeekday(rule) {
+  const match = String(rule?.rrule || '').match(/(?:^|;)BYDAY=([^;]+)/i);
+  return match?.[1]?.split(',')?.[0]?.toUpperCase() || 'MO';
+}
+
+function nextScheduleSlot(rows) {
+  const used = new Set(rows.map((row) => row.day));
+  const day = WEEKDAYS.find((item) => !used.has(item.value))?.value || 'MO';
+  const previous = rows.at(-1);
+  return {
+    id: `slot-${Date.now()}-${rows.length}`,
+    day,
+    start_time: previous?.start_time || '09:00',
+    end_time: previous?.end_time || '10:30',
+  };
+}
+
 function validDate(value) {
   const normalized = String(value || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return false;
@@ -217,6 +252,7 @@ function groupAccess(user) {
     teachers: canUseCapability(user, 'teachers:read'),
     attendance: canUseCapability(user, 'attendance:read'),
     schedule: canUseCapability(user, 'schedule:read'),
+    scheduleWrite: canUseCapability(user, 'schedule:write'),
     assignments: canUseCapability(user, 'assignments:read'),
     academics: canUseCapability(user, 'academics:read'),
     finance: canUseCapability(user, 'finance:read'),
@@ -406,12 +442,16 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
   const record = useWorkspaceData(editing && !recordData ? `/api/v1/cohorts/${id}/` : null, undefined, { enabled: editing && !recordData });
   const [form, setForm] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [scheduleEnabled, setScheduleEnabled] = useState(Boolean(access.scheduleWrite));
+  const [weeklySlots, setWeeklySlots] = useState(() => DEFAULT_WEEKLY_SLOTS.map((slot) => ({ ...slot })));
   const toast = useToast();
   const initial = {
     name: '',
     branch: branchId || '',
     department: '',
     level: '',
+    study_month: 1,
+    lesson_cycle_length: 12,
     start_date: todayInOrganization(),
     end_date: shiftDate(todayInOrganization(), 180),
     capacity: '',
@@ -425,6 +465,21 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: PAGE_SIZE, ordering: 'name' }, { enabled: !branchId && access.organization });
   const departments = useWorkspaceData('/api/v1/org/departments/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && access.organization });
   const rooms = useWorkspaceData('/api/v1/org/rooms/', { page_size: PAGE_SIZE, branch: effectiveBranch || undefined, is_active: true, ordering: 'name' }, { enabled: Boolean(effectiveBranch) && access.organization });
+  const teachers = useWorkspaceData('/api/v1/teachers/', {
+    page_size: PAGE_SIZE,
+    branch: effectiveBranch || undefined,
+    department: source.department || undefined,
+  }, { enabled: !editing && Boolean(effectiveBranch) && access.teachers });
+  const terms = useWorkspaceData('/api/v1/schedule/terms/', {
+    page_size: 20,
+    is_current: true,
+    ordering: '-start_date',
+  }, { enabled: !editing && access.scheduleWrite, staleTime: 5 * 60_000 });
+  const teacherRows = useMemo(() => teachers.rows.slice().sort((left, right) => (
+    text(left.full_name || left.name).localeCompare(text(right.full_name || right.name))
+  )), [teachers.rows]);
+  const activeTeacherRows = useMemo(() => teacherRows.filter((teacher) => teacher.is_active !== false), [teacherRows]);
+  const currentTerm = terms.rows.find((term) => term.is_current) || terms.rows[0] || null;
   useWorkspaceTitle(embedded ? null : editing ? storedRecord?.name || 'Edit group' : 'Create group', 'Groups', editing ? 'settings' : 'new');
 
   const change = (key, value) => setForm((current) => ({ ...(current || source), [key]: value }));
@@ -436,16 +491,50 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
     default_room: '',
   }));
   const mutation = useMutation({
-    mutationFn: (payload) => httpRequest(
-      editing ? 'PATCH' : 'POST',
-      editing ? `/api/v1/cohorts/${id}/` : '/api/v1/cohorts/',
-      { body: payload },
-    ),
-    onSuccess: (saved) => {
+    mutationFn: async ({ cohortPayload, schedule }) => {
+      const saved = await httpRequest(
+        editing ? 'PATCH' : 'POST',
+        editing ? `/api/v1/cohorts/${id}/` : '/api/v1/cohorts/',
+        { body: cohortPayload },
+      );
+      const scheduleFailures = [];
+      let scheduled = 0;
+      if (!editing && schedule?.slots?.length) {
+        for (const slot of schedule.slots) {
+          try {
+            await httpRequest('POST', '/api/v1/schedule/rules/', {
+              body: {
+                term: Number(schedule.term),
+                cohort: Number(saved.id),
+                teacher: Number(schedule.teacher),
+                room: cohortPayload.default_room,
+                lesson_type: null,
+                title: `${cohortPayload.name} · ${weekdayLabel(slot.day)}`,
+                rrule: `FREQ=WEEKLY;BYDAY=${slot.day}`,
+                start_date: schedule.start_date,
+                end_date: schedule.end_date,
+                start_time: slot.start_time,
+                end_time: slot.end_time,
+                is_active: true,
+              },
+            });
+            scheduled += 1;
+          } catch (failure) {
+            scheduleFailures.push({ slot, failure });
+          }
+        }
+      }
+      return { saved, scheduled, scheduleFailures };
+    },
+    onSuccess: ({ saved, scheduled, scheduleFailures }) => {
       setSaveError(null);
       setForm(saved || null);
       queryClient.invalidateQueries({ queryKey: ['api'] });
-      toast.success(editing ? 'Group record updated.' : 'Group created and ready for student enrollment.', { title: editing ? 'Changes saved' : 'Group created' });
+      if (scheduleFailures.length) {
+        toast.warning(`The group was created and ${scheduled} weekly slot${scheduled === 1 ? '' : 's'} were scheduled. ${scheduleFailures.length} slot${scheduleFailures.length === 1 ? '' : 's'} still need attention in Group settings.`, { title: 'Group created with schedule review', duration: 9000 });
+      } else {
+        toast.success(editing ? 'Group record updated.' : scheduled ? `Group created with ${scheduled} weekly lesson slot${scheduled === 1 ? '' : 's'}.` : 'Group created and ready for its teaching team and students.', { title: editing ? 'Changes saved' : 'Group created' });
+      }
       if (!embedded) navigate(onNav, `${basePath}/${saved?.id || id}/settings`);
     },
     onError: (failure) => {
@@ -472,16 +561,56 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
       setSaveError({ errors: { end_date: ['Must be on or after the start date.'] } });
       return;
     }
-    mutation.mutate({
+    if (!editing && scheduleEnabled) {
+      if (!source.primary_teacher) {
+        setSaveError({ errors: { primary_teacher: ['Choose the main teacher before creating the weekly schedule.'] } });
+        return;
+      }
+      if (!currentTerm) {
+        setSaveError({ errors: { schedule: ['A current academic term is required before lessons can be scheduled.'] } });
+        return;
+      }
+      if (!weeklySlots.length) {
+        setSaveError({ errors: { schedule: ['Add at least one teaching day.'] } });
+        return;
+      }
+      const invalidSlot = weeklySlots.find((slot) => !slot.day || !slot.start_time || !slot.end_time || slot.start_time >= slot.end_time);
+      if (invalidSlot) {
+        setSaveError({ errors: { schedule: ['Every teaching day needs a start time earlier than its end time.'] } });
+        return;
+      }
+      const scheduleStart = source.start_date < currentTerm.start_date ? currentTerm.start_date : source.start_date;
+      const scheduleEnd = source.end_date > currentTerm.end_date ? currentTerm.end_date : source.end_date;
+      if (scheduleStart > scheduleEnd) {
+        setSaveError({ errors: { schedule: [`The group dates do not overlap the current term (${dateOnly(currentTerm.start_date)} – ${dateOnly(currentTerm.end_date)}).`] } });
+        return;
+      }
+    }
+    const cohortPayload = {
       name: String(source.name || '').trim(),
       branch: Number(branchId || source.branch),
       department: source.department ? Number(source.department) : null,
       level: String(source.level || '').trim(),
+      study_month: Number(source.study_month || 1),
+      lesson_cycle_length: Number(source.lesson_cycle_length || 12),
       start_date: source.start_date,
       end_date: source.end_date,
       capacity: source.capacity === '' || source.capacity == null ? null : Number(source.capacity),
+      primary_teacher: source.primary_teacher ? Number(source.primary_teacher) : null,
       default_room: source.default_room ? Number(source.default_room) : null,
       is_archived: Boolean(source.is_archived),
+    };
+    const scheduleStart = currentTerm && source.start_date < currentTerm.start_date ? currentTerm.start_date : source.start_date;
+    const scheduleEnd = currentTerm && source.end_date > currentTerm.end_date ? currentTerm.end_date : source.end_date;
+    mutation.mutate({
+      cohortPayload,
+      schedule: !editing && scheduleEnabled ? {
+        term: currentTerm?.id,
+        teacher: source.primary_teacher,
+        start_date: scheduleStart,
+        end_date: scheduleEnd,
+        slots: weeklySlots,
+      } : null,
     });
   };
 
@@ -496,6 +625,11 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
           <label>Academic level<input maxLength="64" value={source.level || ''} onChange={(event) => change('level', event.target.value)} placeholder="Optional level" /></label>
           <label>Capacity<input type="number" inputMode="numeric" min="0" max="32767" value={source.capacity ?? ''} onChange={(event) => change('capacity', event.target.value)} placeholder="Optional" /></label>
         </section>
+        <section className="fw-form-section gp3-cycle-section">
+          <header><h2>Study month and lesson cycle</h2><p>A study month finishes after the selected number of completed lessons, even when it starts near the end of a calendar month.</p></header>
+          <label>Current study month<input required type="number" inputMode="numeric" min="1" max="600" value={source.study_month || 1} onChange={(event) => change('study_month', event.target.value)} /></label>
+          <fieldset className="gp3-cycle-choice"><legend>Lessons in one study month</legend><div>{[8, 12].map((amount) => <label className={Number(source.lesson_cycle_length) === amount ? 'is-selected' : ''} key={amount}><input type="radio" name="lesson_cycle_length" value={amount} checked={Number(source.lesson_cycle_length) === amount} onChange={() => change('lesson_cycle_length', amount)} /><span><strong>{amount} lessons</strong><small>{amount === 8 ? 'Usually 2 lessons each week' : 'Usually 3 lessons each week'}</small></span></label>)}</div></fieldset>
+        </section>
         <section className="fw-form-section">
           <header><h2>Dates and default room</h2><p>Save the group details here. Teaching assignments and student membership are managed separately below.</p></header>
           <label>Start date<input required type="date" value={source.start_date || ''} max={source.end_date || undefined} onChange={(event) => change('start_date', event.target.value)} /></label>
@@ -503,6 +637,17 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
           {access.organization ? <label>Default room<select value={source.default_room || ''} onChange={(event) => change('default_room', event.target.value)} disabled={!effectiveBranch || rooms.pending}><option value="">No default room</option>{selectedOption(source.default_room, rooms.rows, 'room')}{rooms.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label> : null}
           {editing ? <label className="fw-check is-wide"><input type="checkbox" checked={Boolean(source.is_archived)} onChange={(event) => change('is_archived', event.target.checked)} /><span><strong>Archive after saving</strong><small>Archived groups remain visible but cannot be changed until restored.</small></span></label> : null}
         </section>
+        {!editing && access.scheduleWrite ? <section className="fw-form-section gp3-create-schedule">
+          <header><h2>Weekly teaching schedule</h2><p>Choose each teaching day and its exact time. Lessons are prepared for the part of the current academic term covered by this group.</p></header>
+          <label className="fw-check is-wide"><input type="checkbox" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} /><span><strong>Create the weekly lessons with this group</strong><small>Turn this off only when the teaching team or timetable will be decided later in Group settings.</small></span></label>
+          {scheduleEnabled ? <>
+            <label className="is-wide">Main teacher<select required value={source.primary_teacher || ''} onChange={(event) => change('primary_teacher', event.target.value)} disabled={!effectiveBranch || teachers.pending}><option value="">Select the teacher who owns this group</option>{selectedOption(source.primary_teacher, activeTeacherRows, 'teacher')}{activeTeacherRows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.department_name ? ` · ${teacher.department_name}` : ''}</option>)}</select><small className="gp3-field-help">Only active teachers in the selected branch and department are shown.</small></label>
+            <div className="gp3-term-summary is-wide"><span><Icon source={Icons.cal} size={16} /></span><div><strong>{terms.pending ? 'Finding the current term…' : currentTerm ? currentTerm.name : 'No current academic term'}</strong><small>{currentTerm ? `${dateOnly(currentTerm.start_date)} – ${dateOnly(currentTerm.end_date)}. Group dates outside this window remain saved, and another term can be scheduled later.` : 'Mark an academic term as current before creating recurring lessons.'}</small></div></div>
+            <div className="gp3-weekly-builder is-wide"><div className="gp3-weekly-builder-head"><div><strong>Teaching days and times</strong><small>{weeklySlots.length} lesson{weeklySlots.length === 1 ? '' : 's'} each week</small></div><button type="button" className="gp3-button" onClick={() => setWeeklySlots((rows) => [...rows, nextScheduleSlot(rows)])}><Icon source={Icons.plus} size={14} /> Add day</button></div>
+              <div className="gp3-weekly-rows">{weeklySlots.map((slot, index) => <div className="gp3-weekly-row" key={slot.id}><span className="gp3-slot-number">{index + 1}</span><label><span>Day</span><select value={slot.day} onChange={(event) => setWeeklySlots((rows) => rows.map((row) => row.id === slot.id ? { ...row, day: event.target.value } : row))}>{WEEKDAYS.map((day) => <option value={day.value} key={day.value}>{day.label}</option>)}</select></label><label><span>Starts</span><input required type="time" value={slot.start_time} onChange={(event) => setWeeklySlots((rows) => rows.map((row) => row.id === slot.id ? { ...row, start_time: event.target.value } : row))} /></label><label><span>Ends</span><input required type="time" min={slot.start_time || undefined} value={slot.end_time} onChange={(event) => setWeeklySlots((rows) => rows.map((row) => row.id === slot.id ? { ...row, end_time: event.target.value } : row))} /></label><button type="button" className="gp3-icon-button" aria-label={`Remove ${weekdayLabel(slot.day)} slot`} disabled={weeklySlots.length === 1} onClick={() => setWeeklySlots((rows) => rows.filter((row) => row.id !== slot.id))}><Icon source={Icons.x} size={15} /></button></div>)}</div>
+            </div>
+          </> : null}
+        </section> : null}
         <div className="fw-form-actions">{embedded ? null : <button type="button" className="gp3-button" onClick={() => navigate(onNav, cancelPath)} disabled={mutation.isPending}>Cancel</button>}<button type="submit" className="gp3-button is-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving group…' : editing ? 'Save group details' : 'Create group'}</button></div>
       </form>
   );
@@ -809,6 +954,7 @@ function TeacherAssignmentManager({ cohort, rows, standalone = false }) {
   const teacherRows = useMemo(() => teachers.rows.slice().sort((left, right) => (
     text(left.full_name || left.name).localeCompare(text(right.full_name || right.name))
   )), [teachers.rows]);
+  const activeTeacherRows = useMemo(() => teacherRows.filter((teacher) => teacher.is_active !== false), [teacherRows]);
   const types = useWorkspaceData('/api/v1/cohorts/teacher-types/', undefined, { staleTime: 5 * 60_000 });
   const activeTypes = types.rows.filter((item) => item.is_active !== false);
   const selectedType = activeTypes.find((item) => String(item.id) === String(typeId))
@@ -855,7 +1001,7 @@ function TeacherAssignmentManager({ cohort, rows, standalone = false }) {
           if (!window.confirm(warning)) return;
           mutation.mutate({ kind: 'assign', teacher: teacherId, teacherType: selectedType.id });
         }}>
-          <label><span>Teacher</span><select required value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Select an active teacher</option>{teacherRows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.is_substitute ? ' · Substitute' : ''}</option>)}</select></label>
+          <label><span>Teacher</span><select required value={teacherId} onChange={(event) => setTeacherId(event.target.value)}><option value="">Select an active teacher</option>{activeTeacherRows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.is_substitute ? ' · Substitute' : ''}</option>)}</select></label>
           <label><span>Assignment type</span><select required value={typeId || selectedType?.id || ''} onChange={(event) => setTypeId(event.target.value)}><option value="">Select a role</option>{activeTypes.map((type) => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label>
           <button type="submit" className="gp3-button is-primary" disabled={mutation.isPending || !teacherId || !selectedType?.id}>{mutation.isPending ? 'Updating…' : selectedType?.slug === 'main-teacher' ? 'Set main teacher' : 'Assign teacher'}</button>
         </form> : null}
@@ -870,6 +1016,127 @@ function TeacherAssignmentManager({ cohort, rows, standalone = false }) {
       {content}
     </details>
   );
+}
+
+function GroupScheduleManager({ cohort }) {
+  const rules = useWorkspaceData('/api/v1/schedule/rules/', {
+    page_size: PAGE_SIZE,
+    cohort: cohort.id,
+    ordering: 'created_at',
+  });
+  const terms = useWorkspaceData('/api/v1/schedule/terms/', {
+    page_size: 100,
+    ordering: '-start_date',
+  }, { staleTime: 5 * 60_000 });
+  const teachers = assignmentRows(cohort);
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState({
+    day: 'MO',
+    start_time: '09:00',
+    end_time: '10:30',
+    teacher: String(cohort.primary_teacher || teachers[0]?.teacher || ''),
+    term: '',
+  });
+  const [error, setError] = useState(null);
+  const toast = useToast();
+  const currentTerm = terms.rows.find((term) => term.is_current) || terms.rows[0] || null;
+  const selectedTerm = terms.rows.find((term) => String(term.id) === String(draft.term)) || currentTerm;
+  const scheduleStart = selectedTerm && cohort.start_date < selectedTerm.start_date ? selectedTerm.start_date : cohort.start_date;
+  const scheduleEnd = selectedTerm && cohort.end_date > selectedTerm.end_date ? selectedTerm.end_date : cohort.end_date;
+  const resetDraft = () => {
+    setEditingId(null);
+    setDraft({
+      day: 'MO',
+      start_time: '09:00',
+      end_time: '10:30',
+      teacher: String(cohort.primary_teacher || teachers[0]?.teacher || ''),
+      term: '',
+    });
+  };
+  const mutation = useMutation({
+    mutationFn: async ({ kind, rule }) => {
+      if (kind === 'delete') {
+        if (rule.is_active) {
+          // Deactivation first lets the scheduling domain safely remove future,
+          // unattended generated lessons. Deleting only the rule would leave
+          // those lesson rows detached from their weekly source.
+          await httpRequest('PATCH', `/api/v1/schedule/rules/${rule.id}/`, { body: { is_active: false } });
+        }
+        return httpRequest('DELETE', `/api/v1/schedule/rules/${rule.id}/`);
+      }
+      if (kind === 'toggle') return httpRequest('PATCH', `/api/v1/schedule/rules/${rule.id}/`, { body: { is_active: !rule.is_active } });
+      const payload = {
+        term: Number(selectedTerm?.id),
+        cohort: Number(cohort.id),
+        teacher: Number(draft.teacher),
+        room: cohort.default_room ? Number(cohort.default_room) : null,
+        lesson_type: rule?.lesson_type || null,
+        title: `${cohort.name} · ${weekdayLabel(draft.day)}`,
+        rrule: `FREQ=WEEKLY;BYDAY=${draft.day}`,
+        start_date: scheduleStart,
+        end_date: scheduleEnd,
+        start_time: draft.start_time,
+        end_time: draft.end_time,
+        is_active: rule?.is_active ?? true,
+      };
+      return httpRequest(rule ? 'PATCH' : 'POST', rule ? `/api/v1/schedule/rules/${rule.id}/` : '/api/v1/schedule/rules/', { body: payload });
+    },
+    onSuccess: (_saved, variables) => {
+      setError(null);
+      resetDraft();
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      const messages = {
+        create: 'Weekly lesson time added.',
+        update: 'Weekly lesson time updated.',
+        delete: 'Weekly lesson time removed.',
+        toggle: variables.rule.is_active ? 'Weekly lesson time paused.' : 'Weekly lesson time resumed.',
+      };
+      toast.success(messages[variables.kind], { title: 'Schedule updated' });
+    },
+    onError: (failure) => {
+      setError(failure);
+      toast.danger(mutationMessage(failure, 'The weekly lesson time could not be saved.'), { title: 'Schedule not changed' });
+    },
+  });
+  const submit = (event) => {
+    event.preventDefault();
+    setError(null);
+    if (!draft.teacher) {
+      setError({ errors: { teacher: ['Assign a teacher to this group first.'] } });
+      return;
+    }
+    if (!selectedTerm) {
+      setError({ errors: { term: ['Create or mark an academic term as current first.'] } });
+      return;
+    }
+    if (!scheduleStart || !scheduleEnd || scheduleStart > scheduleEnd) {
+      setError({ errors: { term: ['The selected term does not overlap this group’s dates.'] } });
+      return;
+    }
+    if (!draft.start_time || !draft.end_time || draft.start_time >= draft.end_time) {
+      setError({ errors: { end_time: ['The lesson must end after it starts.'] } });
+      return;
+    }
+    const rule = editingId ? rules.rows.find((item) => String(item.id) === String(editingId)) : null;
+    mutation.mutate({ kind: rule ? 'update' : 'create', rule });
+  };
+  const edit = (rule) => {
+    setEditingId(rule.id);
+    setError(null);
+    setDraft({
+      day: ruleWeekday(rule),
+      start_time: String(rule.start_time || '').slice(0, 5),
+      end_time: String(rule.end_time || '').slice(0, 5),
+      teacher: String(rule.teacher || ''),
+      term: String(rule.term || ''),
+    });
+  };
+  return <section className="gp3-settings-card gp3-schedule-settings"><header><span><Icon source={Icons.cal} size={17} /></span><div><h2>Weekly schedule</h2><p>Add, change, pause, or remove the recurring lesson times for this group.</p></div></header><div className="gp3-management-panel">
+    {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'Review the lesson time and try again.')}</div> : null}
+    {!teachers.length ? <div className="gp3-move-warning"><Icon source={Icons.flag} size={16} /><span><strong>A teaching assignment is required</strong><small>Open Teaching team, assign the main teacher, then return here to prepare weekly lessons.</small></span></div> : null}
+    {rules.error ? <QueryFailure error={rules.error} retry={rules.retry} title="Weekly lesson times could not be loaded" /> : rules.pending ? <LoadingPanel lines={3} /> : rules.rows.length ? <div className="gp3-rule-list">{rules.rows.map((rule) => <article key={rule.id} className={String(editingId) === String(rule.id) ? 'is-editing' : ''}><span className="gp3-rule-day">{weekdayLabel(ruleWeekday(rule)).slice(0, 3)}</span><div><strong>{weekdayLabel(ruleWeekday(rule))}</strong><small>{String(rule.start_time || '').slice(0, 5)} – {String(rule.end_time || '').slice(0, 5)} · {text(rule.teacher_name)}</small><small>{text(rule.term_name)} · {dateOnly(rule.start_date)} – {dateOnly(rule.end_date)}</small></div><Status value={rule.is_active ? 'active' : 'paused'}>{rule.is_active ? 'Active' : 'Paused'}</Status><div className="gp3-rule-actions"><button type="button" className="gp3-button" onClick={() => edit(rule)} disabled={mutation.isPending}>Edit</button><button type="button" className="gp3-button" onClick={() => mutation.mutate({ kind: 'toggle', rule })} disabled={mutation.isPending}>{rule.is_active ? 'Pause' : 'Resume'}</button><button type="button" className="gp3-button is-danger" onClick={() => { if (window.confirm(`Remove the ${weekdayLabel(ruleWeekday(rule))} recurring lesson time? Future lessons without attendance will be removed.`)) mutation.mutate({ kind: 'delete', rule }); }} disabled={mutation.isPending}>Remove</button></div></article>)}</div> : <div className="gp3-compact-empty"><span><Icon source={Icons.cal} size={20} /></span><div><strong>No weekly lesson times yet</strong><p>Add the first teaching day below. The lesson calendar will be generated automatically.</p></div></div>}
+    <form className="gp3-schedule-form" onSubmit={submit}><div className="gp3-schedule-form-head"><div><strong>{editingId ? 'Edit weekly lesson time' : 'Add a weekly lesson time'}</strong><small>Use a separate row when different days have different times.</small></div>{editingId ? <button type="button" className="gp3-button" onClick={resetDraft}>Cancel editing</button> : null}</div><label><span>Day</span><select value={draft.day} onChange={(event) => setDraft((current) => ({ ...current, day: event.target.value }))}>{WEEKDAYS.map((day) => <option value={day.value} key={day.value}>{day.label}</option>)}</select></label><label><span>Starts</span><input required type="time" value={draft.start_time} onChange={(event) => setDraft((current) => ({ ...current, start_time: event.target.value }))} /></label><label><span>Ends</span><input required type="time" min={draft.start_time || undefined} value={draft.end_time} onChange={(event) => setDraft((current) => ({ ...current, end_time: event.target.value }))} /></label><label><span>Teacher</span><select required value={draft.teacher} onChange={(event) => setDraft((current) => ({ ...current, teacher: event.target.value }))}><option value="">Assign a teacher first</option>{teachers.map((assignment) => <option value={assignment.teacher} key={assignment.id || assignment.teacher}>{assignment.teacher_name} · {assignment.teacher_type_name || 'Teacher'}</option>)}</select></label><label><span>Academic term</span><select required value={draft.term || currentTerm?.id || ''} onChange={(event) => setDraft((current) => ({ ...current, term: event.target.value }))}><option value="">Select term</option>{terms.rows.map((term) => <option value={term.id} key={term.id}>{term.name}{term.is_current ? ' · Current' : ''}</option>)}</select></label><button className="gp3-button is-primary" type="submit" disabled={mutation.isPending || !teachers.length || terms.pending}>{mutation.isPending ? 'Saving…' : editingId ? 'Save lesson time' : 'Add lesson time'}</button><div className="gp3-schedule-window"><Icon source={Icons.cal} size={15} /><span><strong>Lesson window</strong><small>{selectedTerm && scheduleStart <= scheduleEnd ? `${dateOnly(scheduleStart)} – ${dateOnly(scheduleEnd)}` : 'Choose a term that overlaps the group dates.'}</small></span></div></form>
+  </div></section>;
 }
 
 function OverviewSection({ cohort, membersState, teachersState, dashboardState, lessonsState, range, basePath, access, onNav }) {
@@ -1136,11 +1403,24 @@ function StudentsSection({ cohort, membersState, dashboardState, canViewAttendan
 }
 
 function GroupSettingsSection({ cohort, membersState, teachersState, access, onNav, branchId }) {
-  return <div className="gp3-settings-stack">
-    <div className="gp3-settings-intro"><span><Icon source={Icons.shield} size={18} /></span><div><strong>Controlled group setup</strong><p>Group details, teaching assignments, and enrollment changes are managed together here. Every relationship change asks for confirmation and keeps its operational history.</p></div></div>
-    <section className="gp3-settings-card"><header><span><Icon source={Icons.settings} size={17} /></span><div><h2>Group details</h2><p>Maintain the group’s identity, dates, capacity, and default room.</p></div></header><div className="gp3-settings-card-body"><GroupEditor id={cohort.id} branchId={branchId} access={access} onNav={onNav} recordData={cohort} embedded /></div></section>
-    {access.teachers ? teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} title="Teaching assignments could not be loaded" /> : teachersState.pending ? <LoadingPanel lines={4} /> : <TeacherAssignmentManager cohort={cohort} rows={teachersState.rows.length ? teachersState.rows : assignmentRows(cohort)} standalone /> : null}
-    {access.students ? membersState.error ? <QueryFailure error={membersState.error} retry={membersState.retry} title="Student membership could not be loaded" /> : membersState.pending ? <LoadingPanel lines={5} /> : <MembershipManager cohort={cohort} members={membersState.rows} canCreateStudent={access.studentsWrite} onNav={onNav} standalone /> : null}
+  const areas = [
+    { id: 'details', label: 'Group details', detail: 'Identity, cycle, dates, room', icon: Icons.settings },
+    ...(access.teachers ? [{ id: 'teaching', label: 'Teaching team', detail: 'Main and additional teachers', icon: Icons.user }] : []),
+    ...(access.students ? [{ id: 'students', label: 'Students', detail: 'Add or safely move students', icon: Icons.cohort }] : []),
+    ...(access.scheduleWrite ? [{ id: 'schedule', label: 'Weekly schedule', detail: 'Days, times, and recurring lessons', icon: Icons.cal }] : []),
+  ];
+  const [activeArea, setActiveArea] = useState('details');
+  const area = areas.some((item) => item.id === activeArea) ? activeArea : 'details';
+  const assignments = teachersState.rows.length ? teachersState.rows : assignmentRows(cohort);
+  const currentMembers = membersState.rows.filter((member) => !member.end_date).length;
+  return <div className="gp3-settings-layout">
+    <aside className="gp3-settings-rail"><div className="gp3-settings-rail-head"><span><Icon source={Icons.shield} size={18} /></span><div><strong>Group setup</strong><small>Configure one area at a time</small></div></div><nav aria-label="Group setup areas">{areas.map((item) => <button type="button" key={item.id} className={area === item.id ? 'is-active' : ''} aria-current={area === item.id ? 'page' : undefined} onClick={() => setActiveArea(item.id)}><span><Icon source={item.icon} size={17} /></span><span><strong>{item.label}</strong><small>{item.detail}</small></span><Icon source={Icons.chevR} size={14} /></button>)}</nav><div className="gp3-settings-summary"><div><span>Study month</span><strong>{validCount(cohort.study_month) || 1}</strong></div><div><span>Lessons / month</span><strong>{[8, 12].includes(Number(cohort.lesson_cycle_length)) ? cohort.lesson_cycle_length : 12}</strong></div>{access.teachers ? <div><span>Teachers</span><strong>{teachersState.pending ? '…' : assignments.length}</strong></div> : null}{access.students ? <div><span>Current students</span><strong>{membersState.pending ? '…' : currentMembers}</strong></div> : null}</div></aside>
+    <div className="gp3-settings-workarea"><div className="gp3-settings-intro"><span><Icon source={areas.find((item) => item.id === area)?.icon || Icons.settings} size={18} /></span><div><strong>{areas.find((item) => item.id === area)?.label}</strong><p>{area === 'details' ? 'Keep the group’s identity, study month, lesson cycle, capacity, dates, and room in one clear record.' : area === 'teaching' ? 'Choose the main teacher and add assistant, video, substitute, or other teaching roles with confirmation.' : area === 'students' ? 'Start with unassigned active students. Moving someone from another group always requires a warning, reason, and confirmation.' : 'Maintain the days and exact times that generate this group’s lesson calendar.'}</p></div></div>
+      {area === 'details' ? <section className="gp3-settings-card"><header><span><Icon source={Icons.settings} size={17} /></span><div><h2>Group details</h2><p>Maintain the group record and the 8- or 12-lesson study-month cycle.</p></div></header><div className="gp3-settings-card-body"><GroupEditor id={cohort.id} branchId={branchId} access={access} onNav={onNav} recordData={cohort} embedded /></div></section> : null}
+      {area === 'teaching' ? teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} title="Teaching assignments could not be loaded" /> : teachersState.pending ? <LoadingPanel lines={4} /> : <TeacherAssignmentManager cohort={cohort} rows={assignments} standalone /> : null}
+      {area === 'students' ? membersState.error ? <QueryFailure error={membersState.error} retry={membersState.retry} title="Student membership could not be loaded" /> : membersState.pending ? <LoadingPanel lines={5} /> : <MembershipManager cohort={cohort} members={membersState.rows} canCreateStudent={access.studentsWrite} onNav={onNav} standalone /> : null}
+      {area === 'schedule' ? <GroupScheduleManager cohort={cohort} /> : null}
+    </div>
   </div>;
 }
 

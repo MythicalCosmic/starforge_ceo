@@ -174,6 +174,34 @@ describe('Groups workspace capability boundaries', () => {
     expect(html).not.toContain('Current students');
   });
 
+  it('uses a guided 8-or-12 lesson cycle and weekly timetable when creating a group', () => {
+    const html = renderGroups(
+      <GroupsPage route="groups/new" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
+    );
+
+    expect(html).toContain('Study month and lesson cycle');
+    expect(html).toContain('8 lessons');
+    expect(html).toContain('12 lessons');
+    expect(html).toContain('Weekly teaching schedule');
+    expect(html).toContain('Monday');
+    expect(html).toContain('Wednesday');
+    expect(html).toContain('Friday');
+    expect(html).toContain('Select the teacher who owns this group');
+  });
+
+  it('organizes group settings into focused details, teaching, membership, and schedule areas', () => {
+    const html = renderGroups(
+      <GroupsPage route="groups/7/settings" user={{ effective_permissions: ['*:*'] }} onNav={vi.fn()} />,
+    );
+
+    expect(html).toContain('Group setup');
+    expect(html).toContain('Group details');
+    expect(html).toContain('Teaching team');
+    expect(html).toContain('Add or safely move students');
+    expect(html).toContain('Weekly schedule');
+    expect(html).toContain('Lessons / month');
+  });
+
   it('renders a safe overview for a direct restricted section without loading its sources', () => {
     const html = renderGroups(
       <GroupsPage route="groups/7/finance" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
