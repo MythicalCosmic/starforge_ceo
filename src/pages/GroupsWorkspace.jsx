@@ -5,6 +5,7 @@ import { EmptyState, Skeleton } from '../components/feedback.jsx';
 import { SfAvatar } from '../components/primitives.jsx';
 import { ApplicationUnavailableState } from '../components/AvailabilityState.jsx';
 import { WorkspacePagination } from '../components/WorkspacePrimitives.jsx';
+import { BranchTransferPanel } from '../components/BranchTransferPanel.jsx';
 import { httpRequest } from '../api/http.js';
 import { queryClient } from '../api/queryClient.js';
 import { useOptionalToast, useToast } from '../context/ToastContext.jsx';
@@ -284,6 +285,7 @@ function groupAccess(user) {
     cohorts: canUseCapability(user, 'cohorts:read'),
     cohortsWrite: canUseCapability(user, 'cohorts:write'),
     organization: canUseCapability(user, 'org:read'),
+    organizationWrite: canUseCapability(user, 'org:write'),
     students: canUseCapability(user, 'students:read'),
     studentsWrite: canUseCapability(user, 'students:write'),
     teachers: canUseCapability(user, 'teachers:read'),
@@ -1484,6 +1486,7 @@ function GroupSettingsSection({ cohort, membersState, teachersState, access, onN
     ...(access.teachers ? [{ id: 'teaching', label: 'Teaching team', detail: 'Main and additional teachers', icon: Icons.user }] : []),
     ...(access.students ? [{ id: 'students', label: 'Students', detail: 'Add or safely move students', icon: Icons.cohort }] : []),
     ...(access.scheduleWrite ? [{ id: 'schedule', label: 'Weekly schedule', detail: 'Days, times, and recurring lessons', icon: Icons.cal }] : []),
+    ...(access.organizationWrite ? [{ id: 'transfer', label: 'Move branch', detail: 'Students, teaching, and schedule impact', icon: Icons.globe }] : []),
   ];
   const [activeArea, setActiveArea] = useState('details');
   const area = areas.some((item) => item.id === activeArea) ? activeArea : 'details';
@@ -1496,6 +1499,7 @@ function GroupSettingsSection({ cohort, membersState, teachersState, access, onN
       {area === 'teaching' ? teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} title="Teaching assignments could not be loaded" /> : teachersState.pending ? <LoadingPanel lines={4} /> : <TeacherAssignmentManager cohort={cohort} rows={assignments} standalone /> : null}
       {area === 'students' ? membersState.error ? <QueryFailure error={membersState.error} retry={membersState.retry} title="Student membership could not be loaded" /> : membersState.pending ? <LoadingPanel lines={5} /> : <MembershipManager cohort={cohort} members={membersState.rows} canCreateStudent={access.studentsWrite} onNav={onNav} standalone /> : null}
       {area === 'schedule' ? <GroupScheduleManager cohort={cohort} /> : null}
+      {area === 'transfer' ? <BranchTransferPanel kind="cohort" subjectId={cohort.id} subjectName={cohort.name} currentBranchId={cohort.branch} currentBranchName={cohort.branch_name} allowDepartment onTransferred={() => { queryClient.invalidateQueries({ queryKey: ['api'] }); }} /> : null}
     </div>
   </div>;
 }

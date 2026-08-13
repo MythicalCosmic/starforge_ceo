@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { ChartCard, RankedBars } from '../components/ExecutiveCharts.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
+import { BranchTransferPanel } from '../components/BranchTransferPanel.jsx';
 import {
   ActionButton,
   CoverageBar,
@@ -378,6 +379,7 @@ function CompensationPanel({ id, canManage }) {
 
 function TeacherProfile({ id, section, onNav, user, branchId }) {
   const canEdit = canUseCapability(user, 'teachers:write');
+  const canTransfer = canUseCapability(user, 'org:write');
   const canViewCompensation = canUseCapability(user, 'compensation:read');
   const canManageCompensation = canUseCapability(user, 'compensation:write');
   const canViewGroups = canUseCapability(user, 'cohorts:read');
@@ -473,11 +475,11 @@ function TeacherProfile({ id, section, onNav, user, branchId }) {
         { label: 'Marks sampled', value: nonNegativeMetric(signal?.marks_sampled) },
       ]} /></ChartCard></>}
       {active === 'compensation' && canViewCompensation && <CompensationPanel id={id} canManage={canManageCompensation} />}
-      {active === 'employment' && <DetailSection eyebrow="Employment" title="Account and role context"><DetailGrid columns={3} fields={[
+      {active === 'employment' && <><DetailSection eyebrow="Employment" title="Account and role context"><DetailGrid columns={3} fields={[
         { label: 'Active account', value: data.is_active ? 'Yes' : 'No' }, { label: 'Password reset required', value: data.must_change_password ? 'Yes' : 'No' },
         { label: 'Teaching arrangement', value: data.is_substitute ? 'Substitute' : 'Regular' }, { label: 'Hire date', value: formatOrganizationDate(data.hire_date, { dateOnly: true }) },
         { label: 'Responsibility assignments', value: (data.account_type_assignments || []).map((item) => [item.account_type_name, item.branch_name || (item.branch ? `Branch ${item.branch}` : ''), item.department_name || (item.department ? `Department ${item.department}` : '')].filter(Boolean).join(' · ')).join('; '), wide: true },
-      ]} /></DetailSection>}
+      ]} /></DetailSection>{canTransfer && data.branch ? <BranchTransferPanel kind="teacher" subjectId={id} subjectName={data.full_name} currentBranchId={data.branch} currentBranchName={data.branch_name} allowDepartment onTransferred={() => { queryClient.invalidateQueries({ queryKey: ['api'] }); }} /> : null}</>}
     </div>
   </>}</WorkspaceState>;
 }

@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { ChartCard, DonutBreakdown, RankedBars } from '../components/ExecutiveCharts.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
+import { BranchTransferPanel } from '../components/BranchTransferPanel.jsx';
 import {
   ActionButton,
   CoverageBar,
@@ -622,6 +623,7 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
   const canTeachers = canUseCapability(user, 'teachers:read');
   const canSchedule = canUseCapability(user, 'schedule:read');
   const canWrite = canUseCapability(user, 'students:write');
+  const canTransfer = canUseCapability(user, 'org:write');
   const canManageGroups = canUseCapability(user, 'cohorts:write');
   const leadership = useWorkspaceData(`/api/v1/students/${id}/leadership-profile/`);
   const profile = leadershipProfileFor(leadership.data, id);
@@ -806,6 +808,7 @@ function StudentDetail({ id, section, onNav, branchId, user }) {
               ]} />
             </DetailSection>
             {canWrite ? <StudentAdministration id={id} student={data} branchId={branchId} onNav={onNav} canManageGroups={canManageGroups} /> : null}
+            {canTransfer && studentBranchId ? <BranchTransferPanel kind="student" subjectId={id} subjectName={data.full_name} currentBranchId={studentBranchId} currentBranchName={data.branch_name} onTransferred={() => { queryClient.invalidateQueries({ queryKey: ['api'] }); }} /> : null}
             <DetailSection eyebrow="History" title="Enrollment changes"><WorkspaceTable label="Enrollment history" rows={events.rows} columns={[
               { key: 'created_at', label: 'When', render: (row) => formatOrganizationDate(row.created_at) },
               { key: 'from_status', label: 'From', render: (row) => row.from_status ? <StudentStatus value={row.from_status} /> : <StatusPill value="New record" /> },
