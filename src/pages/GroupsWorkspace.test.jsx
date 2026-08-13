@@ -32,6 +32,8 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
       branch_name: 'North Branch',
       department_name: 'English',
       level: 'Intermediate',
+      audience_type: 'teens',
+      audience_type_label: 'Teens',
       capacity: 18,
       start_date: '2026-01-10',
       end_date: '2026-12-20',
@@ -180,13 +182,33 @@ describe('Groups workspace capability boundaries', () => {
     );
 
     expect(html).toContain('Study month and lesson cycle');
+    expect(html).toContain('Student audience');
+    expect(html).toContain('Kids');
+    expect(html).toContain('Teens');
+    expect(html).toContain('Adults');
+    expect(html).toContain('Custom / private');
     expect(html).toContain('8 lessons');
     expect(html).toContain('12 lessons');
     expect(html).toContain('Weekly teaching schedule');
     expect(html).toContain('Monday');
     expect(html).toContain('Wednesday');
     expect(html).toContain('Friday');
+    expect(html).toContain('Automatic exam lesson');
+    expect(html).toContain('Lesson 12 = exam');
+    expect(html).toContain('First study-month preview');
     expect(html).toContain('Select the teacher who owns this group');
+  });
+
+  it('passes the selected audience to the group API and renders the audience filter', () => {
+    const html = renderGroups(
+      <GroupsPage route="groups?audience=teens" user={{ effective_permissions: ['cohorts:read'] }} onNav={vi.fn()} />,
+    );
+    const groupCall = workspaceCalls.find((call) => call.path === '/api/v1/cohorts/');
+
+    expect(groupCall.params).toMatchObject({ audience_type: 'teens' });
+    expect(html).toContain('name="audience"');
+    expect(html).toContain('value="teens" selected=""');
+    expect(html).toContain('Needs classification');
   });
 
   it('organizes group settings into focused details, teaching, membership, and schedule areas', () => {

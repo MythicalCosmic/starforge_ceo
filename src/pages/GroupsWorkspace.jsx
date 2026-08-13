@@ -60,6 +60,13 @@ const DEFAULT_WEEKLY_SLOTS = Object.freeze([
   { id: 'wednesday', day: 'WE', start_time: '09:00', end_time: '10:30' },
   { id: 'friday', day: 'FR', start_time: '09:00', end_time: '10:30' },
 ]);
+const GROUP_AUDIENCES = Object.freeze([
+  { value: 'kids', label: 'Kids', detail: 'Learning designed for children' },
+  { value: 'teens', label: 'Teens', detail: 'Learning designed for teenagers' },
+  { value: 'adults', label: 'Adults', detail: 'Learning designed for adult students' },
+  { value: 'custom', label: 'Custom / private', detail: 'A named private or specialist group' },
+]);
+const JS_DAY_TO_RRULE = Object.freeze(['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']);
 
 function text(value, fallback = 'Not recorded') {
   const result = String(value ?? '').trim();
@@ -156,6 +163,35 @@ function weekdayLabel(value) {
   return WEEKDAYS.find((day) => day.value === value)?.label || value || 'Day not recorded';
 }
 
+function audienceLabel(cohort) {
+  if (cohort?.audience_type === 'custom') return text(cohort.custom_audience_name, 'Custom / private');
+  return GROUP_AUDIENCES.find((item) => item.value === cohort?.audience_type)?.label
+    || text(cohort?.audience_type_label || cohort?.audience_display, 'Needs classification');
+}
+
+function cycleCalendarPreview(startDate, endDate, rows, cycleLength) {
+  if (!validDate(startDate) || !validDate(endDate) || startDate > endDate || !rows.length) return [];
+  const slots = new Map(rows.map((row) => [row.day, row]));
+  const cursor = new Date(`${startDate}T12:00:00Z`);
+  const final = new Date(`${endDate}T12:00:00Z`);
+  const required = Number(cycleLength) === 8 ? 8 : 12;
+  const occurrences = [];
+  while (cursor <= final && occurrences.length < required) {
+    const day = JS_DAY_TO_RRULE[cursor.getUTCDay()];
+    const slot = slots.get(day);
+    if (slot) {
+      occurrences.push({
+        number: occurrences.length + 1,
+        date: cursor.toISOString().slice(0, 10),
+        day,
+        start_time: slot.start_time,
+      });
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return occurrences;
+}
+
 function ruleWeekday(rule) {
   const match = String(rule?.rrule || '').match(/(?:^|;)BYDAY=([^;]+)/i);
   return match?.[1]?.split(',')?.[0]?.toUpperCase() || 'MO';
@@ -237,6 +273,7 @@ function directoryRoute(basePath, filters, page = 1) {
   if (filters.branch && filters.branch !== 'all') params.set('branch', filters.branch);
   if (filters.teacher && filters.teacher !== 'all') params.set('teacher', filters.teacher);
   if (filters.level && filters.level !== 'all') params.set('level', filters.level);
+  if (filters.audience && filters.audience !== 'all') params.set('audience', filters.audience);
   if (filters.archived && filters.archived !== 'active') params.set('archived', filters.archived);
   if (page > 1) params.set('page', String(page));
   return `${basePath}${params.size ? `?${params}` : ''}`;
@@ -382,6 +419,7 @@ function DirectoryFilters({ filters, branches, teachers, levels, complete, branc
     if (!branchId && access.organization) add('branch', form.get('branch'));
     if (access.teachers) add('teacher', form.get('teacher'));
     add('level', form.get('level'));
+    add('audience', form.get('audience'));
     add('archived', form.get('archived'), 'active');
     navigate(onNav, `${basePath}${params.size ? `?${params.toString()}` : ''}`);
   }
@@ -422,13 +460,18 @@ function DirectoryFilters({ filters, branches, teachers, levels, complete, branc
           </select>
         </label>
       ) : null}
+      <label><span>Audience</span><select name="audience" defaultValue={filters.audience}>
+        <option value="all">All audiences</option>
+        {GROUP_AUDIENCES.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
+        <option value="unspecified">Needs classification</option>
+      </select></label>
       <label><span>Group state</span><select name="archived" defaultValue={filters.archived}>
         <option value="active">Active</option>
         <option value="all">All</option>
         <option value="archived">Archived</option>
       </select></label>
       <button className="gp3-button is-primary" type="submit"><Icon source={Icons.filter} size={15} /> Apply</button>
-      {(filters.q || (access.organization && filters.branch !== 'all') || (access.teachers && filters.teacher !== 'all') || filters.level !== 'all' || filters.archived !== 'active') ? (
+      {(filters.q || (access.organization && filters.branch !== 'all') || (access.teachers && filters.teacher !== 'all') || filters.level !== 'all' || filters.audience !== 'all' || filters.archived !== 'active') ? (
         <button className="gp3-button" type="button" onClick={() => navigate(onNav, basePath)}>Clear</button>
       ) : null}
     </form>
@@ -450,6 +493,8 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
     branch: branchId || '',
     department: '',
     level: '',
+    audience_type: '',
+    custom_audience_name: '',
     study_month: 1,
     lesson_cycle_length: 12,
     start_date: todayInOrganization(),
@@ -480,6 +525,12 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
   )), [teachers.rows]);
   const activeTeacherRows = useMemo(() => teacherRows.filter((teacher) => teacher.is_active !== false), [teacherRows]);
   const currentTerm = terms.rows.find((term) => term.is_current) || terms.rows[0] || null;
+  const cyclePreview = useMemo(() => cycleCalendarPreview(
+    source.start_date,
+    source.end_date,
+    weeklySlots,
+    source.lesson_cycle_length,
+  ), [source.end_date, source.lesson_cycle_length, source.start_date, weeklySlots]);
   useWorkspaceTitle(embedded ? null : editing ? storedRecord?.name || 'Edit group' : 'Create group', 'Groups', editing ? 'settings' : 'new');
 
   const change = (key, value) => setForm((current) => ({ ...(current || source), [key]: value }));
@@ -591,6 +642,10 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
       branch: Number(branchId || source.branch),
       department: source.department ? Number(source.department) : null,
       level: String(source.level || '').trim(),
+      audience_type: String(source.audience_type || '').trim(),
+      custom_audience_name: source.audience_type === 'custom'
+        ? String(source.custom_audience_name || '').trim()
+        : '',
       study_month: Number(source.study_month || 1),
       lesson_cycle_length: Number(source.lesson_cycle_length || 12),
       start_date: source.start_date,
@@ -624,11 +679,14 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
           <label>Department<select value={source.department || ''} onChange={(event) => change('department', event.target.value)} disabled={!effectiveBranch || departments.pending}><option value="">No department</option>{selectedOption(source.department, departments.rows, 'department')}{departments.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
           <label>Academic level<input maxLength="64" value={source.level || ''} onChange={(event) => change('level', event.target.value)} placeholder="Optional level" /></label>
           <label>Capacity<input type="number" inputMode="numeric" min="0" max="32767" value={source.capacity ?? ''} onChange={(event) => change('capacity', event.target.value)} placeholder="Optional" /></label>
+          <fieldset className="gp3-audience-choice"><legend>Student audience <b>Required</b></legend><div>{GROUP_AUDIENCES.map((item) => <label className={source.audience_type === item.value ? 'is-selected' : ''} key={item.value}><input required type="radio" name="audience_type" value={item.value} checked={source.audience_type === item.value} onChange={() => change('audience_type', item.value)} /><span><strong>{item.label}</strong><small>{item.detail}</small></span></label>)}</div></fieldset>
+          {source.audience_type === 'custom' ? <label className="is-wide">Custom or private group type<input required maxLength="80" value={source.custom_audience_name || ''} onChange={(event) => change('custom_audience_name', event.target.value)} placeholder="For example, Executive private class" /><small className="gp3-field-help">This name becomes its filter and visible audience label.</small></label> : null}
         </section>
         <section className="fw-form-section gp3-cycle-section">
           <header><h2>Study month and lesson cycle</h2><p>A study month finishes after the selected number of completed lessons, even when it starts near the end of a calendar month.</p></header>
           <label>Current study month<input required type="number" inputMode="numeric" min="1" max="600" value={source.study_month || 1} onChange={(event) => change('study_month', event.target.value)} /></label>
           <fieldset className="gp3-cycle-choice"><legend>Lessons in one study month</legend><div>{[8, 12].map((amount) => <label className={Number(source.lesson_cycle_length) === amount ? 'is-selected' : ''} key={amount}><input type="radio" name="lesson_cycle_length" value={amount} checked={Number(source.lesson_cycle_length) === amount} onChange={() => change('lesson_cycle_length', amount)} /><span><strong>{amount} lessons</strong><small>{amount === 8 ? 'Usually 2 lessons each week' : 'Usually 3 lessons each week'}</small></span></label>)}</div></fieldset>
+          <div className="gp3-exam-automation is-wide"><span><Icon source={Icons.brand} size={18} /></span><div><strong>Automatic exam lesson</strong><small>Lesson {Number(source.lesson_cycle_length) === 8 ? 8 : 12} is always treated as the final exam lesson for each study month. Teachers receive the exam reminder automatically; changing the academic level remains manual.</small></div><Status value="active">Always on</Status></div>
         </section>
         <section className="fw-form-section">
           <header><h2>Dates and default room</h2><p>Save the group details here. Teaching assignments and student membership are managed separately below.</p></header>
@@ -643,8 +701,10 @@ function GroupEditor({ id, branchId, access, onNav, recordData = null, embedded 
           {scheduleEnabled ? <>
             <label className="is-wide">Main teacher<select required value={source.primary_teacher || ''} onChange={(event) => change('primary_teacher', event.target.value)} disabled={!effectiveBranch || teachers.pending}><option value="">Select the teacher who owns this group</option>{selectedOption(source.primary_teacher, activeTeacherRows, 'teacher')}{activeTeacherRows.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.full_name || teacher.name}{teacher.department_name ? ` · ${teacher.department_name}` : ''}</option>)}</select><small className="gp3-field-help">Only active teachers in the selected branch and department are shown.</small></label>
             <div className="gp3-term-summary is-wide"><span><Icon source={Icons.cal} size={16} /></span><div><strong>{terms.pending ? 'Finding the current term…' : currentTerm ? currentTerm.name : 'No current academic term'}</strong><small>{currentTerm ? `${dateOnly(currentTerm.start_date)} – ${dateOnly(currentTerm.end_date)}. Group dates outside this window remain saved, and another term can be scheduled later.` : 'Mark an academic term as current before creating recurring lessons.'}</small></div></div>
-            <div className="gp3-weekly-builder is-wide"><div className="gp3-weekly-builder-head"><div><strong>Teaching days and times</strong><small>{weeklySlots.length} lesson{weeklySlots.length === 1 ? '' : 's'} each week</small></div><button type="button" className="gp3-button" onClick={() => setWeeklySlots((rows) => [...rows, nextScheduleSlot(rows)])}><Icon source={Icons.plus} size={14} /> Add day</button></div>
+            <div className="gp3-weekly-builder is-wide"><div className="gp3-weekly-builder-head"><div><strong>Choose lesson days from the week</strong><small>{weeklySlots.length} lesson{weeklySlots.length === 1 ? '' : 's'} each week</small></div></div>
+              <div className="gp3-week-picker" role="group" aria-label="Weekly lesson days">{WEEKDAYS.map((day) => { const selected = weeklySlots.some((slot) => slot.day === day.value); return <button type="button" className={selected ? 'is-selected' : ''} aria-pressed={selected} key={day.value} onClick={() => setWeeklySlots((rows) => selected ? rows.filter((row) => row.day !== day.value) : [...rows, { ...nextScheduleSlot(rows), id: `slot-${day.value}`, day: day.value }])}><strong>{day.label.slice(0, 3)}</strong><small>{day.label}</small></button>; })}</div>
               <div className="gp3-weekly-rows">{weeklySlots.map((slot, index) => <div className="gp3-weekly-row" key={slot.id}><span className="gp3-slot-number">{index + 1}</span><label><span>Day</span><select value={slot.day} onChange={(event) => setWeeklySlots((rows) => rows.map((row) => row.id === slot.id ? { ...row, day: event.target.value } : row))}>{WEEKDAYS.map((day) => <option value={day.value} key={day.value}>{day.label}</option>)}</select></label><label><span>Starts</span><input required type="time" value={slot.start_time} onChange={(event) => setWeeklySlots((rows) => rows.map((row) => row.id === slot.id ? { ...row, start_time: event.target.value } : row))} /></label><label><span>Ends</span><input required type="time" min={slot.start_time || undefined} value={slot.end_time} onChange={(event) => setWeeklySlots((rows) => rows.map((row) => row.id === slot.id ? { ...row, end_time: event.target.value } : row))} /></label><button type="button" className="gp3-icon-button" aria-label={`Remove ${weekdayLabel(slot.day)} slot`} disabled={weeklySlots.length === 1} onClick={() => setWeeklySlots((rows) => rows.filter((row) => row.id !== slot.id))}><Icon source={Icons.x} size={15} /></button></div>)}</div>
+              <div className="gp3-cycle-calendar"><header><div><strong>First study-month preview</strong><small>{cyclePreview.length === Number(source.lesson_cycle_length) ? `${cyclePreview.length} planned lessons` : `Only ${cyclePreview.length} lesson dates fit the selected range`}</small></div><span>Lesson {Number(source.lesson_cycle_length) === 8 ? 8 : 12} = exam</span></header><div>{cyclePreview.map((lesson) => <article className={lesson.number === Number(source.lesson_cycle_length) ? 'is-exam' : ''} key={`${lesson.date}-${lesson.day}`}><span>{lesson.number}</span><strong>{weekdayLabel(lesson.day).slice(0, 3)}</strong><small>{dateOnly(lesson.date)}</small>{lesson.number === Number(source.lesson_cycle_length) ? <b>Exam</b> : null}</article>)}</div></div>
             </div>
           </> : null}
         </section> : null}
@@ -674,7 +734,7 @@ function GroupCard({ cohort, studentCount, occupancyKnown, basePath, access, onN
         <span className="gp3-group-mark" aria-hidden="true"><Icon source={Icons.cohort} size={19} /></span>
         <Status value={cohort.is_archived ? 'archived' : 'active'}>{cohort.is_archived ? 'Archived' : 'Active'}</Status>
       </div>
-      <div><span className="gp3-eyebrow">{access.organization ? text(cohort.branch_name, 'Branch not recorded') : 'Group record'}</span><h3>{text(cohort.name)}</h3><p>{text(cohort.department_name, 'Department not recorded')} · {text(cohort.level, 'Level not recorded')}</p></div>
+      <div><span className="gp3-eyebrow">{access.organization ? text(cohort.branch_name, 'Branch not recorded') : 'Group record'}</span><h3>{text(cohort.name)}</h3><p>{audienceLabel(cohort)} · {text(cohort.department_name, 'Department not recorded')} · {text(cohort.level, 'Level not recorded')}</p></div>
       <dl>
         {access.teachers ? <div><dt>Teacher</dt><dd>{text(cohort.primary_teacher_name || teachers[0]?.teacher_name)}</dd></div> : null}
         <div><dt>Room</dt><dd>{text(cohort.default_room_name)}</dd></div>
@@ -698,6 +758,7 @@ function GroupsDirectory({ route, onNav, branchId, access }) {
     branch: forcedBranch || (access.organization ? routed.params.get('branch') : '') || 'all',
     teacher: access.teachers ? routed.params.get('teacher') || 'all' : 'all',
     level: String(routed.params.get('level') || 'all').slice(0, 80),
+    audience: ['kids', 'teens', 'adults', 'custom', 'unspecified'].includes(routed.params.get('audience')) ? routed.params.get('audience') : 'all',
     archived: ['all', 'archived'].includes(routed.params.get('archived')) ? routed.params.get('archived') : 'active',
   };
   const basePath = groupsBase(forcedBranch);
@@ -705,6 +766,7 @@ function GroupsDirectory({ route, onNav, branchId, access }) {
     page_size: PAGE_SIZE,
     page,
     branch: filters.branch === 'all' ? undefined : filters.branch,
+    audience_type: filters.audience === 'all' ? undefined : filters.audience,
     is_archived: filters.archived === 'all' ? undefined : filters.archived === 'archived',
     search: filters.q || undefined,
     ordering: 'name',
@@ -747,8 +809,9 @@ function GroupsDirectory({ route, onNav, branchId, access }) {
   const visibleRows = useMemo(() => cohortsState.rows.filter((cohort) => {
     if (!complete) return true;
     if (filters.level !== 'all' && String(cohort.level) !== filters.level) return false;
+    if (filters.audience !== 'all' && String(cohort.audience_type) !== filters.audience) return false;
     return cohortHasTeacher(cohort, filters.teacher);
-  }), [cohortsState.rows, complete, filters.level, filters.teacher]);
+  }), [cohortsState.rows, complete, filters.audience, filters.level, filters.teacher]);
   const occupancyKnown = access.students && !studentsState.pending && collectionComplete(studentsState) && !studentsState.error;
   const studentsByGroup = useMemo(() => studentsState.rows.reduce((map, student) => {
     if (student.current_cohort != null) {
@@ -766,6 +829,7 @@ function GroupsDirectory({ route, onNav, branchId, access }) {
       { label: 'Group', value: (row) => safeSpreadsheetValue(row.name) },
       { label: 'Department', value: (row) => safeSpreadsheetValue(row.department_name) },
       { label: 'Level', value: (row) => safeSpreadsheetValue(row.level) },
+      { label: 'Audience', value: (row) => safeSpreadsheetValue(audienceLabel(row)) },
       { label: 'Room', value: (row) => safeSpreadsheetValue(row.default_room_name) },
       { label: 'Capacity', value: (row) => validCount(row.capacity) ?? '' },
       { label: 'Start date', value: (row) => row.start_date },
@@ -827,10 +891,10 @@ function GroupsDirectory({ route, onNav, branchId, access }) {
             <Panel eyebrow="Directory" title="Groups in this view" detail="Open any group to inspect its permitted operating record." className="gp3-directory-panel">
               <div className="gp3-card-grid">{visibleRows.map((cohort) => <GroupCard key={cohort.id} cohort={cohort} studentCount={studentsByGroup.get(String(cohort.id)) || 0} occupancyKnown={occupancyKnown} basePath={basePath} access={access} onNav={onNav} />)}</div>
               <div className="gp3-table-wrap gp3-desktop-table" role="region" aria-label="Group directory, scrollable table" tabIndex="0"><table className="gp3-table" aria-label="Group directory">
-                <thead><tr><th>Group</th>{access.organization ? <th>Branch</th> : null}<th>Level</th>{access.teachers ? <th>Teachers</th> : null}<th>Room</th>{access.students ? <th>Students</th> : null}<th>Capacity</th><th>Dates</th><th>State</th><th><span className="gp3-sr-only">Open</span></th></tr></thead>
+                <thead><tr><th>Group</th>{access.organization ? <th>Branch</th> : null}<th>Audience</th><th>Level</th>{access.teachers ? <th>Teachers</th> : null}<th>Room</th>{access.students ? <th>Students</th> : null}<th>Capacity</th><th>Dates</th><th>State</th><th><span className="gp3-sr-only">Open</span></th></tr></thead>
                 <tbody>{visibleRows.map((cohort) => <tr key={cohort.id}>
                   <td><RouteLink to={`${basePath}/${cohort.id}/overview`} onNav={onNav}><strong>{text(cohort.name)}</strong><small>{text(cohort.department_name)}</small></RouteLink></td>
-                  {access.organization ? <td>{text(cohort.branch_name)}</td> : null}<td>{text(cohort.level, '—')}</td>
+                  {access.organization ? <td>{text(cohort.branch_name)}</td> : null}<td>{audienceLabel(cohort)}</td><td>{text(cohort.level, '—')}</td>
                   {access.teachers ? <td>{text(assignmentRows(cohort).map((item) => item.teacher_name).filter(Boolean).join(', '))}</td> : null}
                   <td>{text(cohort.default_room_name, '—')}</td>{access.students ? <td>{occupancyKnown ? formatBusinessNumber(studentsByGroup.get(String(cohort.id)) || 0) : '—'}<small>{occupancyKnown && validCount(cohort.capacity) > 0 ? `${percent((studentsByGroup.get(String(cohort.id)) || 0) / validCount(cohort.capacity) * 100)} occupied` : 'Exact coverage and a positive capacity are required'}</small></td> : null}
                   <td>{validCount(cohort.capacity) == null ? '—' : formatBusinessNumber(cohort.capacity)}</td><td>{dateOnly(cohort.start_date)}<small>to {dateOnly(cohort.end_date)}</small></td>
@@ -912,7 +976,7 @@ function GroupHero({ cohort, basePath, access, onNav }) {
           <span className="gp3-group-mark" aria-hidden="true"><Icon source={Icons.cohort} size={21} /></span>
           <div><span className="gp3-eyebrow">Group workspace</span><h1>{text(cohort.name)}</h1><p>
             {access.organization ? <><RouteLink to={`branches/${cohort.branch}`} onNav={onNav}>{text(cohort.branch_name)}</RouteLink><span>·</span></> : null}
-            {text(cohort.department_name)}<span>·</span>{text(cohort.level, 'Level not recorded')}
+            {audienceLabel(cohort)}<span>·</span>{text(cohort.department_name)}<span>·</span>{text(cohort.level, 'Level not recorded')}<span>·</span>Study month {formatBusinessNumber(cohort.study_month || 1)}
           </p></div>
         </div>
         <div className="gp3-hero-meta"><Status value={cohort.is_archived ? 'archived' : 'active'}>{cohort.is_archived ? 'Archived' : 'Active'}</Status><span>{dateOnly(cohort.start_date)} – {dateOnly(cohort.end_date)}</span>{access.cohortsWrite && !cohort.is_archived ? <RouteLink className="gp3-button" to={`${basePath}/${cohort.id}/settings`} onNav={onNav}><Icon source={Icons.settings} size={14} /> Group settings</RouteLink> : null}{access.cohortsWrite && cohort.is_archived ? <RestoreGroupButton cohortId={cohort.id} /> : null}</div>
@@ -1043,6 +1107,15 @@ function GroupScheduleManager({ cohort }) {
   const selectedTerm = terms.rows.find((term) => String(term.id) === String(draft.term)) || currentTerm;
   const scheduleStart = selectedTerm && cohort.start_date < selectedTerm.start_date ? selectedTerm.start_date : cohort.start_date;
   const scheduleEnd = selectedTerm && cohort.end_date > selectedTerm.end_date ? selectedTerm.end_date : cohort.end_date;
+  const schedulePreview = useMemo(() => cycleCalendarPreview(
+    scheduleStart,
+    scheduleEnd,
+    rules.rows.filter((rule) => rule.is_active !== false).map((rule) => ({
+      day: ruleWeekday(rule),
+      start_time: String(rule.start_time || '').slice(0, 5),
+    })),
+    cohort.lesson_cycle_length,
+  ), [cohort.lesson_cycle_length, rules.rows, scheduleEnd, scheduleStart]);
   const resetDraft = () => {
     setEditingId(null);
     setDraft({
@@ -1133,9 +1206,11 @@ function GroupScheduleManager({ cohort }) {
   };
   return <section className="gp3-settings-card gp3-schedule-settings"><header><span><Icon source={Icons.cal} size={17} /></span><div><h2>Weekly schedule</h2><p>Add, change, pause, or remove the recurring lesson times for this group.</p></div></header><div className="gp3-management-panel">
     {error ? <div className="fw-form-error" role="alert">{mutationMessage(error, 'Review the lesson time and try again.')}</div> : null}
+    <div className="gp3-exam-automation"><span><Icon source={Icons.brand} size={18} /></span><div><strong>Automatic exam lesson</strong><small>Every lesson {Number(cohort.lesson_cycle_length) === 8 ? 8 : 12} is the study-month exam lesson. This stays synchronized with teacher reminders and completed-lesson progress.</small></div><Status value="active">Always on</Status></div>
     {!teachers.length ? <div className="gp3-move-warning"><Icon source={Icons.flag} size={16} /><span><strong>A teaching assignment is required</strong><small>Open Teaching team, assign the main teacher, then return here to prepare weekly lessons.</small></span></div> : null}
     {rules.error ? <QueryFailure error={rules.error} retry={rules.retry} title="Weekly lesson times could not be loaded" /> : rules.pending ? <LoadingPanel lines={3} /> : rules.rows.length ? <div className="gp3-rule-list">{rules.rows.map((rule) => <article key={rule.id} className={String(editingId) === String(rule.id) ? 'is-editing' : ''}><span className="gp3-rule-day">{weekdayLabel(ruleWeekday(rule)).slice(0, 3)}</span><div><strong>{weekdayLabel(ruleWeekday(rule))}</strong><small>{String(rule.start_time || '').slice(0, 5)} – {String(rule.end_time || '').slice(0, 5)} · {text(rule.teacher_name)}</small><small>{text(rule.term_name)} · {dateOnly(rule.start_date)} – {dateOnly(rule.end_date)}</small></div><Status value={rule.is_active ? 'active' : 'paused'}>{rule.is_active ? 'Active' : 'Paused'}</Status><div className="gp3-rule-actions"><button type="button" className="gp3-button" onClick={() => edit(rule)} disabled={mutation.isPending}>Edit</button><button type="button" className="gp3-button" onClick={() => mutation.mutate({ kind: 'toggle', rule })} disabled={mutation.isPending}>{rule.is_active ? 'Pause' : 'Resume'}</button><button type="button" className="gp3-button is-danger" onClick={() => { if (window.confirm(`Remove the ${weekdayLabel(ruleWeekday(rule))} recurring lesson time? Future lessons without attendance will be removed.`)) mutation.mutate({ kind: 'delete', rule }); }} disabled={mutation.isPending}>Remove</button></div></article>)}</div> : <div className="gp3-compact-empty"><span><Icon source={Icons.cal} size={20} /></span><div><strong>No weekly lesson times yet</strong><p>Add the first teaching day below. The lesson calendar will be generated automatically.</p></div></div>}
-    <form className="gp3-schedule-form" onSubmit={submit}><div className="gp3-schedule-form-head"><div><strong>{editingId ? 'Edit weekly lesson time' : 'Add a weekly lesson time'}</strong><small>Use a separate row when different days have different times.</small></div>{editingId ? <button type="button" className="gp3-button" onClick={resetDraft}>Cancel editing</button> : null}</div><label><span>Day</span><select value={draft.day} onChange={(event) => setDraft((current) => ({ ...current, day: event.target.value }))}>{WEEKDAYS.map((day) => <option value={day.value} key={day.value}>{day.label}</option>)}</select></label><label><span>Starts</span><input required type="time" value={draft.start_time} onChange={(event) => setDraft((current) => ({ ...current, start_time: event.target.value }))} /></label><label><span>Ends</span><input required type="time" min={draft.start_time || undefined} value={draft.end_time} onChange={(event) => setDraft((current) => ({ ...current, end_time: event.target.value }))} /></label><label><span>Teacher</span><select required value={draft.teacher} onChange={(event) => setDraft((current) => ({ ...current, teacher: event.target.value }))}><option value="">Assign a teacher first</option>{teachers.map((assignment) => <option value={assignment.teacher} key={assignment.id || assignment.teacher}>{assignment.teacher_name} · {assignment.teacher_type_name || 'Teacher'}</option>)}</select></label><label><span>Academic term</span><select required value={draft.term || currentTerm?.id || ''} onChange={(event) => setDraft((current) => ({ ...current, term: event.target.value }))}><option value="">Select term</option>{terms.rows.map((term) => <option value={term.id} key={term.id}>{term.name}{term.is_current ? ' · Current' : ''}</option>)}</select></label><button className="gp3-button is-primary" type="submit" disabled={mutation.isPending || !teachers.length || terms.pending}>{mutation.isPending ? 'Saving…' : editingId ? 'Save lesson time' : 'Add lesson time'}</button><div className="gp3-schedule-window"><Icon source={Icons.cal} size={15} /><span><strong>Lesson window</strong><small>{selectedTerm && scheduleStart <= scheduleEnd ? `${dateOnly(scheduleStart)} – ${dateOnly(scheduleEnd)}` : 'Choose a term that overlaps the group dates.'}</small></span></div></form>
+    {schedulePreview.length ? <div className="gp3-cycle-calendar"><header><div><strong>Current study-month preview</strong><small>Built from active weekly lesson times</small></div><span>Lesson {Number(cohort.lesson_cycle_length) === 8 ? 8 : 12} = exam</span></header><div>{schedulePreview.map((lesson) => <article className={lesson.number === Number(cohort.lesson_cycle_length) ? 'is-exam' : ''} key={`${lesson.date}-${lesson.day}`}><span>{lesson.number}</span><strong>{weekdayLabel(lesson.day).slice(0, 3)}</strong><small>{dateOnly(lesson.date)}</small>{lesson.number === Number(cohort.lesson_cycle_length) ? <b>Exam</b> : null}</article>)}</div></div> : null}
+    <form className="gp3-schedule-form" onSubmit={submit}><div className="gp3-schedule-form-head"><div><strong>{editingId ? 'Edit weekly lesson time' : 'Add a weekly lesson time'}</strong><small>Choose the weekday, then set its exact lesson time.</small></div>{editingId ? <button type="button" className="gp3-button" onClick={resetDraft}>Cancel editing</button> : null}</div><fieldset className="gp3-schedule-day-picker"><legend>Lesson day</legend><div className="gp3-week-picker" role="group" aria-label="Lesson day">{WEEKDAYS.map((day) => <button type="button" className={draft.day === day.value ? 'is-selected' : ''} aria-pressed={draft.day === day.value} key={day.value} onClick={() => setDraft((current) => ({ ...current, day: day.value }))}><strong>{day.label.slice(0, 3)}</strong><small>{day.label}</small></button>)}</div></fieldset><label><span>Starts</span><input required type="time" value={draft.start_time} onChange={(event) => setDraft((current) => ({ ...current, start_time: event.target.value }))} /></label><label><span>Ends</span><input required type="time" min={draft.start_time || undefined} value={draft.end_time} onChange={(event) => setDraft((current) => ({ ...current, end_time: event.target.value }))} /></label><label><span>Teacher</span><select required value={draft.teacher} onChange={(event) => setDraft((current) => ({ ...current, teacher: event.target.value }))}><option value="">Assign a teacher first</option>{teachers.map((assignment) => <option value={assignment.teacher} key={assignment.id || assignment.teacher}>{assignment.teacher_name} · {assignment.teacher_type_name || 'Teacher'}</option>)}</select></label><label><span>Academic term</span><select required value={draft.term || currentTerm?.id || ''} onChange={(event) => setDraft((current) => ({ ...current, term: event.target.value }))}><option value="">Select term</option>{terms.rows.map((term) => <option value={term.id} key={term.id}>{term.name}{term.is_current ? ' · Current' : ''}</option>)}</select></label><button className="gp3-button is-primary" type="submit" disabled={mutation.isPending || !teachers.length || terms.pending}>{mutation.isPending ? 'Saving…' : editingId ? 'Save lesson time' : 'Add lesson time'}</button><div className="gp3-schedule-window"><Icon source={Icons.cal} size={15} /><span><strong>Lesson window</strong><small>{selectedTerm && scheduleStart <= scheduleEnd ? `${dateOnly(scheduleStart)} – ${dateOnly(scheduleEnd)}` : 'Choose a term that overlaps the group dates.'}</small></span></div></form>
   </div></section>;
 }
 
@@ -1211,6 +1286,7 @@ function OverviewSection({ cohort, membersState, teachersState, dashboardState, 
         <Panel eyebrow="Group record" title="Operating details" detail="The durable information behind this group.">
           <div className="gp3-facts">
             {access.organization ? <DetailValue label="Branch"><RouteLink to={`branches/${cohort.branch}`} onNav={onNav}>{text(cohort.branch_name)}</RouteLink></DetailValue> : null}
+            <DetailValue label="Audience" value={audienceLabel(cohort)} />
             <DetailValue label="Department" value={text(cohort.department_name)} />
             <DetailValue label="Level" value={text(cohort.level)} />
             <DetailValue label="Default room" value={text(cohort.default_room_name)} />
@@ -1414,7 +1490,7 @@ function GroupSettingsSection({ cohort, membersState, teachersState, access, onN
   const assignments = teachersState.rows.length ? teachersState.rows : assignmentRows(cohort);
   const currentMembers = membersState.rows.filter((member) => !member.end_date).length;
   return <div className="gp3-settings-layout">
-    <aside className="gp3-settings-rail"><div className="gp3-settings-rail-head"><span><Icon source={Icons.shield} size={18} /></span><div><strong>Group setup</strong><small>Configure one area at a time</small></div></div><nav aria-label="Group setup areas">{areas.map((item) => <button type="button" key={item.id} className={area === item.id ? 'is-active' : ''} aria-current={area === item.id ? 'page' : undefined} onClick={() => setActiveArea(item.id)}><span><Icon source={item.icon} size={17} /></span><span><strong>{item.label}</strong><small>{item.detail}</small></span><Icon source={Icons.chevR} size={14} /></button>)}</nav><div className="gp3-settings-summary"><div><span>Study month</span><strong>{validCount(cohort.study_month) || 1}</strong></div><div><span>Lessons / month</span><strong>{[8, 12].includes(Number(cohort.lesson_cycle_length)) ? cohort.lesson_cycle_length : 12}</strong></div>{access.teachers ? <div><span>Teachers</span><strong>{teachersState.pending ? '…' : assignments.length}</strong></div> : null}{access.students ? <div><span>Current students</span><strong>{membersState.pending ? '…' : currentMembers}</strong></div> : null}</div></aside>
+    <aside className="gp3-settings-rail"><div className="gp3-settings-rail-head"><span><Icon source={Icons.shield} size={18} /></span><div><strong>Group setup</strong><small>Configure one area at a time</small></div></div><nav aria-label="Group setup areas">{areas.map((item) => <button type="button" key={item.id} className={area === item.id ? 'is-active' : ''} aria-current={area === item.id ? 'page' : undefined} onClick={() => setActiveArea(item.id)}><span><Icon source={item.icon} size={17} /></span><span><strong>{item.label}</strong><small>{item.detail}</small></span><Icon source={Icons.chevR} size={14} /></button>)}</nav><div className="gp3-settings-summary"><div><span>Audience</span><strong>{audienceLabel(cohort)}</strong></div><div><span>Study month</span><strong>{validCount(cohort.study_month) || 1}</strong></div><div><span>Lessons / month</span><strong>{[8, 12].includes(Number(cohort.lesson_cycle_length)) ? cohort.lesson_cycle_length : 12}</strong></div>{access.teachers ? <div><span>Teachers</span><strong>{teachersState.pending ? '…' : assignments.length}</strong></div> : null}{access.students ? <div><span>Current students</span><strong>{membersState.pending ? '…' : currentMembers}</strong></div> : null}</div></aside>
     <div className="gp3-settings-workarea"><div className="gp3-settings-intro"><span><Icon source={areas.find((item) => item.id === area)?.icon || Icons.settings} size={18} /></span><div><strong>{areas.find((item) => item.id === area)?.label}</strong><p>{area === 'details' ? 'Keep the group’s identity, study month, lesson cycle, capacity, dates, and room in one clear record.' : area === 'teaching' ? 'Choose the main teacher and add assistant, video, substitute, or other teaching roles with confirmation.' : area === 'students' ? 'Start with unassigned active students. Moving someone from another group always requires a warning, reason, and confirmation.' : 'Maintain the days and exact times that generate this group’s lesson calendar.'}</p></div></div>
       {area === 'details' ? <section className="gp3-settings-card"><header><span><Icon source={Icons.settings} size={17} /></span><div><h2>Group details</h2><p>Maintain the group record and the 8- or 12-lesson study-month cycle.</p></div></header><div className="gp3-settings-card-body"><GroupEditor id={cohort.id} branchId={branchId} access={access} onNav={onNav} recordData={cohort} embedded /></div></section> : null}
       {area === 'teaching' ? teachersState.error ? <QueryFailure error={teachersState.error} retry={teachersState.retry} title="Teaching assignments could not be loaded" /> : teachersState.pending ? <LoadingPanel lines={4} /> : <TeacherAssignmentManager cohort={cohort} rows={assignments} standalone /> : null}
