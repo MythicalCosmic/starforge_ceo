@@ -85,6 +85,8 @@ describe('restored management routes', () => {
       .toEqual(['tasks', '5']);
     expect(resolveLegacySegments(['communications', 'forms', '5']))
       .toEqual(['forms', '5']);
+    expect(resolveLegacySegments(['backendEngagement', 'forms', '5']))
+      .toEqual(['forms', '5']);
   });
 
   it('leaves current routes unchanged', () => {

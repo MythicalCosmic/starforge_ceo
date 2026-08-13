@@ -25,6 +25,7 @@ export const LEGACY_ROUTES = Object.freeze({
   backendAudit: route('audit'),
   backendOperations: route('operations'),
   backendEngagement: route('engagement'),
+  'backendEngagement/forms': route('forms'),
   backendContent: route('content'),
   backendPlacement: route('placement'),
   backendRecognition: route('recognition'),

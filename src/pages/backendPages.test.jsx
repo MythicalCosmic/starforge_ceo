@@ -129,4 +129,16 @@ describe('restored management page boundaries', () => {
     expect(compensationReader.tabs.flatMap((tab) => tab.related || []).map((relation) => relation.path))
       .not.toContain('/api/v1/payroll/periods/{id}/run/');
   });
+
+  it('uses direct business controls for decisions instead of the generic action console', () => {
+    const director = managementModuleFor('decisions', 'ceo', {
+      effective_permissions: ['approvals:read', 'approvals:approve'],
+    });
+    const manager = managementModuleFor('decisions', 'manager', {
+      effective_permissions: ['approvals:read', 'approvals:approve'],
+    });
+
+    expect(director.actionSurface).toBe('decisions');
+    expect(manager.actionSurface).toBe('decisions');
+  });
 });

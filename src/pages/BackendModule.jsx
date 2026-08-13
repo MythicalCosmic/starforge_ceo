@@ -22,6 +22,7 @@ import { safeDocumentUrl } from '../lib/safeExternalUrl.js';
 import { appForApiPath, isServiceUnavailable } from '../lib/appAvailability.js';
 import { ApplicationGate, ApplicationUnavailableState } from '../components/AvailabilityState.jsx';
 import { ManagementActions } from '../components/ManagementActions.jsx';
+import { ApprovalDecisionActions } from '../components/ApprovalDecisionActions.jsx';
 import { SystemAvailabilityPanel } from '../components/SystemAvailabilityPanel.jsx';
 import '../styles/resource-v2.css';
 
@@ -1148,7 +1149,7 @@ function stateQuery({ search, page, cursor }) {
   return params.toString();
 }
 
-export function BackendModule({ module, basePath, route, onNavigate, capabilities }) {
+export function BackendModule({ module, basePath, route, onNavigate, capabilities, user }) {
   const [path, query = ''] = String(route || basePath).split('?', 2);
   const segments = useMemo(() => path.split('/').filter(Boolean), [path]);
   const requestedTabId = segments[1];
@@ -1288,7 +1289,16 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
                   } : undefined}
                 />
               )}
-              {!noVisibleTabs && !systemAvailability && <ManagementActions
+              {!noVisibleTabs && !systemAvailability &&
+                module.actionSurface === 'decisions' &&
+                activeTab.id === 'requests' &&
+                detailRow && (
+                  <ApprovalDecisionActions
+                    requestId={rowIdentity(activeResource, detailRow)}
+                    user={user}
+                  />
+                )}
+              {!noVisibleTabs && !systemAvailability && !module.actionSurface && <ManagementActions
                 capabilities={capabilities}
                 pathPrefix={activeResource.path}
                 recordId={detailRow ? rowIdentity(activeResource, detailRow) : null}

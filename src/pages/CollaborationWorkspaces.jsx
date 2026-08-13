@@ -9,7 +9,7 @@ import {
   WorkspaceState,
 } from '../components/WorkspacePrimitives.jsx';
 import { useToast } from '../context/ToastContext.jsx';
-import { useWorkspaceData } from '../hooks/useWorkspaceData.js';
+import { useWorkspaceData, workspaceRoute } from '../hooks/useWorkspaceData.js';
 import { canUseCapability } from '../lib/permissions.js';
 import { userFacingError } from '../lib/userFacingError.js';
 import '../styles/collaboration-v1.css';
@@ -538,7 +538,19 @@ function ChatPane({ thread, selfUserId, onRefreshThreads, canWrite }) {
   const messages = useWorkspaceData(thread ? `/api/v1/messaging/threads/${thread.id}/messages/` : null, { page_size: 100 }, { enabled: Boolean(thread), refreshMs: 4_000 });
   const [text, setText] = useState('');
   const [file, setFile] = useState(null);
+  const [optimistic, setOptimistic] = useState([]);
   const [busy, setBusy] = useState(false);
+  const persistedMessages = messages.rows;
+  const visibleMessages = useMemo(() => {
+    const persistedIds = new Set(persistedMessages.map((message) => String(message.id)));
+    return [
+      ...persistedMessages,
+      ...optimistic.filter((message) => !persistedIds.has(String(message.id))),
+    ];
+  }, [persistedMessages, optimistic]);
+  useEffect(() => {
+    setOptimistic([]);
+  }, [thread?.id]);
   useEffect(() => {
     if (!thread) return;
     void httpRequest('POST', `/api/v1/messaging/threads/${thread.id}/read/`, { body: {} }).then(onRefreshThreads).catch(() => {});
@@ -546,31 +558,47 @@ function ChatPane({ thread, selfUserId, onRefreshThreads, canWrite }) {
   const send = async (event) => {
     event.preventDefault();
     if (!text.trim() && !file) return;
+    const draftText = text.trim();
+    const draftFile = file;
+    const clientId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setOptimistic((current) => [...current, {
+      id: clientId,
+      sender: selfUserId,
+      body: draftText,
+      attachments: draftFile ? [draftFile.name] : [],
+      created_at: new Date().toISOString(),
+      pending: true,
+    }]);
+    setText('');
+    setFile(null);
     setBusy(true);
     try {
       const attachments = [];
-      if (file) {
-        const grant = await httpRequest('POST', '/api/v1/messaging/attachments/upload-url/', { body: { filename: file.name, size_bytes: file.size, content_type: file.type || 'application/octet-stream' } });
+      if (draftFile) {
+        const grant = await httpRequest('POST', '/api/v1/messaging/attachments/upload-url/', { body: { filename: draftFile.name, size_bytes: draftFile.size, content_type: draftFile.type || 'application/octet-stream' } });
         const upload = new FormData();
         Object.entries(grant.fields || {}).forEach(([key, value]) => upload.append(key, String(value)));
-        upload.append('file', file);
+        upload.append('file', draftFile);
         const response = await fetch(grant.url, { method: grant.method || 'POST', body: upload });
         if (!response.ok) throw new Error('upload_failed');
         attachments.push(grant.key);
       }
-      await httpRequest('POST', `/api/v1/messaging/threads/${thread.id}/messages/`, { body: { body: text.trim(), attachments } });
-      setText(''); setFile(null);
+      const saved = await httpRequest('POST', `/api/v1/messaging/threads/${thread.id}/messages/`, { body: { body: draftText, attachments } });
+      setOptimistic((current) => current.map((message) => message.id === clientId ? saved : message));
       await Promise.all([messages.retry(), onRefreshThreads?.()]);
     } catch (error) {
+      setOptimistic((current) => current.filter((message) => message.id !== clientId));
+      setText(draftText);
+      setFile(draftFile);
       toast.danger(error?.message === 'upload_failed' ? 'The attachment could not be uploaded.' : userFacingError(error, { fallback: 'The message could not be sent.' }));
     } finally { setBusy(false); }
   };
   return <section className="chat-pane">
     <header><SfAvatar name={thread.name} size={40} decorative /><div><h2>{thread.name}</h2><p>{thread.subtitle}</p></div><span>{thread.notifications_muted ? 'Muted' : 'Notifications on'}</span></header>
-    <WorkspaceState state={messages} empty={!rowsOf(messages).length} emptyTitle="No messages yet" emptyBody="Send the first message to begin this conversation.">
-      <div className="chat-transcript">{rowsOf(messages).map((message) => {
+    <WorkspaceState state={messages} empty={!visibleMessages.length} emptyTitle="No messages yet" emptyBody="Send the first message to begin this conversation.">
+      <div className="chat-transcript">{visibleMessages.map((message) => {
         const mine = String(message.sender) === String(selfUserId);
-        return <article className={mine ? 'is-mine' : ''} key={message.id}><div>{message.body && <p>{message.body}</p>}{(message.attachments || []).map((attachment) => <span className="chat-attachment" key={attachment}>{cloneElement(Icons.doc, { size: 14 })}{decodeURIComponent(String(attachment).split('/').at(-1) || 'Attachment')}</span>)}<time>{dateTime(message.created_at, '')}</time></div></article>;
+        return <article className={mine ? 'is-mine' : ''} key={message.id}><div>{message.body && <p>{message.body}</p>}{(message.attachments || []).map((attachment) => <span className="chat-attachment" key={attachment}>{cloneElement(Icons.doc, { size: 14 })}{decodeURIComponent(String(attachment).split('/').at(-1) || 'Attachment')}</span>)}<time>{message.pending ? 'Sending…' : dateTime(message.created_at, '')}</time></div></article>;
       })}</div>
     </WorkspaceState>
     {canWrite ? <form className="chat-input" onSubmit={send}><label title="Attach a file"><input type="file" onChange={(event) => setFile(event.target.files?.[0] || null)} /><span>{cloneElement(Icons.folder, { size: 18 })}</span></label><div>{file && <small>{file.name}<button type="button" onClick={() => setFile(null)} aria-label="Remove attachment">×</button></small>}<textarea rows="1" maxLength="10000" value={text} onChange={(event) => setText(event.target.value)} placeholder="Write a message…" /></div><button type="submit" disabled={busy || (!text.trim() && !file)} aria-label="Send message">{cloneElement(Icons.chevR, { size: 18 })}</button></form> : <div className="chat-readonly">This conversation is available for viewing only.</div>}
@@ -675,22 +703,30 @@ function ResultsPanel({ form, contacts }) {
   })}</section></WorkspaceState></div>;
 }
 
-export function FormsPage({ user }) {
+export function FormsPage({ user, route = 'forms', onNav }) {
   const toast = useToast();
+  const { segments } = workspaceRoute(route);
+  const routedFormId = /^\d+$/.test(String(segments[1] || '')) ? segments[1] : null;
   const forms = useWorkspaceData('/api/v1/forms/', { page_size: 100 }, { refreshMs: 30_000 });
   const contacts = useWorkspaceData('/api/v1/messaging/contacts/', { page_size: 100 }, { enabled: canUseCapability(user, 'messaging:read') });
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: 100 }, { enabled: canUseCapability(user, 'org:read') });
   const [filter, setFilter] = useState('all');
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(routedFormId);
   const [composerOpen, setComposerOpen] = useState(false);
   const canWrite = canUseCapability(user, 'forms:write');
   const managed = rowsOf(forms).filter((form) => Object.hasOwn(form, 'audience_roles'));
   const visible = managed.filter((form) => filter === 'all' || form.status === filter);
   const selected = managed.find((form) => String(form.id) === String(selectedId)) || visible[0] || null;
+  useEffect(() => {
+    if (routedFormId) setSelectedId(routedFormId);
+  }, [routedFormId]);
   const lifecycle = async (form, action) => {
     try {
       await httpRequest(action === 'delete' ? 'DELETE' : 'POST', `/api/v1/forms/${form.id}/${action === 'delete' ? '' : `${action}/`}`, action === 'delete' ? {} : { body: {} });
-      if (action === 'delete') setSelectedId(null);
+      if (action === 'delete') {
+        setSelectedId(null);
+        onNav?.('forms');
+      }
       await forms.retry();
       toast.success(action === 'publish' ? 'Form published.' : action === 'close' ? 'Form closed.' : 'Draft removed.');
     } catch (error) { toast.danger(userFacingError(error)); }
@@ -700,7 +736,7 @@ export function FormsPage({ user }) {
     <section className="forms-kpis"><article><span>All forms</span><strong>{managed.length}</strong></article><article><span>Published</span><strong>{managed.filter((form) => form.status === 'published').length}</strong></article><article><span>Drafts</span><strong>{managed.filter((form) => form.status === 'draft').length}</strong></article><article><span>Closed</span><strong>{managed.filter((form) => form.status === 'closed').length}</strong></article></section>
     <section className="collab-toolbar"><div className="collab-segments">{[['all', 'All'], ['published', 'Published'], ['draft', 'Drafts'], ['closed', 'Closed']].map(([id, label]) => <button type="button" className={filter === id ? 'is-active' : ''} onClick={() => setFilter(id)} key={id}>{label}</button>)}</div></section>
     <WorkspaceState state={forms} empty={!visible.length} emptyTitle="No forms in this view" emptyBody="Create the first form with the visual builder.">
-      <div className="forms-layout"><aside className="forms-directory">{visible.map((form) => <article className={String(form.id) === String(selected?.id) ? 'is-active' : ''} key={form.id}><button type="button" onClick={() => setSelectedId(form.id)}><header><StatusPill value={form.status} /><span>{form.is_anonymous ? 'Anonymous' : 'Identified'}</span></header><h2>{form.title}</h2><p>{form.description || 'No description added.'}</p><footer><time>{form.closes_at ? `Closes ${dateTime(form.closes_at)}` : 'No closing time'}</time><b>{(form.form_fields || []).length} questions</b></footer></button><nav>{form.status === 'draft' && <><button type="button" onClick={() => lifecycle(form, 'delete')}>Remove</button><button type="button" onClick={() => lifecycle(form, 'publish')}>Publish</button></>}{form.status === 'published' && <button type="button" onClick={() => lifecycle(form, 'close')}>Close form</button>}</nav></article>)}</aside><main><ResultsPanel form={selected?.status === 'draft' ? null : selected} contacts={rowsOf(contacts)} />{selected?.status === 'draft' && <div className="forms-results-empty"><span>{cloneElement(Icons.doc, { size: 28 })}</span><h2>{selected.title}</h2><p>This draft has not been published, so there are no responses yet.</p><ActionButton tone="primary" onClick={() => lifecycle(selected, 'publish')}>Publish form</ActionButton></div>}</main></div>
+      <div className="forms-layout"><aside className="forms-directory">{visible.map((form) => <article className={String(form.id) === String(selected?.id) ? 'is-active' : ''} key={form.id}><button type="button" onClick={() => { setSelectedId(form.id); onNav?.(`forms/${form.id}`); }}><header><StatusPill value={form.status} /><span>{form.is_anonymous ? 'Anonymous' : 'Identified'}</span></header><h2>{form.title}</h2><p>{form.description || 'No description added.'}</p><footer><time>{form.closes_at ? `Closes ${dateTime(form.closes_at)}` : 'No closing time'}</time><b>{(form.form_fields || []).length} questions</b></footer></button><nav>{form.status === 'draft' && <><button type="button" onClick={() => lifecycle(form, 'delete')}>Remove</button><button type="button" onClick={() => lifecycle(form, 'publish')}>Publish</button></>}{form.status === 'published' && <button type="button" onClick={() => lifecycle(form, 'close')}>Close form</button>}</nav></article>)}</aside><main><ResultsPanel form={selected?.status === 'draft' ? null : selected} contacts={rowsOf(contacts)} />{selected?.status === 'draft' && <div className="forms-results-empty"><span>{cloneElement(Icons.doc, { size: 28 })}</span><h2>{selected.title}</h2><p>This draft has not been published, so there are no responses yet.</p><ActionButton tone="primary" onClick={() => lifecycle(selected, 'publish')}>Publish form</ActionButton></div>}</main></div>
     </WorkspaceState>
     <FormComposer open={composerOpen} contacts={rowsOf(contacts)} branches={rowsOf(branches)} onClose={() => setComposerOpen(false)} onSaved={forms.retry} />
   </div>;

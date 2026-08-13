@@ -6,6 +6,10 @@ vi.mock('../context/ToastContext.jsx', () => ({
 }));
 
 vi.mock('../hooks/useWorkspaceData.js', () => ({
+  workspaceRoute: (route) => ({
+    segments: String(route || '').split('/').filter(Boolean),
+    params: new URLSearchParams(),
+  }),
   useWorkspaceData(path, _params, options = {}) {
     const rowsByPath = {
       '/api/v1/tasks/': [{

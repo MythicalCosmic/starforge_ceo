@@ -9,6 +9,9 @@ const loadExamsPage = () => import('../pages/ExamsWorkspace.jsx');
 const loadFinancePage = () => import('../pages/FinanceWorkspace.jsx');
 const loadWorkforcePage = () => import('../pages/WorkforceWorkspace.jsx');
 const loadCollaborationPages = () => import('../pages/CollaborationWorkspaces.jsx');
+const loadReportsPage = () => import('../pages/ReportsWorkspace.jsx');
+const loadContentPage = () => import('../pages/ContentWorkspace.jsx');
+const loadEngagementPage = () => import('../pages/EngagementWorkspace.jsx');
 
 const moduleEntry = (load, exportName) => Object.freeze({ load, exportName });
 
@@ -38,11 +41,11 @@ export const ROUTE_MODULES = Object.freeze({
   organization: moduleEntry(loadManagementPages, 'OrganizationPage'),
   operations: moduleEntry(loadManagementPages, 'OperationsPage'),
   decisions: moduleEntry(loadManagementPages, 'DecisionsPage'),
-  content: moduleEntry(loadManagementPages, 'ContentPage'),
+  content: moduleEntry(loadContentPage, 'ContentPage'),
   intelligence: moduleEntry(loadManagementPages, 'IntelligencePage'),
-  reports: moduleEntry(loadManagementPages, 'ReportsPage'),
+  reports: moduleEntry(loadReportsPage, 'ReportsPage'),
   audit: moduleEntry(loadManagementPages, 'AuditPage'),
-  engagement: moduleEntry(loadManagementPages, 'EngagementPage'),
+  engagement: moduleEntry(loadEngagementPage, 'EngagementPage'),
   messaging: moduleEntry(loadCollaborationPages, 'MessagesPage'),
   forms: moduleEntry(loadCollaborationPages, 'FormsPage'),
   finance: moduleEntry(loadFinancePage, 'FinancePage'),

@@ -30,12 +30,13 @@ const find = (moduleId, tabId) => {
   };
 };
 
-const executiveModule = ({ title, eyebrow, description, tabs }) =>
+const executiveModule = ({ title, eyebrow, description, tabs, actionSurface }) =>
   Object.freeze({
     title,
     eyebrow,
     description,
     tabs: Object.freeze(tabs),
+    ...(actionSurface ? { actionSurface } : {}),
   });
 
 const catalogModule = (moduleId, presentation) => {
@@ -49,6 +50,7 @@ const catalogModule = (moduleId, presentation) => {
       tab.id,
       presentation.tabLabels?.[tab.id] || tab.label,
     )),
+    actionSurface: presentation.actionSurface,
   });
 };
 
@@ -183,12 +185,14 @@ const MODULES = Object.freeze({
     title: 'Decisions',
     eyebrow: 'Accountable follow-through',
     description: 'Review requests that need a decision and the permanent record of decisions already made.',
+    actionSurface: 'decisions',
   }),
   managerDecisions: executiveModule({
     title: 'Decisions',
     eyebrow: 'Accountable follow-through',
     description: 'Review requests that need attention within your assigned responsibilities.',
     tabs: [view(find('backendApprovals', 'requests'), 'requests', 'Approval queue')],
+    actionSurface: 'decisions',
   }),
   content: catalogModule('backendContent', {
     title: 'Content & print',
@@ -320,6 +324,7 @@ function ModulePage({ moduleId, role, route, onNav, user }) {
       route={route}
       onNavigate={onNav}
       capabilities={effectiveCapabilities(user)}
+      user={user}
     />
   );
 }
