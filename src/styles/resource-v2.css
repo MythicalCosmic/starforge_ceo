@@ -31,7 +31,7 @@
   flex: 0 0 auto;
   padding: 0 4px;
   color: var(--sf-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 830;
   letter-spacing: .11em;
   text-transform: uppercase;
@@ -47,7 +47,7 @@
 
 .rv2-section-tabs a {
   display: flex;
-  min-height: 34px;
+  min-height: 40px;
   flex: 0 0 auto;
   align-items: center;
   gap: 7px;
@@ -55,7 +55,7 @@
   border: 1px solid transparent;
   border-radius: 10px;
   color: var(--sf-muted);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 720;
   line-height: 1.3;
   text-decoration: none;
@@ -154,6 +154,7 @@
   color: var(--sf-muted);
   font-size: 12.5px;
   line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .rv2-view-selector {
@@ -210,7 +211,7 @@
   background: var(--sf-surface-2);
   color: var(--sf-ink);
   cursor: pointer;
-  font: 700 11.5px / 1 var(--sf-font-ui);
+  font: 700 12px / 1 var(--sf-font-ui);
   transition:
     border-color 180ms ease,
     background 180ms ease,
@@ -289,7 +290,7 @@
   outline: 0;
   background: transparent;
   color: var(--sf-ink);
-  font: 650 11.5px / 1 var(--sf-font-ui);
+  font: 650 12px / 1 var(--sf-font-ui);
 }
 
 .rv2-search input::placeholder {
@@ -299,8 +300,8 @@
 
 .rv2-search button {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   place-items: center;
   border: 0;
   border-radius: 8px;
@@ -521,7 +522,7 @@
 
 .rv2-row-action {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -537,13 +538,18 @@
   transition:
     border-color 160ms ease,
     background 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    transform 120ms ease;
 }
 
 .rv2-row-action:hover {
   border-color: color-mix(in srgb, var(--sf-primary) 35%, var(--sf-border));
   background: var(--sf-primary-soft);
   color: var(--sf-primary);
+}
+
+.rv2-row-action:active {
+  transform: scale(.96);
 }
 
 .rv2-row-action:focus-visible {
@@ -1427,11 +1433,13 @@ article.rv2-record-card {
 
 .rv2-action-target small {
   color: var(--sf-muted);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-wrap: pretty;
 }
 
 .rv2-action-target > button {
-  min-height: 38px;
+  min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--sf-border);
   border-radius: 10px;
