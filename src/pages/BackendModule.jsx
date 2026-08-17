@@ -443,13 +443,22 @@ function PageControls({ label, page = 1, pages = 1, onPage }) {
   );
 }
 
-function MobileRecordCards({ resource, items, onOpen, recordRoute }) {
+function MobileRecordCards({
+  resource,
+  items,
+  onOpen,
+  onSelect,
+  recordRoute,
+  selectedKey,
+}) {
   return (
     <div className="rv2-mobile-records">
       {items.map((row, index) => {
         const identity = rowIdentity(resource, row, index);
         const key = identity ?? `unidentified-record-${index}`;
         const rowCanOpen = Boolean(onOpen && recordRoute && identity);
+        const rowCanSelect = Boolean(onSelect && identity);
+        const selected = String(selectedKey ?? '') === String(identity ?? '');
         const heading = recordHeading(resource, row);
         const visibleFields = resource.columns
           .filter((field) => String(getValue(row, field.key) ?? '').trim() !== heading)
@@ -458,7 +467,11 @@ function MobileRecordCards({ resource, items, onOpen, recordRoute }) {
           <>
             <span className="rv2-record-card-head">
               <strong>{heading}</strong>
-              {rowCanOpen && <Glyph icon={Icons.chevR} size={17} />}
+              {(rowCanOpen || rowCanSelect) && (
+                selected
+                  ? <Glyph icon={Icons.check} size={17} />
+                  : <Glyph icon={Icons.chevR} size={17} />
+              )}
             </span>
             <span className="rv2-record-card-grid">
               {visibleFields.map((field) => (
@@ -479,6 +492,16 @@ function MobileRecordCards({ resource, items, onOpen, recordRoute }) {
           >
             {content}
           </RouteLink>
+        ) : rowCanSelect ? (
+          <button
+            type="button"
+            className={`rv2-record-card${selected ? ' is-selected' : ''}`}
+            key={key}
+            aria-pressed={selected}
+            onClick={() => onSelect(row, identity)}
+          >
+            {content}
+          </button>
         ) : (
           <article className="rv2-record-card" key={key}>{content}</article>
         );
@@ -830,7 +853,15 @@ function SummaryBar({ total, visible, page, pages, updatedAt }) {
   );
 }
 
-function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailBase }) {
+function ResourceWorkspace({
+  resource,
+  query = '',
+  onRouteState,
+  onOpen,
+  onSelect,
+  selectedKey,
+  detailBase,
+}) {
   const initial = managementQueryState(query);
   const routeStateRef = useRef(initial);
   const [draftSearch, setDraftSearch] = useState(initial.search);
@@ -904,6 +935,8 @@ function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailB
   }
 
   const canOpen = Boolean(resource.detailPath && onOpen);
+  const canSelect = Boolean(!resource.detailPath && onSelect);
+  const canActOnRow = canOpen || canSelect;
   const recordRoute = canOpen && detailBase
     ? (identity) => `${detailBase}/${encodeURIComponent(identity)}${query ? `?${query}` : ''}`
     : null;
@@ -1033,12 +1066,11 @@ function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailB
         <section className="rv2-register">
           <header className="rv2-register-head">
             <div>
-              <span>Current register</span>
               <h2>{businessCopy(resource.label || 'Records')}</h2>
             </div>
             <div>
               <strong>{formatBusinessNumber(collection.items.length)} shown</strong>
-              <small>{canOpen ? 'Open any record for full details' : 'Complete current view'}</small>
+              <small>{canOpen ? 'Open any record for full details' : canSelect ? 'Select a record for its authorized actions' : 'Complete current view'}</small>
             </div>
           </header>
 
@@ -1050,20 +1082,22 @@ function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailB
                   ...field,
                   label: businessCopy(field.label),
                 })),
-                ...(canOpen ? [{ key: '__details', label: 'Details', align: 'right' }] : []),
+                ...(canActOnRow ? [{ key: '__details', label: canOpen ? 'Details' : 'Actions', align: 'right' }] : []),
               ]}
-              selectable={canOpen}
+              selectable={canActOnRow}
             >
               {collection.items.map((row, index) => {
                 const identity = rowIdentity(resource, row, index);
                 const key = identity ?? `unidentified-record-${index}`;
                 const rowCanOpen = Boolean(canOpen && identity);
+                const rowCanSelect = Boolean(canSelect && identity);
+                const selected = String(selectedKey ?? '') === String(identity ?? '');
                 return (
-                  <tr key={key}>
+                  <tr key={key} className={selected ? 'is-selected' : undefined}>
                     {resource.columns.map((field) => (
                       <td key={field.key}><RenderedValue field={field} row={row} /></td>
                     ))}
-                    {canOpen && <td className="rv2-row-action-cell">
+                    {canActOnRow && <td className="rv2-row-action-cell">
                       {rowCanOpen ? (
                         <RouteLink
                           className="rv2-row-action"
@@ -1074,6 +1108,17 @@ function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailB
                           View
                           <Glyph icon={Icons.chevR} size={14} />
                         </RouteLink>
+                      ) : rowCanSelect ? (
+                        <button
+                          type="button"
+                          className="rv2-row-action"
+                          aria-pressed={selected}
+                          aria-label={`Use actions for ${recordHeading(resource, row)}`}
+                          onClick={() => onSelect(row, identity)}
+                        >
+                          {selected ? 'Selected' : 'Manage'}
+                          <Glyph icon={selected ? Icons.check : Icons.chevR} size={14} />
+                        </button>
                       ) : <span aria-label="Details unavailable">—</span>}
                     </td>}
                   </tr>
@@ -1086,7 +1131,9 @@ function ResourceWorkspace({ resource, query = '', onRouteState, onOpen, detailB
             resource={resource}
             items={collection.items}
             onOpen={canOpen ? onOpen : undefined}
+            onSelect={canSelect ? onSelect : undefined}
             recordRoute={recordRoute}
+            selectedKey={selectedKey}
           />
 
           {resource.pagination === 'none' ? (
@@ -1154,6 +1201,7 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
   const segments = useMemo(() => path.split('/').filter(Boolean), [path]);
   const requestedTabId = segments[1];
   const [selectedSeed, setSelectedSeed] = useState(null);
+  const [actionTarget, setActionTarget] = useState(null);
   const activeTabRef = useRef(null);
   const capabilitySet = useMemo(
     () => (Array.isArray(capabilities) ? new Set(capabilities) : null),
@@ -1176,6 +1224,9 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
     [activeTab, capabilitySet, module.permission],
   );
   const listPath = `${basePath}/${activeTab.id}`;
+  const selectedActionTarget = actionTarget?.tabId === activeTab.id
+    ? actionTarget
+    : null;
   const detailId = requestedTabId === activeTab.id ? segments[2] : null;
   const routedDetailRow = useMemo(
     () => routeRow(activeResource, detailId),
@@ -1193,6 +1244,10 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
   const canManageAvailability = capabilitySet == null || hasCapability(capabilitySet, 'system:write');
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
+  }, [activeTab.id]);
+
+  useEffect(() => {
+    setActionTarget(null);
   }, [activeTab.id]);
 
   useEffect(() => {
@@ -1226,7 +1281,6 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
           <Glyph icon={Icons.folder} size={20} />
         </span>
         <div>
-          <span className="rv2-page-eyebrow">{businessCopy(module.eyebrow)}</span>
           <h1>{businessCopy(module.title)}</h1>
           <p>{businessCopy(module.description)}</p>
         </div>
@@ -1287,8 +1341,22 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
                     setSelectedSeed({ tabId: activeTab.id, key, row });
                     onNavigate(`${listPath}/${encodeURIComponent(key)}${querySuffix}`);
                   } : undefined}
+                  onSelect={!activeResource.detailPath ? (row, key) => {
+                    setActionTarget({ tabId: activeTab.id, key, row });
+                  } : undefined}
+                  selectedKey={selectedActionTarget?.key}
                 />
               )}
+              {!noVisibleTabs && !systemAvailability && !detailRow && selectedActionTarget ? (
+                <section className="rv2-action-target" role="status">
+                  <span className="rv2-action-target-icon"><Glyph icon={Icons.check} size={16} /></span>
+                  <div>
+                    <strong>{recordHeading(activeResource, selectedActionTarget.row)}</strong>
+                    <small>Record #{selectedActionTarget.key} is now connected to the authorized controls below.</small>
+                  </div>
+                  <button type="button" onClick={() => setActionTarget(null)}>Clear selection</button>
+                </section>
+              ) : null}
               {!noVisibleTabs && !systemAvailability &&
                 module.actionSurface === 'decisions' &&
                 activeTab.id === 'requests' &&
@@ -1301,9 +1369,12 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
               {!noVisibleTabs && !systemAvailability && !module.actionSurface && <ManagementActions
                 capabilities={capabilities}
                 pathPrefix={activeResource.path}
-                recordId={detailRow ? rowIdentity(activeResource, detailRow) : null}
-                collectionOnly={!detailRow}
-                title={`${businessCopy(activeTab.label)} actions`}
+                recordId={detailRow
+                  ? rowIdentity(activeResource, detailRow)
+                  : selectedActionTarget?.key ?? null}
+                collectionOnly={!detailRow && !selectedActionTarget}
+                defaultExpanded={Boolean(detailRow || selectedActionTarget) || ['crm', 'organization', 'placement', 'recognition', 'operations'].includes(basePath)}
+                title={`${businessCopy(activeTab.label)}${selectedActionTarget ? ` · ${recordHeading(activeResource, selectedActionTarget.row)}` : ''} actions`}
               />}
             </div>
           </ApplicationGate>

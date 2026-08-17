@@ -29,7 +29,7 @@ export function WorkspaceHeader({ eyebrow, title, description, actions, status }
   return (
     <header className="fw-head">
       <div>
-        <span>{eyebrow}</span>
+        {eyebrow && <span className="fw-sr">{eyebrow}</span>}
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
@@ -226,7 +226,7 @@ export function ProfileHero({ name, eyebrow, meta, actions, children }) {
   return (
     <header className="fw-profile-hero">
       <SfAvatar name={name || 'Record'} size={64} decorative />
-      <div><span>{eyebrow}</span><h1>{name || 'Record details'}</h1><div className="fw-profile-meta">{meta}</div></div>
+      <div>{eyebrow && <span className="fw-sr">{eyebrow}</span>}<h1>{name || 'Record details'}</h1><div className="fw-profile-meta">{meta}</div></div>
       {actions && <div className="fw-profile-actions">{actions}</div>}
       {children}
     </header>
@@ -236,7 +236,7 @@ export function ProfileHero({ name, eyebrow, meta, actions, children }) {
 export function DetailSection({ eyebrow, title, description, children, className = '' }) {
   return (
     <section className={`fw-detail-section ${className}`.trim()}>
-      <header><div>{eyebrow && <span>{eyebrow}</span>}<h2>{title}</h2>{description && <p>{description}</p>}</div></header>
+      <header><div>{eyebrow && <span className="fw-sr">{eyebrow}</span>}<h2>{title}</h2>{description && <p>{description}</p>}</div></header>
       <div className="fw-detail-body">{children}</div>
     </section>
   );

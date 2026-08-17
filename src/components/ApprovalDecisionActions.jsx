@@ -55,9 +55,17 @@ export function ApprovalDecisionActions({ requestId, user }) {
     if (!record || busy) return;
     setBusy(action);
     try {
+      const requestId = encodeURIComponent(record.id);
+      const path = {
+        approve: `/api/v1/approvals/requests/${requestId}/approve/`,
+        reject: `/api/v1/approvals/requests/${requestId}/reject/`,
+        cancel: `/api/v1/approvals/requests/${requestId}/cancel/`,
+        disburse: `/api/v1/approvals/requests/${requestId}/disburse/`,
+      }[action];
+      if (!path) throw new Error('This request action is unavailable.');
       await httpRequest(
         'POST',
-        `/api/v1/approvals/requests/${encodeURIComponent(record.id)}/${action}/`,
+        path,
         { body },
       );
       setNote('');

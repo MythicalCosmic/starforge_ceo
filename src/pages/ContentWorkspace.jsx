@@ -205,7 +205,14 @@ function ReviewView({ files, canApprove, canPublish }) {
     setBusy(file.id);
     try {
       const body = action === 'approve-manager' ? { is_downloadable: downloadPolicy[file.id] ?? file.is_downloadable } : {};
-      await httpRequest('POST', `/api/v1/content/files/${Number(file.id)}/${action}/`, { body });
+      const fileId = Number(file.id);
+      const path = action === 'approve-teacher'
+        ? `/api/v1/content/files/${fileId}/approve-teacher/`
+        : action === 'approve-manager'
+          ? `/api/v1/content/files/${fileId}/approve-manager/`
+          : null;
+      if (!path) throw new Error('This publication action is unavailable.');
+      await httpRequest('POST', path, { body });
       queryClient.invalidateQueries({ queryKey: ['api'] });
       toast.success(action === 'approve-manager' ? 'File published.' : 'Teacher review recorded.');
     } catch (failure) { toast.danger(userFacingError(failure, { fallback: 'This publication step could not be completed.' })); }

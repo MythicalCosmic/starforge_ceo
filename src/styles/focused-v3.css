@@ -181,6 +181,7 @@
 .fw-detail-section h2 { margin: 0; font-size: 12px; font-weight: 760; letter-spacing: -.02em; }
 .fw-detail-section header p { margin: 4px 0 0; color: var(--sf-muted); font-size: 11px; }
 .fw-detail-body { min-width: 0; padding: 13px; }
+.fw-detail-body > .fw-state { min-height: 140px; padding: 18px; }
 .fw-detail-grid { display: grid; grid-template-columns: repeat(var(--detail-columns), minmax(0, 1fr)); margin: 0; border: 1px solid var(--sf-v2-border); border-radius: 12px; overflow: hidden; }
 .fw-detail-grid > div { min-width: 0; min-height: 68px; padding: 12px; border-right: 1px solid var(--sf-v2-border); border-bottom: 1px solid var(--sf-v2-border); }
 .fw-detail-grid > div.is-wide { grid-column: span 2; }
@@ -456,6 +457,13 @@
 
 @media (max-width: 650px) {
   .fw-head { grid-template-columns: 1fr; padding: 20px; }
+  .fw-page button,
+  .fw-page select,
+  .fw-page input:not([type='checkbox']):not([type='radio']),
+  .fw-action,
+  .fw-section-nav a,
+  .fw-pagination a { min-height: 44px; }
+  .fw-page button { min-width: 44px; }
   .fw-head-actions { justify-content: flex-start; }
   .fw-filter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fw-filters label.is-wide { grid-column: span 2; }
@@ -480,6 +488,7 @@
   .fw-subject-cloud { max-width: 100%; justify-content: flex-start; }
   .fw-person-card > header { grid-template-columns: auto minmax(0, 1fr); }
   .fw-person-card > header > .fw-status { grid-column: 2; justify-self: start; }
+  .fw-detail-body > .fw-state { min-height: 128px; padding: 16px; }
 }
 
 @media (max-width: 430px) {

@@ -63,7 +63,10 @@ async function sourceFiles(directory) {
 const sourceReferences = new Map();
 for (const file of await sourceFiles(join(repositoryRoot, 'src'))) {
   const source = await readFile(file, 'utf8');
-  for (const match of source.matchAll(/\/api\/v1\/[^'"`\s),;]*/g)) {
+  // Quoted paths stop at their closing quote. Template-literal expressions
+  // may legitimately contain parentheses (for example encodeURIComponent),
+  // so a closing parenthesis cannot be treated as the end of the path.
+  for (const match of source.matchAll(/\/api\/v1\/[^'"`\s,;]*/g)) {
     const path = match[0]
       .split('?')[0]
       .replace(/\$\{[^}]+\}/g, '{}')

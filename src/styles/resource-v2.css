@@ -142,7 +142,7 @@
 }
 
 .rv2-page-head h1 {
-  margin: 5px 0 0;
+  margin: 0;
   color: var(--sf-ink);
   font: 760 clamp(22px, 2.4vw, 30px) / 1.12 var(--sf-font-ui);
   letter-spacing: -0.035em;
@@ -425,7 +425,7 @@
 }
 
 .rv2-register-head h2 {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--sf-ink);
   font-size: 18px;
   font-weight: 760;
@@ -1381,8 +1381,74 @@
   min-height: 120px;
 }
 
-.rv2-record-card:not(a) {
+.rv2-record-card.is-selected {
+  border-color: color-mix(in srgb, var(--sf-primary) 48%, var(--sf-border));
+  background: color-mix(in srgb, var(--sf-primary-soft) 42%, var(--sf-surface));
+}
+
+article.rv2-record-card {
   cursor: default;
+}
+
+.rv2-action-target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--sf-primary) 24%, var(--sf-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--sf-primary-soft) 34%, var(--sf-surface));
+}
+
+.rv2-action-target-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--sf-primary);
+  color: var(--sf-on-primary, #fff);
+}
+
+.rv2-action-target > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rv2-action-target strong {
+  overflow: hidden;
+  color: var(--sf-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rv2-action-target small {
+  color: var(--sf-muted);
+  font-size: 11px;
+}
+
+.rv2-action-target > button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--sf-border);
+  border-radius: 10px;
+  background: var(--sf-surface);
+  color: var(--sf-ink-2);
+  cursor: pointer;
+  font: 700 11px / 1 var(--sf-font-ui);
+}
+
+.rv2-action-target > button:hover {
+  border-color: var(--sf-primary);
+  color: var(--sf-primary);
+}
+
+.rv2-action-target > button:focus-visible {
+  outline: 2px solid var(--sf-primary);
+  outline-offset: 2px;
 }
 
 @media (max-width: 900px) {
@@ -1397,10 +1463,34 @@
     padding-bottom: 24px;
   }
 
+  .rv2-page button,
+  .rv2-page select,
+  .rv2-page input:not([type='checkbox']):not([type='radio']),
+  .rv2-tabbar a,
+  .rv2-section-tabs a,
+  .rv2-record-card,
+  .rv2-action-target > button,
+  .rv2-related-pager a {
+    min-height: 44px;
+  }
+
+  .rv2-page button {
+    min-width: 44px;
+  }
+
   .rv2-page-head {
     min-height: 0;
     padding: 4px 2px 9px;
     border-radius: 0;
+  }
+
+  .rv2-action-target {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .rv2-action-target > button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .rv2-page-head p {

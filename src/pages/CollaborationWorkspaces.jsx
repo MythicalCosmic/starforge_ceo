@@ -722,7 +722,16 @@ export function FormsPage({ user, route = 'forms', onNav }) {
   }, [routedFormId]);
   const lifecycle = async (form, action) => {
     try {
-      await httpRequest(action === 'delete' ? 'DELETE' : 'POST', `/api/v1/forms/${form.id}/${action === 'delete' ? '' : `${action}/`}`, action === 'delete' ? {} : { body: {} });
+      const formId = Number(form.id);
+      const path = action === 'delete'
+        ? `/api/v1/forms/${formId}/`
+        : action === 'publish'
+          ? `/api/v1/forms/${formId}/publish/`
+          : action === 'close'
+            ? `/api/v1/forms/${formId}/close/`
+            : null;
+      if (!path) throw new Error('This form action is unavailable.');
+      await httpRequest(action === 'delete' ? 'DELETE' : 'POST', path, action === 'delete' ? {} : { body: {} });
       if (action === 'delete') {
         setSelectedId(null);
         onNav?.('forms');

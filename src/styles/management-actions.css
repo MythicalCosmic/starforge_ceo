@@ -19,7 +19,7 @@
 .ma-shell-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--sf-primary-soft); color: var(--sf-primary); }
 .ma-shell-head > div { min-width: 0; }
 .ma-shell-head > div > span { color: var(--sf-primary); font-size: 9.5px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
-.ma-shell-head h2 { margin: 3px 0 0; color: var(--sf-ink); font-size: 17px; letter-spacing: -.025em; }
+.ma-shell-head h2 { margin: 0; color: var(--sf-ink); font-size: 17px; letter-spacing: -.025em; }
 .ma-shell-head p { margin: 4px 0 0; color: var(--sf-muted); font-size: 11px; line-height: 1.5; }
 .ma-shell-head > button,
 .ma-empty button { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid color-mix(in srgb, var(--sf-primary) 24%, var(--sf-border)); border-radius: 9px; background: var(--sf-surface); color: var(--sf-primary); cursor: pointer; font: inherit; font-size: 11px; font-weight: 760; }

@@ -355,7 +355,7 @@ export function ManagementActions({
     <section className={`ma-shell${showAll ? ' is-full' : ''}`} aria-label={title}>
       <header className="ma-shell-head">
         <span className="ma-shell-icon">{cloneElement(Icons.settings, { size: 18 })}</span>
-        <div><span>Authorized controls</span><h2>{title}</h2><p>{showAll ? 'Every management mutation advertised by the connected service, filtered to this account’s exact capabilities.' : 'Create, update, and run the actions connected to this register.'}</p></div>
+        <div><h2>{title}</h2><p>{showAll ? 'Every management mutation advertised by the connected service, filtered to this account’s exact capabilities.' : 'Create, update, and run the actions connected to this register.'}</p></div>
         {!showAll ? <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>{expanded ? 'Close actions' : 'Open actions'}{cloneElement(Icons.chevR, { size: 15 })}</button> : <span className="ma-count">{schema.isLoading ? 'Checking…' : `${operations.length} available`}</span>}
       </header>
       {expanded ? <div className="ma-body">

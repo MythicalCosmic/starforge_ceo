@@ -34,6 +34,7 @@ export const Icons = {
   doc: <SfIcon><path d="M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19 M8 13 H17 M8 17 H14" /></SfIcon>,
   folder: <SfIcon><path d="M3 7 a2 2 0 0 1 2-2 h4 L11 7 H19 a2 2 0 0 1 2 2 V18 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 Z" /></SfIcon>,
   trend: <SfIcon d="M4 17 L9 11 L13 14 L20 6 M20 6 H15 M20 6 V11" />,
+  wallet: <SfIcon><path d="M4 6.5 H18.5 a2 2 0 0 1 2 2 V18 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 V6 a2 2 0 0 1 2 -2 H17" /><path d="M15 11 H21 V16 H15 a2.5 2.5 0 0 1 0 -5 Z" /><circle cx="16.5" cy="13.5" r=".7" fill="currentColor" /></SfIcon>,
   globe: <SfIcon><circle cx="12" cy="12" r="9" /><path d="M3 12 H21 M12 3 a13 13 0 0 1 0 18 M12 3 a13 13 0 0 0 0 18" /></SfIcon>,
   settings: <SfIcon><circle cx="12" cy="12" r="3" /><path d="M12 2 V5 M12 19 V22 M4 12 H2 M22 12 H19 M5.6 5.6 L7 7 M17 17 L18.4 18.4 M5.6 18.4 L7 17 M17 7 L18.4 5.6" /></SfIcon>,
   logout: <SfIcon d="M9 5 H5 a1 1 0 0 0 -1 1 V18 a1 1 0 0 0 1 1 H9 M15 8 L20 12 L15 16 M20 12 H9" />,
