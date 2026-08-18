@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { cloneElement, useEffect, useMemo, useRef, useState } from 'react';
 import { httpRequest } from '../api/http.js';
 import { Icons } from '../components/Icons.jsx';
 import { SfAvatar } from '../components/primitives.jsx';
@@ -540,6 +540,7 @@ function ChatPane({ thread, selfUserId, onRefreshThreads, canWrite }) {
   const [file, setFile] = useState(null);
   const [optimistic, setOptimistic] = useState([]);
   const [busy, setBusy] = useState(false);
+  const transcriptRef = useRef(null);
   const persistedMessages = messages.rows;
   const visibleMessages = useMemo(() => {
     const persistedIds = new Set(persistedMessages.map((message) => String(message.id)));
@@ -551,6 +552,13 @@ function ChatPane({ thread, selfUserId, onRefreshThreads, canWrite }) {
   useEffect(() => {
     setOptimistic([]);
   }, [thread?.id]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [thread?.id, visibleMessages.length]);
   useEffect(() => {
     if (!thread) return;
     void httpRequest('POST', `/api/v1/messaging/threads/${thread.id}/read/`, { body: {} }).then(onRefreshThreads).catch(() => {});
@@ -596,7 +604,7 @@ function ChatPane({ thread, selfUserId, onRefreshThreads, canWrite }) {
   return <section className="chat-pane">
     <header><SfAvatar name={thread.name} size={40} decorative /><div><h2>{thread.name}</h2><p>{thread.subtitle}</p></div><span>{thread.notifications_muted ? 'Muted' : 'Notifications on'}</span></header>
     <WorkspaceState state={messages} empty={!visibleMessages.length} emptyTitle="No messages yet" emptyBody="Send the first message to begin this conversation.">
-      <div className="chat-transcript">{visibleMessages.map((message) => {
+      <div className="chat-transcript" ref={transcriptRef}>{visibleMessages.map((message) => {
         const mine = String(message.sender) === String(selfUserId);
         return <article className={mine ? 'is-mine' : ''} key={message.id}><div>{message.body && <p>{message.body}</p>}{(message.attachments || []).map((attachment) => <span className="chat-attachment" key={attachment}>{cloneElement(Icons.doc, { size: 14 })}{decodeURIComponent(String(attachment).split('/').at(-1) || 'Attachment')}</span>)}<time>{message.pending ? 'Sending…' : dateTime(message.created_at, '')}</time></div></article>;
       })}</div>

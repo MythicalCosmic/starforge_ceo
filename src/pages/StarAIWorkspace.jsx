@@ -292,7 +292,7 @@ export function StarAIPage({ user, onNav }) {
         <div className="ai-brief-tools"><label><span>Scope</span><select value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="">Entire organization</option>{context.branches.rows.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></label><ActionButton onClick={refresh} disabled={preparing}>{preparing ? 'Refreshing…' : 'Refresh evidence'}</ActionButton></div>
       </header>
 
-      <div className="ai-truth-note" role="note"><span>{cloneElement(Icons.shield, { size: 16 })}</span><p><strong>Truthful by design.</strong> The current backend does not expose a leadership chat endpoint. This page therefore offers bounded evidence briefings, while actual generative AI remains limited to supported workflows such as exam generation.</p><RouteLink to="ai-governance/requests" onNav={onNav}>Review AI requests{cloneElement(Icons.chevR, { size: 13 })}</RouteLink></div>
+      <div className="ai-truth-note" role="note"><span>{cloneElement(Icons.shield, { size: 16 })}</span><p><strong>Truthful by design.</strong> The current backend does not expose a leadership chat endpoint. This page therefore offers bounded evidence briefings, while actual generative AI remains limited to supported workflows such as exam generation.</p></div>
 
       <section className="ai-brief-picker" aria-labelledby="brief-picker-title">
         <header><div><span>Choose a briefing</span><h2 id="brief-picker-title">What needs a closer look?</h2></div><span>{preparing ? 'Refreshing evidence…' : `${formatBusinessNumber(evidenceCount)} people and group records loaded${incompleteEvidence ? ' · partial coverage' : ''}`}</span></header>

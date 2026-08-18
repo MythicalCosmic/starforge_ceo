@@ -132,10 +132,6 @@ const payroll = nav('payroll', Icons.doc, 'finance', 'Payroll', {
   accent: 'var(--sf-success)',
   capabilities: ['compensation:read'],
 });
-const aiGovernance = nav('ai-governance', Icons.ai, 'governance', 'Responsible AI', {
-  capabilities: ['ai:read'],
-  app: 'ai',
-});
 const starAI = nav('star-ai', Icons.ai, 'main', 'StarAI', {
   capabilities: ['ai:read'],
   app: ['ai', 'intelligence'],
@@ -179,7 +175,6 @@ const coreManagement = [
   forms,
   payroll,
   starAI,
-  aiGovernance,
   capabilityCenter,
 ];
 
@@ -214,7 +209,6 @@ const directorManagement = [
   finance,
   payroll,
   starAI,
-  aiGovernance,
   access,
   capabilityCenter,
 ];

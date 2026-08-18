@@ -82,6 +82,8 @@
 .wf-comparison th,
 .wf-comparison td { padding: 11px 14px; border-bottom: 1px solid color-mix(in srgb, var(--sf-v2-border) 76%, transparent); text-align: left; vertical-align: top; }
 .wf-comparison thead th { background: color-mix(in srgb, var(--sf-primary-soft) 28%, var(--sf-surface)); color: var(--sf-ink); font-size: 11.5px; font-weight: 780; }
+.wf-comparison-heading { display: grid; gap: 3px; }
+.wf-comparison-heading small { color: var(--sf-muted); font-size: 9.5px; font-weight: 620; }
 .wf-comparison tbody th { width: 32%; color: var(--sf-muted); font-size: 11px; font-weight: 690; }
 .wf-comparison tbody td { width: 34%; color: var(--sf-ink-2); font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .wf-comparison tbody tr:last-child th,

@@ -12,6 +12,8 @@ const loadCollaborationPages = () => import('../pages/CollaborationWorkspaces.js
 const loadReportsPage = () => import('../pages/ReportsWorkspace.jsx');
 const loadContentPage = () => import('../pages/ContentWorkspace.jsx');
 const loadEngagementPage = () => import('../pages/EngagementWorkspace.jsx');
+const loadSchedulePage = () => import('../pages/ScheduleWorkspace.jsx');
+const loadOperationsPage = () => import('../pages/OperationsWorkspace.jsx');
 
 const moduleEntry = (load, exportName) => Object.freeze({ load, exportName });
 
@@ -37,9 +39,9 @@ export const ROUTE_MODULES = Object.freeze({
   placement: moduleEntry(loadManagementPages, 'PlacementPage'),
   crm: moduleEntry(loadManagementPages, 'CRMPage'),
   recognition: moduleEntry(loadManagementPages, 'RecognitionPage'),
-  schedule: moduleEntry(loadManagementPages, 'SchedulePage'),
+  schedule: moduleEntry(loadSchedulePage, 'ScheduleWorkspacePage'),
   organization: moduleEntry(loadManagementPages, 'OrganizationPage'),
-  operations: moduleEntry(loadManagementPages, 'OperationsPage'),
+  operations: moduleEntry(loadOperationsPage, 'OperationsWorkspacePage'),
   decisions: moduleEntry(loadManagementPages, 'DecisionsPage'),
   content: moduleEntry(loadContentPage, 'ContentPage'),
   intelligence: moduleEntry(loadManagementPages, 'IntelligencePage'),

@@ -127,6 +127,7 @@
 
 .rv2-page-head > div {
   min-width: 0;
+  flex: 1;
 }
 
 .rv2-page-eyebrow,

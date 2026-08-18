@@ -209,6 +209,7 @@ const MODULES = Object.freeze({
     title: 'Leadership intelligence',
     eyebrow: 'Transparent signals',
     description: 'Review explainable student, branch, family, and teaching signals together with their methodology.',
+    actionSurface: 'none',
   }),
   reports: catalogModule('backendReports', {
     title: 'Reports',
@@ -219,6 +220,7 @@ const MODULES = Object.freeze({
     title: 'Activity history',
     eyebrow: 'Governance',
     description: 'Trace important actions and changes across the organization in a clear chronological record.',
+    actionSurface: 'none',
   }),
   engagement: catalogModule('backendEngagement', {
     title: 'Community engagement',

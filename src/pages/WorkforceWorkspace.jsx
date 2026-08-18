@@ -59,6 +59,10 @@ function text(value, fallback = 'Not recorded') {
   return normalized || fallback;
 }
 
+function organizationLabel(value, fallback = 'Not recorded') {
+  return text(value, fallback).replace(/^\[simulation:[^\]]+\]\s*/i, '').trim() || fallback;
+}
+
 function membershipScope(membership) {
   return [membership.branch_name, membership.department_name].filter(Boolean).join(' · ') || 'Organization-wide';
 }
@@ -439,7 +443,7 @@ function DepartmentComparison({ route, onNav, user }) {
     return formatBusinessMoney(snapshot.latestPayroll[key], snapshot.latestPayroll.currency || 'UZS');
   });
   const rows = [
-    { label: 'Branch', value: (snapshot) => departmentValue(snapshot, (item) => text(item?.branch_name, '—')) },
+    { label: 'Branch', value: (snapshot) => departmentValue(snapshot, (item) => organizationLabel(item?.branch_name, '—')) },
     { label: 'Operating state', value: (snapshot) => departmentValue(snapshot, (item) => item?.is_active ? 'Active' : 'Inactive') },
     { label: 'Visible annual budget', value: (snapshot) => departmentValue(snapshot, (item) => item?.budget == null ? 'Protected or not set' : formatBusinessMoney(item.budget, 'UZS')) },
     { label: 'Scoped access responsibilities', value: (snapshot) => sourceValue(snapshot.assignments, (source) => formatBusinessNumber(source.total)) },
@@ -456,14 +460,14 @@ function DepartmentComparison({ route, onNav, user }) {
     { label: 'Latest teacher payroll outstanding', value: (snapshot) => payrollValue(snapshot, 'outstanding_total_uzs') },
   ];
   const header = (snapshot, fallback) => snapshot.id
-    ? <RouteLink to={`departments/${snapshot.id}`} onNav={onNav}>{text(snapshot.department.data?.name, fallback)}</RouteLink>
+    ? <span className="wf-comparison-heading"><RouteLink to={`departments/${snapshot.id}`} onNav={onNav}>{organizationLabel(snapshot.department.data?.name, fallback)}</RouteLink><small>{organizationLabel(snapshot.department.data?.branch_name, 'Branch not recorded')}</small></span>
     : fallback;
   return <div className="fw-page wf-page">
     <WorkspaceHeader eyebrow="Organization design" title="Compare departments" description="Compare two operating units across branches using exact permission-scoped headcount, learning, customer-finance, and teacher-payroll evidence." actions={<LinkButton to="departments" onNav={onNav}>All departments</LinkButton>} />
     <section className="wf-compare-picker" aria-label="Departments to compare">
-      <label>First department<select value={leftId} onChange={(event) => update('left', event.target.value)}><option value="">Choose department</option>{departments.rows.map((item) => <option value={item.id} key={item.id} disabled={String(item.id) === String(rightId)}>{item.name} · {item.branch_name}</option>)}</select></label>
+      <label>First department<select value={leftId} onChange={(event) => update('left', event.target.value)}><option value="">Choose department</option>{departments.rows.map((item) => <option value={item.id} key={item.id} disabled={String(item.id) === String(rightId)}>{organizationLabel(item.name)} · {organizationLabel(item.branch_name, 'Branch not recorded')}</option>)}</select></label>
       <span aria-hidden="true">{Icons.chevR}</span>
-      <label>Second department<select value={rightId} onChange={(event) => update('right', event.target.value)}><option value="">Choose department</option>{departments.rows.map((item) => <option value={item.id} key={item.id} disabled={String(item.id) === String(leftId)}>{item.name} · {item.branch_name}</option>)}</select></label>
+      <label>Second department<select value={rightId} onChange={(event) => update('right', event.target.value)}><option value="">Choose department</option>{departments.rows.map((item) => <option value={item.id} key={item.id} disabled={String(item.id) === String(leftId)}>{organizationLabel(item.name)} · {organizationLabel(item.branch_name, 'Branch not recorded')}</option>)}</select></label>
     </section>
     <section className="wf-comparison" aria-labelledby="department-comparison-title">
       <header><div><h2 id="department-comparison-title">Operating and financial comparison</h2><p>The same trailing 30-day window is used for learning and customer-finance measures. Payroll shows the latest visible completed teacher-payroll period for each department.</p></div></header>

@@ -291,7 +291,9 @@ export function ContentPage({ user, route = 'content/library', onNav }) {
   const canPublish = canUseCapability(user, 'content:publish');
   const canPrint = canUseCapability(user, 'printing:write');
   const canReadPrint = canUseCapability(user, 'printing:read');
-  const libraries = useWorkspaceData('/api/v1/content/libraries/', { page_size: 100, ordering: 'name' });
+  // The service already returns libraries by name and deliberately does not
+  // expose a client-controlled ordering filter for this collection.
+  const libraries = useWorkspaceData('/api/v1/content/libraries/', { page_size: 100 });
   const folders = useWorkspaceData('/api/v1/content/folders/', { page_size: 100 });
   const files = useWorkspaceData('/api/v1/content/files/', { page_size: 100, ordering: '-created_at' });
   const printers = useWorkspaceData('/api/v1/printing/printers/', { page_size: 100, ordering: 'name' }, { enabled: canReadPrint });

@@ -1284,6 +1284,13 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
           <h1>{businessCopy(module.title)}</h1>
           <p>{businessCopy(module.description)}</p>
         </div>
+        {!noVisibleTabs && !systemAvailability && !module.actionSurface ? <ManagementActions
+          compact
+          capabilities={capabilities}
+          pathPrefix={activeResource.path}
+          collectionOnly
+          title={`${businessCopy(activeTab.label)} actions`}
+        /> : null}
       </header>}
 
       {visibleTabs.length > 1 && (
@@ -1366,14 +1373,13 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
                     user={user}
                   />
                 )}
-              {!noVisibleTabs && !systemAvailability && !module.actionSurface && <ManagementActions
+              {!noVisibleTabs && !systemAvailability && !module.actionSurface && (detailRow || selectedActionTarget) && <ManagementActions
                 capabilities={capabilities}
                 pathPrefix={activeResource.path}
                 recordId={detailRow
                   ? rowIdentity(activeResource, detailRow)
                   : selectedActionTarget?.key ?? null}
                 collectionOnly={!detailRow && !selectedActionTarget}
-                defaultExpanded={Boolean(detailRow || selectedActionTarget) || ['crm', 'organization', 'placement', 'recognition', 'operations'].includes(basePath)}
                 title={`${businessCopy(activeTab.label)}${selectedActionTarget ? ` · ${recordHeading(activeResource, selectedActionTarget.row)}` : ''} actions`}
               />}
             </div>

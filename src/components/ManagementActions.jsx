@@ -1,17 +1,26 @@
 import { cloneElement, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { createPortal } from 'react-dom';
+import { useMutation } from '@tanstack/react-query';
 import { httpRequest } from '../api/http.js';
 import { queryClient } from '../api/queryClient.js';
 import { useToast } from '../context/ToastContext.jsx';
 import { useOpenApiSchema } from '../hooks/useOpenApiSchema.js';
+import { useWorkspaceData } from '../hooks/useWorkspaceData.js';
 import { appForApiPath, isServiceUnavailable } from '../lib/appAvailability.js';
+import {
+  isPrincipalSchema,
+  lookupForField,
+  operationContract,
+  operationPresentation,
+  PRINCIPAL_LOOKUP,
+  withPrincipalHint,
+} from '../lib/managementFormContracts.js';
 import {
   humanizeIdentifier,
   managementOperations,
   multipartContractForOperation,
   operationAllowed,
   operationPathMatches,
-  permissionForOperation,
   resolveOpenApiSchema,
 } from '../lib/openApiOperations.js';
 import { readableValidationDetails } from '../lib/validationPresentation.js';
@@ -19,8 +28,6 @@ import { userFacingError } from '../lib/userFacingError.js';
 import { ApplicationGate, ApplicationUnavailableState } from './AvailabilityState.jsx';
 import { Icons } from './Icons.jsx';
 import '../styles/management-actions.css';
-
-const EMPTY_BODY = '{\n  \n}';
 
 function requestIdempotencyKey() {
   if (globalThis.crypto?.randomUUID) return `console-${globalThis.crypto.randomUUID()}`;
@@ -35,16 +42,8 @@ function businessDescription(operation) {
 
 function valueForInput(schema, value) {
   if (value !== undefined) return value;
-  if (schema?.default !== undefined) {
-    return typeof schema.default === 'object'
-      ? JSON.stringify(schema.default, null, 2)
-      : String(schema.default);
-  }
-  if (schema?.example !== undefined) {
-    return typeof schema.example === 'object'
-      ? JSON.stringify(schema.example, null, 2)
-      : String(schema.example);
-  }
+  if (schema?.default !== undefined) return schema.default;
+  if (schema?.example !== undefined) return schema.example;
   return '';
 }
 
@@ -55,40 +54,9 @@ function initialFieldValues(schema) {
   ]));
 }
 
-function schemaFromOptions(metadata, method) {
-  const action = metadata?.actions?.[String(method || '').toUpperCase()];
-  if (!action || typeof action !== 'object' || Array.isArray(action)) return null;
-  const properties = {};
-  const required = [];
-  for (const [name, field] of Object.entries(action)) {
-    if (!field || typeof field !== 'object' || field.read_only === true) continue;
-    const choices = Array.isArray(field.choices) ? field.choices : [];
-    const type = choices.length
-      ? typeof choices[0]?.value === 'number' ? 'integer' : 'string'
-      : field.type === 'integer' ? 'integer'
-        : ['float', 'decimal'].includes(field.type) ? 'number'
-          : field.type === 'boolean' ? 'boolean'
-            : ['list', 'multiple choice'].includes(field.type) ? 'array'
-              : field.type === 'nested object' ? 'object'
-                : 'string';
-    properties[name] = {
-      type,
-      title: field.label || humanizeIdentifier(name),
-      description: field.help_text || '',
-      ...(field.max_length != null ? { maxLength: field.max_length } : {}),
-      ...(field.min_length != null ? { minLength: field.min_length } : {}),
-      ...(choices.length ? {
-        enum: choices.map((choice) => choice.value),
-        enumLabels: Object.fromEntries(choices.map((choice) => [String(choice.value), choice.display_name || String(choice.value)])),
-      } : {}),
-    };
-    if (field.required === true) required.push(name);
-  }
-  return Object.keys(properties).length ? { type: 'object', properties, required } : null;
-}
-
 function parseFieldValue(name, schema, raw, required) {
   if (raw === '' || raw === undefined) {
+    if (required && schema?.nullable) return { supplied: true, value: null };
     if (required) throw new Error(`${humanizeIdentifier(name)} is required.`);
     return { supplied: false };
   }
@@ -106,22 +74,48 @@ function parseFieldValue(name, schema, raw, required) {
     return { supplied: true, value: number };
   }
   if (schema?.type === 'boolean') return { supplied: true, value: raw === true || raw === 'true' };
-  if (schema?.type === 'array' || schema?.type === 'object') {
-    try {
-      const parsed = JSON.parse(String(raw));
-      if (schema.type === 'array' && !Array.isArray(parsed)) throw new Error('array');
-      if (schema.type === 'object' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) throw new Error('object');
-      return { supplied: true, value: parsed };
-    } catch {
-      throw new Error(`${humanizeIdentifier(name)} must contain valid ${schema.type === 'array' ? 'JSON list' : 'JSON object'} data.`);
+  if (isPrincipalSchema(name, schema)) {
+    if (raw && typeof raw === 'object') return { supplied: true, value: raw };
+    const [kind, id] = String(raw).split(':');
+    if (!['staff', 'teacher'].includes(kind) || !/^[1-9]\d*$/.test(id || '')) {
+      throw new Error(`Choose a valid ${humanizeIdentifier(name).toLowerCase()}.`);
     }
+    return { supplied: true, value: { kind, id: Number(id) } };
+  }
+  if (schema?.type === 'array') {
+    const values = Array.isArray(raw)
+      ? raw
+      : String(raw).split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
+    const parsed = schema.items?.type === 'integer'
+      ? values.map((value) => {
+          if (!/^[1-9]\d*$/.test(String(value))) throw new Error(`${humanizeIdentifier(name)} contains an invalid selection.`);
+          return Number(value);
+        })
+      : values;
+    return { supplied: true, value: parsed };
+  }
+  if (schema?.type === 'object') {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`Review the ${humanizeIdentifier(name).toLowerCase()} fields.`);
+    }
+    const result = {};
+    const requiredChildren = new Set(schema.required || []);
+    for (const [childName, childSchema] of Object.entries(schema.properties || {})) {
+      const parsed = parseFieldValue(childName, childSchema, raw[childName], requiredChildren.has(childName));
+      if (parsed.supplied) result[childName] = parsed.value;
+    }
+    return { supplied: true, value: result };
   }
   if (schema?.format === 'date-time') {
     const date = new Date(String(raw));
     if (Number.isNaN(date.getTime())) throw new Error(`${humanizeIdentifier(name)} must be a valid date and time.`);
     return { supplied: true, value: date.toISOString() };
   }
-  return { supplied: true, value: String(raw) };
+  const text = String(raw);
+  if (schema?.pattern && !(new RegExp(schema.pattern).test(text))) {
+    throw new Error(`${humanizeIdentifier(name)} has an invalid format.`);
+  }
+  return { supplied: true, value: text };
 }
 
 function inputType(schema) {
@@ -133,42 +127,62 @@ function inputType(schema) {
   return 'text';
 }
 
-function FieldControl({ name, schema, required, value, onChange }) {
+function lookupLabel(row, lookup) {
+  const primary = row?.[lookup?.label] || row?.full_name || row?.display_name || row?.name || row?.title || row?.username || `Record ${row?.id}`;
+  const secondary = lookup?.secondary ? row?.[lookup.secondary] : '';
+  return secondary ? `${primary} · ${secondary}` : primary;
+}
+
+function FieldControl({ name, schema: sourceSchema, required, value, onChange }) {
+  const shortName = String(name).split('.').at(-1);
+  const schema = withPrincipalHint(shortName, sourceSchema);
   const label = schema?.title || humanizeIdentifier(name);
   const help = schema?.description;
+  const principalField = isPrincipalSchema(shortName, schema);
+  const lookup = principalField ? PRINCIPAL_LOOKUP : lookupForField(shortName, schema);
+  const lookupState = useWorkspaceData(lookup?.path || null, { page_size: 100 }, { enabled: Boolean(lookup) });
+  const inputId = `management-field-${String(name).replace(/[^a-z0-9_-]+/gi, '-')}`;
   const common = {
-    id: `management-field-${name}`,
+    id: inputId,
     value: value ?? '',
     required,
     onChange: (event) => onChange(event.target.value),
   };
+  if (schema?.type === 'object' && !principalField) {
+    const childRequired = new Set(schema.required || []);
+    return <section className="ma-nested is-wide" aria-labelledby={`${inputId}-title`}><header><strong id={`${inputId}-title`}>{label}{required ? <b aria-label="required"> *</b> : null}</strong>{help ? <small>{help}</small> : null}</header><div>{Object.entries(schema.properties || {}).map(([childName, childSchema]) => <FieldControl key={childName} name={`${name}.${childName}`} schema={childSchema} required={childRequired.has(childName)} value={value?.[childName]} onChange={(next) => onChange({ ...(value && typeof value === 'object' ? value : {}), [childName]: next })} />)}</div></section>;
+  }
   let control;
-  if (Array.isArray(schema?.enum)) {
+  if (principalField) {
+    const selected = value && typeof value === 'object' ? `${value.kind}:${value.id}` : value ?? '';
+    control = <select {...common} value={selected}><option value="">{schema.nullable ? 'No owner yet' : `Select ${label.toLowerCase()}`}</option>{lookupState.rows.filter((row) => ['staff', 'teacher'].includes(row.principal_kind || row.kind)).map((row) => {
+      const kind = row.principal_kind || row.kind;
+      const id = row.profile_id || row.principal_id || row.id;
+      return <option value={`${kind}:${id}`} key={`${kind}:${id}`}>{lookupLabel(row, lookup)}</option>;
+    })}</select>;
+  } else if (lookup && schema?.type === 'integer') {
+    control = <select {...common}><option value="">Select {label.toLowerCase()}</option>{lookupState.rows.map((row) => <option value={String(row.id)} key={row.id}>{lookupLabel(row, lookup)}</option>)}</select>;
+  } else if (Array.isArray(schema?.enum)) {
     control = <select {...common}><option value="">Select {label.toLowerCase()}</option>{schema.enum.map((option) => <option value={String(option)} key={String(option)}>{schema.enumLabels?.[String(option)] || humanizeIdentifier(option)}</option>)}</select>;
   } else if (schema?.type === 'boolean') {
     control = <select {...common}><option value="">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>;
-  } else if (schema?.type === 'array' || schema?.type === 'object') {
-    control = <textarea {...common} rows="5" spellCheck="false" placeholder={schema.type === 'array' ? '[\n  \n]' : '{\n  \n}'} />;
+  } else if (schema?.type === 'array' && Array.isArray(schema?.items?.enum)) {
+    const selected = Array.isArray(value) ? value.map(String) : [];
+    control = <select {...common} multiple value={selected} onChange={(event) => onChange([...event.target.selectedOptions].map((option) => option.value))}>{schema.items.enum.map((option) => <option value={String(option)} key={String(option)}>{schema.items.enumLabels?.[String(option)] || humanizeIdentifier(option)}</option>)}</select>;
+  } else if (schema?.type === 'array') {
+    control = <textarea {...common} value={Array.isArray(value) ? value.join('\n') : value ?? ''} rows="3" placeholder="One selection per line" />;
   } else if ((schema?.maxLength || 0) > 220 || /description|body|message|note|reason|content|agenda|purpose/i.test(name)) {
     control = <textarea {...common} rows="4" maxLength={schema?.maxLength} />;
   } else {
-    control = <input {...common} type={inputType(schema)} min={schema?.minimum} max={schema?.maximum} step={schema?.type === 'integer' ? 1 : schema?.type === 'number' ? 'any' : undefined} maxLength={schema?.maxLength} autoComplete={schema?.format === 'password' ? 'new-password' : 'off'} />;
+    control = <input {...common} type={inputType(schema)} min={schema?.minimum} max={schema?.maximum} step={schema?.type === 'integer' ? 1 : schema?.type === 'number' ? 'any' : undefined} maxLength={schema?.maxLength} pattern={schema?.pattern} autoComplete={schema?.format === 'password' ? 'new-password' : 'off'} />;
   }
-  return <label className={(schema?.type === 'array' || schema?.type === 'object') ? 'ma-field is-wide' : 'ma-field'} htmlFor={common.id}><span>{label}{required ? <b aria-label="required"> *</b> : null}</span>{control}{help ? <small>{help}</small> : null}</label>;
+  return <label className={schema?.type === 'array' ? 'ma-field is-wide' : 'ma-field'} htmlFor={common.id}><span>{label}{required ? <b aria-label="required"> *</b> : null}</span>{control}{lookupState.pending ? <small>Loading available choices…</small> : help ? <small>{help}</small> : null}</label>;
 }
 
-function responseText(value) {
-  if (value === undefined) return 'Completed without a response body.';
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return 'The action completed successfully.';
-  }
-}
-
-function ActionEditor({ operation, schemaDocument, recordId }) {
+function ActionEditor({ operation, schemaDocument, recordId, onComplete, showHeader = true }) {
   const multipart = useMemo(() => multipartContractForOperation(operation), [operation]);
+  const contract = useMemo(() => operationContract(operation), [operation]);
+  const presentation = useMemo(() => operationPresentation(operation), [operation]);
   const publishedSchema = useMemo(
     () => multipart?.schema || resolveOpenApiSchema(operation.requestSchema, schemaDocument),
     [multipart, operation.requestSchema, schemaDocument],
@@ -178,37 +192,16 @@ function ActionEditor({ operation, schemaDocument, recordId }) {
     parameter.name,
     index === 0 && recordId != null ? String(recordId) : '',
   ])));
-  const optionsPath = useMemo(() => {
-    let path = operation.path;
-    for (const parameter of pathParameters) {
-      const value = String(pathValues[parameter.name] || '').trim();
-      if (!value) return '';
-      path = path.replace(`{${parameter.name}}`, encodeURIComponent(value));
-    }
-    return path;
-  }, [operation.path, pathParameters, pathValues]);
-  const publishedFields = Object.keys(publishedSchema?.properties || {});
-  const options = useQuery({
-    queryKey: ['api-options', optionsPath, operation.method],
-    queryFn: () => httpRequest('OPTIONS', optionsPath, { timeout: 8_000 }),
-    enabled: Boolean(!multipart && optionsPath && operation.requestSchema && publishedFields.length === 0),
-    staleTime: 10 * 60_000,
-    retry: false,
-  });
-  const metadataSchema = useMemo(
-    () => schemaFromOptions(options.data, operation.method),
-    [operation.method, options.data],
-  );
-  const resolvedSchema = publishedFields.length ? publishedSchema : metadataSchema || publishedSchema;
-  const fields = Object.entries(resolvedSchema?.properties || {});
-  const typedBody = fields.length > 0;
-  const hasRequestBody = Boolean(multipart || operation.requestSchema || operation.requestBodyRequired);
+  const resolvedSchema = contract?.schema || publishedSchema;
+  const allFields = Object.entries(resolvedSchema?.properties || {});
+  const hasRequestBody = Boolean(contract || multipart || operation.requestSchema || operation.requestBodyRequired);
   const requiredFields = useMemo(() => new Set(resolvedSchema?.required || []), [resolvedSchema?.required]);
-  const [fieldValues, setFieldValues] = useState(() => initialFieldValues(publishedSchema));
-  const [bodyMode, setBodyMode] = useState('guided');
-  const [rawBody, setRawBody] = useState(() => {
-    const example = publishedSchema?.example ?? operation.requestSchema?.example;
-    return example === undefined ? EMPTY_BODY : JSON.stringify(example, null, 2);
+  const [fieldValues, setFieldValues] = useState(() => initialFieldValues(resolvedSchema));
+  const fields = allFields.filter(([, fieldSchema]) => {
+    const condition = fieldSchema?.['x-visible-when'];
+    if (!condition) return true;
+    if (condition.present) return String(fieldValues[condition.field] ?? '').trim() !== '';
+    return String(fieldValues[condition.field] ?? '') === String(condition.equals);
   });
   const [uploadFile, setUploadFile] = useState(null);
   const [confirmed, setConfirmed] = useState(operation.risk === 'standard');
@@ -217,21 +210,54 @@ function ActionEditor({ operation, schemaDocument, recordId }) {
   const attempt = useRef({ signature: '', key: '' });
   const toast = useToast();
   const mutation = useMutation({
-    mutationFn: ({ path, body, idempotencyKey }) => httpRequest(operation.method, path, {
-      body,
-      idempotencyKey,
-      timeout: 30_000,
-    }),
+    mutationFn: async ({ path, body, idempotencyKey }) => {
+      if (contract?.workflow === 'create-room') {
+        const {
+          assignment_group: assignmentGroup,
+          responsible_teacher: responsibleTeacher,
+          ...roomBody
+        } = body;
+        const room = await httpRequest(operation.method, path, {
+          body: roomBody,
+          idempotencyKey,
+          timeout: 30_000,
+        });
+        if (assignmentGroup) {
+          try {
+            await httpRequest('PATCH', `/api/v1/cohorts/${Number(assignmentGroup)}/`, {
+              body: {
+                default_room: Number(room.id),
+                ...(responsibleTeacher ? { primary_teacher: Number(responsibleTeacher) } : {}),
+              },
+              timeout: 30_000,
+            });
+          } catch (failure) {
+            const partial = new Error('The room was created, but its group assignment could not be completed. Open the group and set its default room before continuing.');
+            partial.partialSuccess = true;
+            partial.cause = failure;
+            throw partial;
+          }
+        }
+        return room;
+      }
+      return httpRequest(operation.method, path, {
+        body,
+        idempotencyKey,
+        timeout: 30_000,
+      });
+    },
     onSuccess: (value) => {
       setLocalError('');
       setResult(value === undefined ? null : value);
       attempt.current = { signature: '', key: '' };
       queryClient.invalidateQueries({ queryKey: ['api'] });
       toast.success(`${operation.label} completed.`, { title: 'Organization updated' });
+      onComplete?.();
     },
     onError: (error) => {
       setResult(undefined);
-      toast.danger(readableValidationDetails(error)[0] || userFacingError(error, { fallback: 'The action could not be completed.' }), { title: 'No changes were made' });
+      if (error.partialSuccess) queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.danger(error.partialSuccess ? error.message : readableValidationDetails(error)[0] || userFacingError(error, { fallback: 'The action could not be completed.' }), { title: error.partialSuccess ? 'Room created · assignment needs attention' : 'No changes were made' });
     },
   });
 
@@ -260,21 +286,11 @@ function ActionEditor({ operation, schemaDocument, recordId }) {
           body.append(name, typeof parsed.value === 'object' ? JSON.stringify(parsed.value) : String(parsed.value));
         }
         body.append(multipart.fileField, uploadFile);
-      } else if (hasRequestBody && typedBody && bodyMode === 'guided') {
+      } else if (hasRequestBody) {
         body = {};
         for (const [name, fieldSchema] of fields) {
           const parsed = parseFieldValue(name, fieldSchema, fieldValues[name], requiredFields.has(name));
           if (parsed.supplied) body[name] = parsed.value;
-        }
-      } else if (hasRequestBody) {
-        const trimmed = rawBody.trim();
-        if (!trimmed && operation.requestBodyRequired) throw new Error('Request data is required.');
-        if (trimmed) {
-          try {
-            body = JSON.parse(trimmed);
-          } catch {
-            throw new Error('Request data must be valid JSON.');
-          }
         }
       }
       if (operation.risk !== 'standard' && !confirmed) throw new Error('Confirm that you reviewed this sensitive action.');
@@ -293,27 +309,66 @@ function ActionEditor({ operation, schemaDocument, recordId }) {
   };
   const failure = mutation.error;
   const failureDetails = failure ? readableValidationDetails(failure) : [];
-  const permission = permissionForOperation(operation);
+  const actionTitle = presentation?.title || operation.label;
+  const actionDescription = presentation?.description || businessDescription(operation);
 
   return (
     <ApplicationGate apps={appForApiPath(operation.path)} label={humanizeIdentifier(operation.tag)}>
       <article className="ma-editor">
-        <header className="ma-editor-head">
-          <span className={`ma-method is-${operation.risk}`}>{operation.method.toUpperCase()}</span>
-          <div><span>{humanizeIdentifier(operation.tag)}</span><h3>{operation.label}</h3>{businessDescription(operation) ? <p>{businessDescription(operation)}</p> : null}</div>
-        </header>
+        {showHeader ? <header className="ma-editor-head">
+          <span className={`ma-action-mark is-${operation.risk}`}>{cloneElement(operation.risk === 'destructive' ? Icons.x : operation.risk === 'sensitive' ? Icons.shield : Icons.plus, { size: 17 })}</span>
+          <div><span>{humanizeIdentifier(operation.tag)}</span><h3>{actionTitle}</h3>{actionDescription ? <p>{actionDescription}</p> : null}</div>
+        </header> : null}
         <form onSubmit={submit}>
           {pathParameters.length > 0 ? <fieldset className="ma-fields"><legend>Target record</legend>{pathParameters.map((parameter) => <label className="ma-field" key={parameter.name}><span>{humanizeIdentifier(parameter.name)} *</span><input required type={parameter.schema?.type === 'integer' ? 'number' : 'text'} min={parameter.schema?.type === 'integer' ? 1 : undefined} value={pathValues[parameter.name] || ''} onChange={(event) => setPathValues((current) => ({ ...current, [parameter.name]: event.target.value }))} placeholder="Record number" /></label>)}</fieldset> : null}
-          {hasRequestBody ? <fieldset className="ma-fields"><legend>Action details</legend>{!multipart && typedBody ? <div className="ma-body-mode" role="group" aria-label="Request data entry mode"><button type="button" className={bodyMode === 'guided' ? 'is-active' : ''} aria-pressed={bodyMode === 'guided'} onClick={() => setBodyMode('guided')}>Guided fields</button><button type="button" className={bodyMode === 'json' ? 'is-active' : ''} aria-pressed={bodyMode === 'json'} onClick={() => setBodyMode('json')}>Exact JSON</button><small>Exact JSON supports explicit nulls, empty values, and advanced nested payloads.</small></div> : null}{multipart ? <><label className="ma-field is-wide ma-file-field"><span>CSV file *</span><input required type="file" accept={multipart.accept} onChange={(event) => setUploadFile(event.target.files?.[0] || null)} /><small>{uploadFile ? `${uploadFile.name} · ${Math.max(1, Math.ceil(uploadFile.size / 1024))} KB` : multipart.help}</small></label>{fields.map(([name, fieldSchema]) => <FieldControl key={name} name={name} schema={fieldSchema} required={requiredFields.has(name)} value={valueForInput(fieldSchema, fieldValues[name])} onChange={(value) => setFieldValues((current) => ({ ...current, [name]: value }))} />)}</> : typedBody && bodyMode === 'guided' ? fields.map(([name, fieldSchema]) => <FieldControl key={name} name={name} schema={fieldSchema} required={requiredFields.has(name)} value={valueForInput(fieldSchema, fieldValues[name])} onChange={(value) => setFieldValues((current) => ({ ...current, [name]: value }))} />) : <label className="ma-field is-wide"><span>Request data{operation.requestBodyRequired ? <b> *</b> : null}</span><textarea className="ma-json" rows="11" spellCheck="false" value={rawBody} onChange={(event) => setRawBody(event.target.value)} /><small>{options.isLoading ? 'Checking whether this service publishes a guided form…' : typedBody ? 'Send the exact JSON object required by the published contract. Use null only where the service declares the field nullable.' : 'This legacy action does not publish individual fields. The JSON is validated before it is sent, and the service rejects unknown or unauthorized data.'}</small></label>}</fieldset> : <div className="ma-no-body">This action does not require request data.</div>}
+          {hasRequestBody && (multipart || fields.length) ? <fieldset className="ma-fields"><legend>Details</legend>{multipart ? <><label className="ma-field is-wide ma-file-field"><span>CSV file *</span><input required type="file" accept={multipart.accept} onChange={(event) => setUploadFile(event.target.files?.[0] || null)} /><small>{uploadFile ? `${uploadFile.name} · ${Math.max(1, Math.ceil(uploadFile.size / 1024))} KB` : multipart.help}</small></label>{fields.map(([name, fieldSchema]) => <FieldControl key={name} name={name} schema={fieldSchema} required={requiredFields.has(name)} value={valueForInput(fieldSchema, fieldValues[name])} onChange={(value) => setFieldValues((current) => ({ ...current, [name]: value }))} />)}</> : fields.map(([name, fieldSchema]) => <FieldControl key={name} name={name} schema={fieldSchema} required={requiredFields.has(name)} value={valueForInput(fieldSchema, fieldValues[name])} onChange={(value) => setFieldValues((current) => ({ ...current, [name]: value }))} />)}</fieldset> : null}
           {operation.risk !== 'standard' ? <label className="ma-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span><strong>I reviewed this action</strong><small>{operation.risk === 'destructive' ? 'It may permanently remove a record.' : 'It changes an important workflow state or may trigger an external effect.'}</small></span></label> : null}
           {localError ? <div className="ma-error" role="alert">{localError}</div> : null}
-          {failure && isServiceUnavailable(failure) ? <ApplicationUnavailableState label={humanizeIdentifier(operation.tag)} status="unavailable" compact /> : failure ? <div className="ma-error" role="alert"><strong>{failureDetails[0] || userFacingError(failure, { fallback: 'The action could not be completed.' })}</strong>{failureDetails.length > 1 ? <ul>{failureDetails.slice(1).map((detail) => <li key={detail}>{detail}</li>)}</ul> : null}{failure.requestId ? <small>Support reference: {failure.requestId}</small> : null}</div> : null}
-          {result !== undefined ? <div className="ma-result" role="status"><strong>Completed successfully</strong><pre>{responseText(result)}</pre></div> : null}
-          <footer className="ma-submit"><details><summary>Technical contract</summary><code>{operation.method.toUpperCase()} {operation.path}</code><small>{permission ? `Required capability: ${permission}` : 'The service verifies authorization for this action.'}</small></details><button className={operation.risk === 'destructive' ? 'is-danger' : ''} type="submit" disabled={mutation.isPending || (operation.risk !== 'standard' && !confirmed)}>{mutation.isPending ? 'Applying safely…' : operation.label}</button></footer>
+          {failure && isServiceUnavailable(failure) ? <ApplicationUnavailableState label={humanizeIdentifier(operation.tag)} status="unavailable" compact /> : failure ? <div className="ma-error" role="alert"><strong>{failure.partialSuccess ? failure.message : failureDetails[0] || userFacingError(failure, { fallback: 'The action could not be completed.' })}</strong>{failureDetails.length > 1 ? <ul>{failureDetails.slice(1).map((detail) => <li key={detail}>{detail}</li>)}</ul> : null}{failure.requestId ? <small>Support reference: {failure.requestId}</small> : null}</div> : null}
+          {result !== undefined ? <div className="ma-result" role="status"><strong>Completed successfully</strong><span>The register has been refreshed with the latest information.</span></div> : null}
+          <footer className="ma-submit"><small>Required fields are marked. Nothing is changed until you confirm.</small><button className={operation.risk === 'destructive' ? 'is-danger' : ''} type="submit" disabled={mutation.isPending || (operation.risk !== 'standard' && !confirmed)}>{mutation.isPending ? 'Saving…' : actionTitle}</button></footer>
         </form>
       </article>
     </ApplicationGate>
   );
+}
+
+function ActionModal({ operation, schemaDocument, recordId, onClose }) {
+  const dialog = useRef(null);
+  const presentation = operationPresentation(operation);
+  const title = presentation?.title || operation?.label || 'Complete action';
+  const description = presentation?.description || businessDescription(operation);
+  useEffect(() => {
+    if (!operation) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    window.requestAnimationFrame(() => dialog.current?.querySelector('.ma-modal-body input, .ma-modal-body select, .ma-modal-body textarea, .ma-modal-body button')?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onClose, operation]);
+  if (!operation) return null;
+  return createPortal(<div className="ma-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
+    <section className="ma-modal" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="ma-modal-title">
+      <header className="ma-modal-head"><div><span>{humanizeIdentifier(operation.tag)}</span><h2 id="ma-modal-title">{title}</h2>{description ? <p>{description}</p> : null}</div><button type="button" onClick={onClose} aria-label="Close form">{cloneElement(Icons.x, { size: 17 })}</button></header>
+      <div className="ma-modal-body"><ActionEditor operation={operation} schemaDocument={schemaDocument} recordId={recordId} onComplete={onClose} showHeader={false} /></div>
+    </section>
+  </div>, document.body);
+}
+
+function ActionChooserModal({ operations, onChoose, onClose }) {
+  if (!operations.length) return null;
+  return createPortal(<div className="ma-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
+    <section className="ma-modal ma-chooser" role="dialog" aria-modal="true" aria-labelledby="ma-chooser-title">
+      <header className="ma-modal-head"><div><span>Available actions</span><h2 id="ma-chooser-title">What would you like to do?</h2><p>Choose one focused workflow to continue.</p></div><button type="button" onClick={onClose} aria-label="Close">{cloneElement(Icons.x, { size: 17 })}</button></header>
+      <div className="ma-action-grid">{operations.map((operation) => <button type="button" key={operation.key} onClick={() => onChoose(operation)}><span className={`ma-list-icon is-${operation.risk}`}>{cloneElement(operation.risk === 'destructive' ? Icons.x : operation.risk === 'sensitive' ? Icons.shield : Icons.plus, { size: 14 })}</span><span><strong>{operationPresentation(operation)?.title || operation.label}</strong><small>{businessDescription(operation) || humanizeIdentifier(operation.tag)}</small></span>{cloneElement(Icons.chevR, { size: 14 })}</button>)}</div>
+    </section>
+  </div>, document.body);
 }
 
 export function ManagementActions({
@@ -321,21 +376,29 @@ export function ManagementActions({
   pathPrefix = '',
   recordId = null,
   collectionOnly = false,
-  defaultExpanded = false,
   showAll = false,
+  compact = false,
   title = 'Management actions',
   readOnly = false,
 }) {
-  const [expanded, setExpanded] = useState(showAll || defaultExpanded);
+  const [expanded, setExpanded] = useState(showAll);
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [editorOperation, setEditorOperation] = useState(null);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [selectedKey, setSelectedKey] = useState('');
-  const schema = useOpenApiSchema({ enabled: expanded || showAll });
+  const schema = useOpenApiSchema({ enabled: true });
   const operations = useMemo(() => {
     if (!schema.data || readOnly) return [];
     return managementOperations(schema.data)
       .filter((operation) => !pathPrefix || operationPathMatches(operation, pathPrefix, { collectionOnly }))
-      .filter((operation) => operationAllowed(operation, capabilities));
+      .filter((operation) => operationAllowed(operation, capabilities))
+      .filter((operation) => {
+        if (multipartContractForOperation(operation)) return true;
+        const resolved = operationContract(operation)?.schema || resolveOpenApiSchema(operation.requestSchema, schema.data);
+        if (!operation.requestSchema && !operation.requestBodyRequired) return true;
+        return Object.keys(resolved?.properties || {}).length > 0;
+      });
   }, [capabilities, collectionOnly, pathPrefix, readOnly, schema.data]);
   const categories = useMemo(() => [...new Set(operations.map((operation) => operation.tag))].sort(), [operations]);
   const visible = useMemo(() => {
@@ -351,19 +414,32 @@ export function ManagementActions({
     if (!selected && selectedKey) setSelectedKey('');
   }, [selected, selectedKey]);
 
+  if (!readOnly && !schema.isLoading && !schema.error && operations.length === 0) return null;
+
+  const openSelected = () => {
+    if (selected) setEditorOperation(selected);
+  };
+
+  if (compact) return <>
+    <button className="ma-compact-trigger" type="button" disabled={schema.isLoading || !operations.length} onClick={() => operations.length === 1 ? openSelected() : setChooserOpen(true)}>{cloneElement(Icons.plus, { size: 15 })}{schema.isLoading ? 'Preparing…' : operations.length === 1 ? (operationPresentation(selected)?.title || selected?.label || 'Create') : 'Choose action'}</button>
+    <ActionChooserModal operations={chooserOpen ? visible : []} onClose={() => setChooserOpen(false)} onChoose={(operation) => { setChooserOpen(false); setSelectedKey(operation.key); setEditorOperation(operation); }} />
+    <ActionModal operation={editorOperation} schemaDocument={schema.data} recordId={recordId} onClose={() => setEditorOperation(null)} />
+  </>;
+
   return (
     <section className={`ma-shell${showAll ? ' is-full' : ''}`} aria-label={title}>
       <header className="ma-shell-head">
         <span className="ma-shell-icon">{cloneElement(Icons.settings, { size: 18 })}</span>
         <div><h2>{title}</h2><p>{showAll ? 'Every management mutation advertised by the connected service, filtered to this account’s exact capabilities.' : 'Create, update, and run the actions connected to this register.'}</p></div>
-        {!showAll ? <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>{expanded ? 'Close actions' : 'Open actions'}{cloneElement(Icons.chevR, { size: 15 })}</button> : <span className="ma-count">{schema.isLoading ? 'Checking…' : `${operations.length} available`}</span>}
+        {!showAll ? <button type="button" disabled={schema.isLoading || !operations.length} onClick={() => operations.length === 1 ? openSelected() : setExpanded((value) => !value)} aria-expanded={operations.length > 1 ? expanded : undefined}>{schema.isLoading ? 'Preparing…' : operations.length === 1 ? (operationPresentation(selected)?.title || selected?.label || 'Open form') : expanded ? 'Close actions' : 'Choose action'}{cloneElement(Icons.chevR, { size: 15 })}</button> : <span className="ma-count">{schema.isLoading ? 'Checking…' : `${operations.length} available`}</span>}
       </header>
-      {expanded ? <div className="ma-body">
-        {readOnly ? <div className="ma-empty"><strong>This is a view-only session</strong><p>Sign in directly with an authorized management account to make changes.</p></div> : schema.isLoading ? <div className="ma-loading" role="status"><i /> <span><strong>Checking current management controls…</strong><small>Reading the live service contract.</small></span></div> : schema.error ? <div className="ma-empty" role="alert"><strong>Management controls could not be prepared</strong><p>{userFacingError(schema.error, { fallback: 'Try again after the service contract is available.' })}</p><button type="button" onClick={() => schema.refetch()}>Try again</button></div> : operations.length === 0 ? <div className="ma-empty"><strong>No write actions are available here</strong><p>The current role is read-only for this area, or this register has no management mutation.</p></div> : <>
-          <div className="ma-filterbar"><label>{cloneElement(Icons.search, { size: 15 })}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an action" aria-label="Find a management action" /></label>{categories.length > 1 ? <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter actions by area"><option value="">All areas</option>{categories.map((item) => <option key={item} value={item}>{humanizeIdentifier(item)}</option>)}</select> : null}<span>{visible.length} of {operations.length}</span></div>
-          {visible.length === 0 ? <div className="ma-empty"><strong>No matching actions</strong><p>Clear the search or choose another area.</p></div> : <div className="ma-workbench"><nav className="ma-action-list" aria-label="Available management actions">{visible.map((operation) => <button type="button" className={operation.key === selected?.key ? 'is-active' : ''} key={operation.key} onClick={() => setSelectedKey(operation.key)}><span className={`ma-list-icon is-${operation.risk}`}>{cloneElement(operation.risk === 'destructive' ? Icons.x : operation.risk === 'sensitive' ? Icons.shield : Icons.plus, { size: 14 })}</span><span><strong>{operation.label}</strong><small>{humanizeIdentifier(operation.tag)} · {operation.permission || 'service-authorized'}</small></span>{cloneElement(Icons.chevR, { size: 14 })}</button>)}</nav><div className="ma-editor-slot">{selected ? <ActionEditor key={`${selected.key}:${recordId || ''}`} operation={selected} schemaDocument={schema.data} recordId={recordId} /> : null}</div></div>}
+      {expanded && operations.length > 1 ? <div className="ma-body">
+        {readOnly ? <div className="ma-empty"><strong>This is a view-only session</strong><p>Sign in directly with an authorized management account to make changes.</p></div> : schema.isLoading ? <div className="ma-loading" role="status"><i /> <span><strong>Preparing available actions…</strong><small>Checking the controls available to your account.</small></span></div> : schema.error ? <div className="ma-empty" role="alert"><strong>Management controls could not be prepared</strong><p>{userFacingError(schema.error, { fallback: 'Try again after the service is available.' })}</p><button type="button" onClick={() => schema.refetch()}>Try again</button></div> : operations.length === 0 ? null : <>
+          {operations.length > 1 ? <div className="ma-filterbar"><label>{cloneElement(Icons.search, { size: 15 })}<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an action" aria-label="Find a management action" /></label>{categories.length > 1 ? <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter actions by area"><option value="">All areas</option>{categories.map((item) => <option key={item} value={item}>{humanizeIdentifier(item)}</option>)}</select> : null}<span>{visible.length} of {operations.length}</span></div> : null}
+          {visible.length === 0 ? <div className="ma-empty"><strong>No matching actions</strong><p>Clear the search or choose another area.</p></div> : <div className="ma-action-grid">{visible.map((operation) => <button type="button" key={operation.key} onClick={() => { setSelectedKey(operation.key); setEditorOperation(operation); }}><span className={`ma-list-icon is-${operation.risk}`}>{cloneElement(operation.risk === 'destructive' ? Icons.x : operation.risk === 'sensitive' ? Icons.shield : Icons.plus, { size: 14 })}</span><span><strong>{operationPresentation(operation)?.title || operation.label}</strong><small>{businessDescription(operation) || humanizeIdentifier(operation.tag)}</small></span>{cloneElement(Icons.chevR, { size: 14 })}</button>)}</div>}
         </>}
       </div> : null}
+      <ActionModal operation={editorOperation} schemaDocument={schema.data} recordId={recordId} onClose={() => setEditorOperation(null)} />
     </section>
   );
 }

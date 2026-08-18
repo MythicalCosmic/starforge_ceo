@@ -43,9 +43,9 @@ describe('leadership page registry', () => {
       'operations',
       'finance',
       'payroll',
-      'ai-governance',
       'access',
     ]));
+    expect(visible.map((item) => item.id)).not.toContain('ai-governance');
     expect(config.primaryNav.map((item) => item.id)).not.toEqual(expect.arrayContaining([
       'attendance',
       'assignments',
