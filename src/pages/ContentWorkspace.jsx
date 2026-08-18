@@ -3,6 +3,8 @@ import { useMutation } from '@tanstack/react-query';
 import { httpRequest } from '../api/http.js';
 import { queryClient } from '../api/queryClient.js';
 import { Icons } from '../components/Icons.jsx';
+import { SecureFilePreview } from '../components/SecureFilePreview.jsx';
+import { fileTypeLabel } from '../components/secureFilePreview.js';
 import {
   ActionButton,
   CoverageBar,
@@ -61,6 +63,7 @@ function detectedContentType(file) {
     pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    mp4: 'video/mp4', mp3: 'audio/mpeg', m4a: 'audio/mp4', webm: 'audio/webm',
   }[extension] || 'application/octet-stream';
 }
 
@@ -72,11 +75,15 @@ function libraryScope(library) {
 }
 
 function publicationState(file) {
-  if (file.status === 'pending') return { label: 'Checking file', tone: 'warn', step: 0 };
-  if (file.status === 'rejected') return { label: 'File rejected', tone: 'danger', step: 0 };
-  if (!file.is_approved_teacher) return { label: 'Teacher review', tone: 'warn', step: 1 };
-  if (!file.is_approved_manager) return { label: 'Manager approval', tone: 'warn', step: 2 };
-  return { label: 'Published', tone: 'success', step: 3 };
+  if (file.status === 'pending') {
+    const changedAt = new Date(file.updated_at || file.created_at || 0).getTime();
+    const delayed = changedAt > 0 && Date.now() - changedAt > 90_000;
+    return { key: 'checking', label: delayed ? 'Check delayed' : 'Checking file', tone: delayed ? 'danger' : 'warn', step: 0, delayed };
+  }
+  if (file.status === 'rejected') return { key: 'rejected', label: 'File rejected', tone: 'danger', step: 0 };
+  if (!file.is_approved_teacher) return { key: 'teacher', label: 'Teacher review', tone: 'warn', step: 1 };
+  if (!file.is_approved_manager) return { key: 'manager', label: 'Manager approval', tone: 'warn', step: 2 };
+  return { key: 'published', label: 'Published', tone: 'success', step: 3 };
 }
 
 function printStateTone(value) {
@@ -86,15 +93,33 @@ function printStateTone(value) {
   return 'neutral';
 }
 
-function BusinessModal({ open, title, eyebrow, description, onClose, children, footer, wide = false }) {
+function BusinessModal({ open, title, eyebrow, description, onClose, children, footer, wide = false, viewer = false }) {
   if (!open) return null;
   return <div className="content-modal-backdrop" role="presentation" style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
-    <section className={`content-modal${wide ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+    <section className={`content-modal${wide ? ' is-wide' : ''}${viewer ? ' is-viewer' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
       <header><div><span>{eyebrow}</span><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" onClick={onClose} aria-label="Close">{cloneElement(Icons.x, { size: 18 })}</button></header>
       <div className="content-modal-body">{children}</div>
       {footer && <footer>{footer}</footer>}
     </section>
   </div>;
+}
+
+function FilePreviewModal({ preview, onClose }) {
+  const file = preview?.file;
+  const url = preview?.url;
+  const openOriginal = () => window.open(url, '_blank', 'noopener,noreferrer');
+  return <BusinessModal
+    open={Boolean(file && url)}
+    wide
+    viewer
+    title={file?.title || 'File preview'}
+    eyebrow="Secure preview"
+    description="Inspect the actual uploaded file before approving, publishing, or printing it."
+    onClose={onClose}
+    footer={<><p>{fileTypeLabel(file?.content_type)} · {fileSize(file?.size_bytes)} · This secure link expires automatically.</p><ActionButton icon={Icons.doc} tone="primary" onClick={openOriginal}>Open separately</ActionButton></>}
+  >
+    <SecureFilePreview file={file} url={url} />
+  </BusinessModal>;
 }
 
 function ContentSummary({ libraries, folders, files, jobs }) {
@@ -157,7 +182,7 @@ function UploadForm({ open, onClose, folders }) {
     onError: (failure) => setError(userFacingError(failure, { fallback: failure?.message || 'The file could not be uploaded. Please try again.' })),
   });
   return <BusinessModal open={open} title="Upload to the library" eyebrow="New resource" description="Choose its folder, a clear display name, and whether permitted learners may save a copy." onClose={onClose} footer={<><p>Files are checked before they can be published.</p><ActionButton icon={Icons.plus} tone="primary" disabled={!form.folder || !form.file || upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? 'Uploading…' : 'Upload file'}</ActionButton></>}>
-    {!folders.length ? <div className="content-modal-empty"><span>{cloneElement(Icons.folder, { size: 24 })}</span><strong>A folder is needed first</strong><p>Create a library and folder, then return here to upload the resource.</p></div> : <div className="content-form-grid"><label className="is-wide"><span>File</span><input type="file" accept=".pdf,.docx,.pptx,.jpg,.jpeg,.png,.webp" onChange={(event) => setForm({ ...form, file: event.target.files?.[0] || null, title: form.title || event.target.files?.[0]?.name?.replace(/\.[^.]+$/, '') || '' })} /></label><label><span>Folder</span><select value={form.folder} onChange={(event) => setForm({ ...form, folder: event.target.value })}><option value="">Choose folder</option>{folders.map((item) => <option value={item.id} key={item.id}>{item.library_name} · {item.name}</option>)}</select></label><label><span>Display name</span><input maxLength="255" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label className="content-choice-card is-wide"><input type="checkbox" checked={form.downloadable} onChange={(event) => setForm({ ...form, downloadable: event.target.checked })} /><span><strong>Allow permitted learners to download</strong><small>Turn this off for view-only material. Browser screenshots cannot be reliably prevented.</small></span></label></div>}{error && <p className="content-error" role="alert">{error}</p>}
+    {!folders.length ? <div className="content-modal-empty"><span>{cloneElement(Icons.folder, { size: 24 })}</span><strong>A folder is needed first</strong><p>Create a library and folder, then return here to upload the resource.</p></div> : <div className="content-form-grid"><label className="is-wide"><span>File</span><input type="file" accept=".pdf,.docx,.pptx,.jpg,.jpeg,.png,.webp,.mp4,.mp3,.m4a,.webm" onChange={(event) => setForm({ ...form, file: event.target.files?.[0] || null, title: form.title || event.target.files?.[0]?.name?.replace(/\.[^.]+$/, '') || '' })} /></label><label><span>Folder</span><select value={form.folder} onChange={(event) => setForm({ ...form, folder: event.target.value })}><option value="">Choose folder</option>{folders.map((item) => <option value={item.id} key={item.id}>{item.library_name} · {item.name}</option>)}</select></label><label><span>Display name</span><input maxLength="255" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label className="content-choice-card is-wide"><input type="checkbox" checked={form.downloadable} onChange={(event) => setForm({ ...form, downloadable: event.target.checked })} /><span><strong>Allow permitted learners to download</strong><small>Turn this off for view-only material. Browser screenshots cannot be reliably prevented.</small></span></label></div>}{error && <p className="content-error" role="alert">{error}</p>}
   </BusinessModal>;
 }
 
@@ -165,38 +190,52 @@ function LibraryShelf({ libraries, folders, selected, onSelect, canWrite, onLibr
   return <section className="content-shelf"><header><div><span>Collections</span><h2>Learning libraries</h2><p>Each library has a clear audience and its own folders.</p></div>{canWrite && <div><ActionButton icon={Icons.folder} onClick={onFolder}>New folder</ActionButton><ActionButton icon={Icons.plus} tone="primary" onClick={onLibrary}>New library</ActionButton></div>}</header><div>{libraries.map((library) => { const count = folders.filter((folder) => String(folder.library) === String(library.id)).length; return <button type="button" className={String(selected) === String(library.id) ? 'is-active' : ''} onClick={() => onSelect(String(selected) === String(library.id) ? '' : String(library.id))} key={library.id}><span>{cloneElement(Icons.folder, { size: 18 })}</span><strong>{library.name}</strong><small>{libraryScope(library)}</small><b>{formatBusinessNumber(count)} folder{count === 1 ? '' : 's'}</b></button>; })}</div></section>;
 }
 
-function FileCards({ rows, printers, canWrite, canPrint, onPrint }) {
+function FileCards({ rows, printers, canWrite, canPrint, onPrint, onPreview, previewBusy, onRecheck, recheckBusy }) {
   const toast = useToast();
-  const [busy, setBusy] = useState(null);
-  const openFile = async (file) => {
-    setBusy(file.id);
-    try {
-      const grant = await httpRequest('GET', `/api/v1/content/files/${Number(file.id)}/download-url/`);
-      const destination = safeDocumentUrl(grant?.url);
-      if (!destination) throw new Error('The secure file link could not be verified.');
-      window.open(destination, '_blank', 'noopener,noreferrer');
-    } catch (failure) { toast.danger(userFacingError(failure, { fallback: 'The file could not be opened.' })); }
-    finally { setBusy(null); }
-  };
+  const [removing, setRemoving] = useState(null);
   const remove = async (file) => {
     if (!window.confirm(`Remove “${file.title}” from the library? Published links will stop working.`)) return;
-    setBusy(file.id);
-    try { await httpRequest('DELETE', `/api/v1/content/files/${Number(file.id)}/`); queryClient.invalidateQueries({ queryKey: ['api'] }); toast.success('File removed.'); }
-    catch (failure) { toast.danger(userFacingError(failure, { fallback: 'The file could not be removed.' })); }
-    finally { setBusy(null); }
+    setRemoving(file.id);
+    try {
+      await httpRequest('DELETE', `/api/v1/content/files/${Number(file.id)}/`);
+      queryClient.invalidateQueries({ queryKey: ['api'] });
+      toast.success('File removed.');
+    } catch (failure) {
+      toast.danger(userFacingError(failure, { fallback: 'The file could not be removed.' }));
+    } finally {
+      setRemoving(null);
+    }
   };
-  return <div className="content-file-grid">{rows.map((file) => { const state = publicationState(file); const printable = PRINTABLE_TYPES.has(file.content_type) && state.step === 3; return <article key={file.id}><header><span>{cloneElement(Icons.doc, { size: 20 })}</span><StatusPill value={state.label} tone={state.tone} /></header><h3>{file.title || `File ${file.id}`}</h3><p>{file.library_name || 'Learning library'} · {file.folder_name || file.lesson_title || 'Resource'}</p><dl><div><dt>Size</dt><dd>{fileSize(file.size_bytes)}</dd></div><div><dt>Version</dt><dd>{formatBusinessNumber(file.version || 1)}</dd></div><div><dt>Views</dt><dd>{formatBusinessNumber(file.view_count || 0)}</dd></div><div><dt>Downloads</dt><dd>{formatBusinessNumber(file.download_count || 0)}</dd></div></dl><footer><small>{file.is_downloadable ? 'Download allowed' : 'View only'} · {formatOrganizationDate(file.created_at, { dateOnly: true }) || 'Date not recorded'}</small><div>{state.step === 3 && <button type="button" disabled={busy === file.id} onClick={() => openFile(file)}>{busy === file.id ? 'Opening…' : 'Open'}</button>}{canPrint && printable && printers.length > 0 && <button type="button" onClick={() => onPrint(file)}>Print</button>}{canWrite && <button className="is-danger" type="button" disabled={busy === file.id} onClick={() => remove(file)}>Remove</button>}</div></footer></article>; })}</div>;
+  return <div className="content-file-grid">{rows.map((file) => {
+    const state = publicationState(file);
+    const clean = file.status === 'clean';
+    const printable = PRINTABLE_TYPES.has(file.content_type) && state.step === 3;
+    return <article key={file.id}>
+      <header><span>{cloneElement(Icons.doc, { size: 20 })}</span><StatusPill value={state.label} tone={state.tone} /></header>
+      <h3>{file.title || `File ${file.id}`}</h3>
+      <p>{file.library_name || 'Learning library'} · {file.folder_name || file.lesson_title || 'Resource'}</p>
+      {file.reject_reason && <p className="content-file-problem">{file.reject_reason}</p>}
+      {state.delayed && <p className="content-file-problem">The safety worker has not completed this check yet. Queue it again below.</p>}
+      <dl><div><dt>Size</dt><dd>{fileSize(file.size_bytes)}</dd></div><div><dt>Version</dt><dd>{formatBusinessNumber(file.version || 1)}</dd></div><div><dt>Views</dt><dd>{formatBusinessNumber(file.view_count || 0)}</dd></div><div><dt>Downloads</dt><dd>{formatBusinessNumber(file.download_count || 0)}</dd></div></dl>
+      <footer><small>{file.is_downloadable ? 'Download allowed' : 'View only'} · {formatOrganizationDate(file.created_at, { dateOnly: true }) || 'Date not recorded'}</small><div>
+        {clean && <button type="button" disabled={previewBusy === file.id} onClick={() => onPreview(file)}>{previewBusy === file.id ? 'Opening…' : 'View file'}</button>}
+        {canPrint && printable && printers.length > 0 && <button type="button" onClick={() => onPrint(file)}>Print</button>}
+        {canWrite && file.status === 'pending' && <button type="button" disabled={recheckBusy === file.id} onClick={() => onRecheck(file)}>{recheckBusy === file.id ? 'Queuing…' : 'Check again'}</button>}
+        {canWrite && <button className="is-danger" type="button" disabled={removing === file.id} onClick={() => remove(file)}>{removing === file.id ? 'Removing…' : 'Remove'}</button>}
+      </div></footer>
+    </article>;
+  })}</div>;
 }
 
-function LibraryView({ libraries, folders, files, printers, canWrite, canPrint, onLibrary, onFolder, onUpload, onPrint }) {
+function LibraryView({ libraries, folders, files, printers, canWrite, canPrint, onLibrary, onFolder, onUpload, onPrint, onPreview, previewBusy, onRecheck, recheckBusy }) {
   const [query, setQuery] = useState('');
   const [selectedLibrary, setSelectedLibrary] = useState('');
   const [state, setState] = useState('all');
-  const visible = files.rows.filter((file) => (!selectedLibrary || String(file.library) === selectedLibrary) && (state === 'all' || publicationState(file).label.toLowerCase().includes(state)) && (!query.trim() || [file.title, file.library_name, file.folder_name, file.uploaded_by_name].some((value) => String(value || '').toLowerCase().includes(query.trim().toLowerCase()))));
-  return <><LibraryShelf libraries={libraries.rows} folders={folders.rows} selected={selectedLibrary} onSelect={setSelectedLibrary} canWrite={canWrite} onLibrary={onLibrary} onFolder={onFolder} /><section className="content-register"><header><div><span>Resource directory</span><h2>Files available in this view</h2></div>{canWrite && <ActionButton icon={Icons.plus} tone="primary" onClick={onUpload}>Upload file</ActionButton>}</header><div className="content-toolbar"><label>{cloneElement(Icons.search, { size: 16 })}<input aria-label="Search library files" placeholder="Search title, folder, or uploader" value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label="Filter publication state" value={state} onChange={(event) => setState(event.target.value)}><option value="all">All publication states</option><option value="checking">Checking file</option><option value="teacher">Teacher review</option><option value="manager">Manager approval</option><option value="published">Published</option><option value="rejected">Rejected</option></select></div><CoverageBar state={files} label="library files" filtered={Boolean(query || selectedLibrary || state !== 'all')} /><WorkspaceState state={files} empty={!visible.length} emptyTitle={files.rows.length ? 'No files match these filters' : 'Your learning library is ready for its first resource'} emptyBody={files.rows.length ? 'Clear a filter or choose another library.' : 'Create a folder and upload the first lesson resource, policy, worksheet, or presentation.'}>{<FileCards rows={visible} printers={printers.rows} canWrite={canWrite} canPrint={canPrint} onPrint={onPrint} />}</WorkspaceState>{!files.rows.length && canWrite && <div className="content-empty-actions"><ActionButton icon={Icons.folder} onClick={onFolder}>Create folder</ActionButton><ActionButton icon={Icons.plus} tone="primary" onClick={onUpload}>Upload first file</ActionButton></div>}</section></>;
+  const visible = files.rows.filter((file) => (!selectedLibrary || String(file.library) === selectedLibrary) && (state === 'all' || publicationState(file).key === state) && (!query.trim() || [file.title, file.library_name, file.folder_name, file.uploaded_by_name].some((value) => String(value || '').toLowerCase().includes(query.trim().toLowerCase()))));
+  return <><LibraryShelf libraries={libraries.rows} folders={folders.rows} selected={selectedLibrary} onSelect={setSelectedLibrary} canWrite={canWrite} onLibrary={onLibrary} onFolder={onFolder} /><section className="content-register"><header><div><span>Resource directory</span><h2>Files available in this view</h2></div>{canWrite && <ActionButton icon={Icons.plus} tone="primary" onClick={onUpload}>Upload file</ActionButton>}</header><div className="content-toolbar"><label>{cloneElement(Icons.search, { size: 16 })}<input aria-label="Search library files" placeholder="Search title, folder, or uploader" value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label="Filter publication state" value={state} onChange={(event) => setState(event.target.value)}><option value="all">All publication states</option><option value="checking">Checking file</option><option value="teacher">Teacher review</option><option value="manager">Manager approval</option><option value="published">Published</option><option value="rejected">Rejected</option></select></div><CoverageBar state={files} label="library files" filtered={Boolean(query || selectedLibrary || state !== 'all')} /><WorkspaceState state={files} empty={!visible.length} emptyTitle={files.rows.length ? 'No files match these filters' : 'Your learning library is ready for its first resource'} emptyBody={files.rows.length ? 'Clear a filter or choose another library.' : 'Create a folder and upload the first lesson resource, policy, worksheet, or presentation.'}><FileCards rows={visible} printers={printers.rows} canWrite={canWrite} canPrint={canPrint} onPrint={onPrint} onPreview={onPreview} previewBusy={previewBusy} onRecheck={onRecheck} recheckBusy={recheckBusy} /></WorkspaceState>{!files.rows.length && canWrite && <div className="content-empty-actions"><ActionButton icon={Icons.folder} onClick={onFolder}>Create folder</ActionButton><ActionButton icon={Icons.plus} tone="primary" onClick={onUpload}>Upload first file</ActionButton></div>}</section></>;
 }
 
-function ReviewView({ files, canApprove, canPublish }) {
+function ReviewView({ files, canApprove, canPublish, onPreview, previewBusy }) {
   const toast = useToast();
   const [busy, setBusy] = useState(null);
   const [downloadPolicy, setDownloadPolicy] = useState({});
@@ -218,7 +257,7 @@ function ReviewView({ files, canApprove, canPublish }) {
     } catch (failure) { toast.danger(userFacingError(failure, { fallback: 'This publication step could not be completed.' })); }
     finally { setBusy(null); }
   };
-  return <section className="content-review"><header><div><span>Publication desk</span><h2>Review before learners see it</h2><p>Safety checks, teacher review, and management approval remain separate and visible.</p></div><div className="content-review-legend"><i>1</i><span>File check</span><i>2</i><span>Teacher</span><i>3</i><span>Manager</span></div></header><WorkspaceState state={files} empty={!reviewRows.length} emptyTitle="Publication desk is clear" emptyBody="There are no checked files waiting for a human decision."><div className="content-review-list">{reviewRows.map((file) => { const state = publicationState(file); const policy = downloadPolicy[file.id] ?? file.is_downloadable; return <article key={file.id}><div className="content-review-file"><span>{cloneElement(state.tone === 'danger' ? Icons.flag : Icons.doc, { size: 20 })}</span><div><StatusPill value={state.label} tone={state.tone} /><h3>{file.title}</h3><p>{file.library_name} · Uploaded by {file.uploaded_by_name || 'staff member'} · {fileSize(file.size_bytes)}</p>{file.reject_reason && <strong>{file.reject_reason}</strong>}</div></div><div className="content-review-steps"><span className={file.status === 'clean' ? 'is-done' : ''}>File checked</span><span className={file.is_approved_teacher ? 'is-done' : ''}>Teacher reviewed</span><span className={file.is_approved_manager ? 'is-done' : ''}>Manager published</span></div><footer>{state.step === 1 && canApprove && <ActionButton tone="primary" disabled={busy === file.id} onClick={() => act(file, 'approve-teacher')}>{busy === file.id ? 'Saving…' : 'Record teacher approval'}</ActionButton>}{state.step === 2 && canPublish && <><label><input type="checkbox" checked={policy} onChange={(event) => setDownloadPolicy((current) => ({ ...current, [file.id]: event.target.checked }))} /><span>Allow learner download</span></label><ActionButton tone="primary" disabled={busy === file.id} onClick={() => act(file, 'approve-manager')}>{busy === file.id ? 'Publishing…' : 'Publish file'}</ActionButton></>}</footer></article>; })}</div></WorkspaceState></section>;
+  return <section className="content-review"><header><div><span>Publication desk</span><h2>Review before learners see it</h2><p>Open the real file first, then record teacher and management approval separately.</p></div><div className="content-review-legend"><i>1</i><span>File check</span><i>2</i><span>Teacher</span><i>3</i><span>Manager</span></div></header><WorkspaceState state={files} empty={!reviewRows.length} emptyTitle="Publication desk is clear" emptyBody="There are no checked files waiting for a human decision."><div className="content-review-list">{reviewRows.map((file) => { const state = publicationState(file); const policy = downloadPolicy[file.id] ?? file.is_downloadable; return <article key={file.id}><div className="content-review-file"><span>{cloneElement(state.tone === 'danger' ? Icons.flag : Icons.doc, { size: 20 })}</span><div><StatusPill value={state.label} tone={state.tone} /><h3>{file.title}</h3><p>{file.library_name} · Uploaded by {file.uploaded_by_name || 'staff member'} · {fileSize(file.size_bytes)}</p>{file.reject_reason && <strong>{file.reject_reason}</strong>}</div></div><div className="content-review-steps"><span className={file.status === 'clean' ? 'is-done' : ''}>File checked</span><span className={file.is_approved_teacher ? 'is-done' : ''}>Teacher reviewed</span><span className={file.is_approved_manager ? 'is-done' : ''}>Manager published</span></div><footer>{file.status === 'clean' && <ActionButton icon={Icons.doc} disabled={previewBusy === file.id} onClick={() => onPreview(file)}>{previewBusy === file.id ? 'Opening…' : 'Preview file'}</ActionButton>}{state.step === 1 && canApprove && <ActionButton tone="primary" disabled={busy === file.id} onClick={() => act(file, 'approve-teacher')}>{busy === file.id ? 'Saving…' : 'Record teacher approval'}</ActionButton>}{state.step === 2 && canPublish && <><label><input type="checkbox" checked={policy} onChange={(event) => setDownloadPolicy((current) => ({ ...current, [file.id]: event.target.checked }))} /><span>Allow learner download</span></label><ActionButton tone="primary" disabled={busy === file.id} onClick={() => act(file, 'approve-manager')}>{busy === file.id ? 'Publishing…' : 'Publish file'}</ActionButton></>}</footer></article>; })}</div></WorkspaceState></section>;
 }
 
 function PrintForm({ open, onClose, initialFile, files, printers, branches }) {
@@ -283,6 +322,7 @@ function PrintersView({ printers, agents, branches, canWrite, onAdd }) {
 
 export function ContentPage({ user, route = 'content/library', onNav }) {
   useWorkspaceTitle('Content & print');
+  const toast = useToast();
   const { segments } = workspaceRoute(route);
   const requested = SECTION_ALIASES[segments[1]] || segments[1] || 'library';
   const active = SECTIONS.some((section) => section.id === requested) ? requested : 'library';
@@ -298,7 +338,7 @@ export function ContentPage({ user, route = 'content/library', onNav }) {
   // Content collections own their stable server-side ordering. Unlike printing,
   // these endpoints do not expose an `ordering` query parameter; sending one
   // makes the whole Library workspace fail with a field-scoped 400.
-  const files = useWorkspaceData('/api/v1/content/files/', { page_size: 100 });
+  const files = useWorkspaceData('/api/v1/content/files/', { page_size: 100 }, { refreshMs: 5_000 });
   const printers = useWorkspaceData('/api/v1/printing/printers/', { page_size: 100, ordering: 'name' }, { enabled: canReadPrint });
   const jobs = useWorkspaceData('/api/v1/printing/jobs/', { page_size: 100, ordering: '-created_at' }, { enabled: canReadPrint && (active === 'print' || canPrint), refreshMs: active === 'print' ? 5_000 : undefined });
   const agents = useWorkspaceData('/api/v1/printing/agents/', { page_size: 100, ordering: 'name' }, { enabled: canReadPrint && active === 'printers', refreshMs: 20_000 });
@@ -307,9 +347,52 @@ export function ContentPage({ user, route = 'content/library', onNav }) {
   const cohorts = useWorkspaceData('/api/v1/cohorts/', { page_size: 100, is_archived: false, ordering: 'name' }, { enabled: canWrite });
   const [modal, setModal] = useState('');
   const [printFile, setPrintFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [previewBusy, setPreviewBusy] = useState(null);
+  const [recheckBusy, setRecheckBusy] = useState(null);
   const openPrint = (file) => { setPrintFile(file); setModal('print'); };
   const closeModal = () => { setModal(''); setPrintFile(null); };
+  const openPreview = async (file) => {
+    setPreviewBusy(file.id);
+    try {
+      const grant = await httpRequest('GET', `/api/v1/content/files/${Number(file.id)}/download-url/`);
+      const destination = safeDocumentUrl(grant?.url);
+      if (!destination) throw new Error('The secure file link could not be verified.');
+      setPreview({ file, url: destination });
+    } catch (failure) {
+      toast.danger(userFacingError(failure, { fallback: 'The file preview could not be opened.' }));
+    } finally {
+      setPreviewBusy(null);
+    }
+  };
+  const recheckFile = async (file) => {
+    setRecheckBusy(file.id);
+    try {
+      await httpRequest('POST', `/api/v1/content/files/${Number(file.id)}/confirm/`, { body: {} });
+      await files.retry();
+      toast.success('The file safety check was queued again.');
+    } catch (failure) {
+      toast.danger(userFacingError(failure, { fallback: 'The file check could not be queued again.' }));
+    } finally {
+      setRecheckBusy(null);
+    }
+  };
   const navigation = <SectionNav label="Content & print" items={SECTIONS} active={active} basePath="content" onNav={onNav} />;
   const headline = useMemo(() => active === 'print' ? 'Print work' : active === 'printers' ? 'Printer setup' : active === 'review' ? 'Publication review' : 'Content & print', [active]);
-  return <main className="fw-page content-page"><WorkspaceHeader eyebrow="Knowledge operations" title={headline} description="Organize learning resources, publish them responsibly, and send documents to branch printers through clear everyday controls." actions={<>{canPrint && <ActionButton icon={Icons.doc} onClick={() => openPrint(null)}>Quick print</ActionButton>}{canWrite && <ActionButton icon={Icons.plus} tone="primary" onClick={() => setModal('upload')}>Upload file</ActionButton>}</>} /><WorkspaceLayout navigation={navigation}><ContentSummary libraries={libraries} folders={folders} files={files} jobs={jobs} />{active === 'library' && <LibraryView libraries={libraries} folders={folders} files={files} printers={printers} canWrite={canWrite} canPrint={canPrint} onLibrary={() => setModal('library')} onFolder={() => setModal('folder')} onUpload={() => setModal('upload')} onPrint={openPrint} />}{active === 'review' && <ReviewView files={files} canApprove={canApprove} canPublish={canPublish} />}{active === 'print' && <PrintQueue jobs={jobs} printers={printers} canWrite={canPrint} onPrint={openPrint} />}{active === 'printers' && <PrintersView printers={printers} agents={agents} branches={branches.rows} canWrite={canPrint} onAdd={() => setModal('printer')} />}</WorkspaceLayout><LibraryForm open={modal === 'library'} onClose={closeModal} branches={branches.rows} departments={departments.rows} cohorts={cohorts.rows} /><FolderForm open={modal === 'folder'} onClose={closeModal} libraries={libraries.rows} folders={folders.rows} /><UploadForm open={modal === 'upload'} onClose={closeModal} folders={folders.rows} /><PrintForm key={`${modal}-${printFile?.id || 'new'}`} open={modal === 'print'} onClose={closeModal} initialFile={printFile} files={files.rows} printers={printers.rows} branches={branches.rows} /><PrinterForm open={modal === 'printer'} onClose={closeModal} branches={branches.rows} /></main>;
+  return <main className="fw-page content-page">
+    <WorkspaceHeader eyebrow="Knowledge operations" title={headline} description="Organize learning resources, inspect the real file, publish it responsibly, and send documents to branch printers." actions={<>{canPrint && <ActionButton icon={Icons.doc} onClick={() => openPrint(null)}>Quick print</ActionButton>}{canWrite && <ActionButton icon={Icons.plus} tone="primary" onClick={() => setModal('upload')}>Upload file</ActionButton>}</>} />
+    <WorkspaceLayout navigation={navigation}>
+      <ContentSummary libraries={libraries} folders={folders} files={files} jobs={jobs} />
+      {active === 'library' && <LibraryView libraries={libraries} folders={folders} files={files} printers={printers} canWrite={canWrite} canPrint={canPrint} onLibrary={() => setModal('library')} onFolder={() => setModal('folder')} onUpload={() => setModal('upload')} onPrint={openPrint} onPreview={openPreview} previewBusy={previewBusy} onRecheck={recheckFile} recheckBusy={recheckBusy} />}
+      {active === 'review' && <ReviewView files={files} canApprove={canApprove} canPublish={canPublish} onPreview={openPreview} previewBusy={previewBusy} />}
+      {active === 'print' && <PrintQueue jobs={jobs} printers={printers} canWrite={canPrint} onPrint={openPrint} />}
+      {active === 'printers' && <PrintersView printers={printers} agents={agents} branches={branches.rows} canWrite={canPrint} onAdd={() => setModal('printer')} />}
+    </WorkspaceLayout>
+    <LibraryForm open={modal === 'library'} onClose={closeModal} branches={branches.rows} departments={departments.rows} cohorts={cohorts.rows} />
+    <FolderForm open={modal === 'folder'} onClose={closeModal} libraries={libraries.rows} folders={folders.rows} />
+    <UploadForm open={modal === 'upload'} onClose={closeModal} folders={folders.rows} />
+    <PrintForm key={`${modal}-${printFile?.id || 'new'}`} open={modal === 'print'} onClose={closeModal} initialFile={printFile} files={files.rows} printers={printers.rows} branches={branches.rows} />
+    <PrinterForm open={modal === 'printer'} onClose={closeModal} branches={branches.rows} />
+    <FilePreviewModal preview={preview} onClose={() => setPreview(null)} />
+  </main>;
 }

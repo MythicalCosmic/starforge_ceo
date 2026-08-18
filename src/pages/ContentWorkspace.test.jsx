@@ -9,11 +9,15 @@ vi.mock('../hooks/useWorkspaceTitle.js', () => ({ useWorkspaceTitle: vi.fn() }))
 vi.mock('../hooks/useWorkspaceData.js', () => ({
   workspaceRoute: (route) => ({ segments: String(route || '').split('/').filter(Boolean), params: new URLSearchParams() }),
   useWorkspaceData(path, params, options = {}) {
-    workspaceCalls.push({ path, params });
+    workspaceCalls.push({ path, params, options });
     const data = {
       '/api/v1/content/libraries/': [{ id: 1, name: 'Smart Class Learning Hub', visibility: 'tenant', is_active: true }],
       '/api/v1/content/folders/': [{ id: 2, library: 1, library_name: 'Smart Class Learning Hub', name: 'Presentation Resources' }],
-      '/api/v1/content/files/': [{ id: 3, library: 1, library_name: 'Smart Class Learning Hub', folder_name: 'Presentation Resources', title: 'Speaking guide', content_type: 'application/pdf', size_bytes: 1200, status: 'clean', is_approved_teacher: true, is_approved_manager: true, is_downloadable: true }],
+      '/api/v1/content/files/': [
+        { id: 3, library: 1, library_name: 'Smart Class Learning Hub', folder_name: 'Presentation Resources', title: 'Speaking guide', content_type: 'application/pdf', size_bytes: 1200, status: 'clean', is_approved_teacher: true, is_approved_manager: true, is_downloadable: true },
+        { id: 5, library: 1, library_name: 'Smart Class Learning Hub', folder_name: 'Presentation Resources', title: 'New worksheet', content_type: 'image/png', size_bytes: 900, status: 'pending', created_at: '2026-08-18T06:00:00Z', is_approved_teacher: false, is_approved_manager: false, is_downloadable: true },
+        { id: 6, library: 1, library_name: 'Smart Class Learning Hub', folder_name: 'Presentation Resources', title: 'Teacher handbook', content_type: 'application/pdf', size_bytes: 1800, status: 'clean', is_approved_teacher: false, is_approved_manager: false, is_downloadable: false },
+      ],
       '/api/v1/printing/printers/': [{ id: 4, branch: 1, name: 'Reception Laser', is_active: true, capabilities: { color: true, duplex: true, paper: ['A4'] } }],
       '/api/v1/printing/jobs/': [], '/api/v1/printing/agents/': [], '/api/v1/org/branches/': [{ id: 1, name: 'Main Branch' }], '/api/v1/org/departments/': [], '/api/v1/cohorts/': [],
     };
@@ -36,6 +40,8 @@ describe('content and print workspace', () => {
     expect(html).toContain('Upload file');
     expect(html).toContain('Speaking guide');
     expect(html).toContain('Presentation Resources');
+    expect(html).toContain('View file');
+    expect(html).toContain('Check again');
     expect(html).not.toContain('Request data');
     expect(html).not.toContain('Technical contract');
   });
@@ -47,10 +53,18 @@ describe('content and print workspace', () => {
     expect(printers).toContain('Double-sided');
   });
 
+  it('lets reviewers open a clean file before approving it', () => {
+    const html = renderPage('content/review');
+    expect(html).toContain('Teacher handbook');
+    expect(html).toContain('Preview file');
+    expect(html).toContain('Record teacher approval');
+  });
+
   it('never sends unsupported ordering filters to content collections', () => {
     renderPage('content/library');
     const contentCalls = workspaceCalls.filter(({ path }) => path.startsWith('/api/v1/content/'));
     expect(contentCalls).toHaveLength(3);
     expect(contentCalls.every(({ params }) => !Object.hasOwn(params || {}, 'ordering'))).toBe(true);
+    expect(contentCalls.find(({ path }) => path === '/api/v1/content/files/')?.options.refreshMs).toBe(5_000);
   });
 });
