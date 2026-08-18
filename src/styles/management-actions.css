@@ -137,7 +137,7 @@
 .ma-loading strong { color: var(--sf-ink); font-size: 11.5px; }
 .ma-loading small { font-size: 9.5px; }
 
-.ma-modal-backdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: color-mix(in srgb, var(--sf-ink) 58%, transparent); backdrop-filter: blur(5px); animation: ma-backdrop-in 160ms ease-out both; }
+.ma-modal-backdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: color-mix(in srgb, var(--sf-ink) 68%, transparent); animation: ma-backdrop-in 160ms ease-out both; }
 .ma-modal { width: min(760px, 100%); max-height: min(850px, calc(100dvh - 40px)); overflow: hidden; border: 1px solid color-mix(in srgb, var(--sf-primary) 22%, var(--sf-border)); border-radius: 17px; background: var(--sf-surface); box-shadow: 0 26px 80px rgba(0,0,0,.34); animation: ma-modal-in 190ms cubic-bezier(.2,.8,.2,1) both; }
 .ma-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px 16px; border-bottom: 1px solid var(--sf-border); background: linear-gradient(120deg, color-mix(in srgb, var(--sf-primary-soft) 58%, var(--sf-surface)), var(--sf-surface)); }
 .ma-modal-head > div { min-width: 0; }

@@ -58,3 +58,8 @@
   .engagement-page :is(input, select) { min-height: 44px; }
   .engagement-page button { min-width: 44px; }
 }
+
+.engagement-modal-backdrop {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

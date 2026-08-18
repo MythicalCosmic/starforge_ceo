@@ -88,7 +88,7 @@ function printStateTone(value) {
 
 function BusinessModal({ open, title, eyebrow, description, onClose, children, footer, wide = false }) {
   if (!open) return null;
-  return <div className="content-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
+  return <div className="content-modal-backdrop" role="presentation" style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose?.(); }}>
     <section className={`content-modal${wide ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
       <header><div><span>{eyebrow}</span><h2>{title}</h2>{description && <p>{description}</p>}</div><button type="button" onClick={onClose} aria-label="Close">{cloneElement(Icons.x, { size: 18 })}</button></header>
       <div className="content-modal-body">{children}</div>
@@ -295,7 +295,10 @@ export function ContentPage({ user, route = 'content/library', onNav }) {
   // expose a client-controlled ordering filter for this collection.
   const libraries = useWorkspaceData('/api/v1/content/libraries/', { page_size: 100 });
   const folders = useWorkspaceData('/api/v1/content/folders/', { page_size: 100 });
-  const files = useWorkspaceData('/api/v1/content/files/', { page_size: 100, ordering: '-created_at' });
+  // Content collections own their stable server-side ordering. Unlike printing,
+  // these endpoints do not expose an `ordering` query parameter; sending one
+  // makes the whole Library workspace fail with a field-scoped 400.
+  const files = useWorkspaceData('/api/v1/content/files/', { page_size: 100 });
   const printers = useWorkspaceData('/api/v1/printing/printers/', { page_size: 100, ordering: 'name' }, { enabled: canReadPrint });
   const jobs = useWorkspaceData('/api/v1/printing/jobs/', { page_size: 100, ordering: '-created_at' }, { enabled: canReadPrint && (active === 'print' || canPrint), refreshMs: active === 'print' ? 5_000 : undefined });
   const agents = useWorkspaceData('/api/v1/printing/agents/', { page_size: 100, ordering: 'name' }, { enabled: canReadPrint && active === 'printers', refreshMs: 20_000 });

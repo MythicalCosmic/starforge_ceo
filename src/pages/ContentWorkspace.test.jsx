@@ -1,12 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const workspaceCalls = vi.hoisted(() => []);
 
 vi.mock('../context/ToastContext.jsx', () => ({ useToast: () => ({ success: vi.fn(), danger: vi.fn() }) }));
 vi.mock('../hooks/useWorkspaceTitle.js', () => ({ useWorkspaceTitle: vi.fn() }));
 vi.mock('../hooks/useWorkspaceData.js', () => ({
   workspaceRoute: (route) => ({ segments: String(route || '').split('/').filter(Boolean), params: new URLSearchParams() }),
-  useWorkspaceData(path, _params, options = {}) {
+  useWorkspaceData(path, params, options = {}) {
+    workspaceCalls.push({ path, params });
     const data = {
       '/api/v1/content/libraries/': [{ id: 1, name: 'Smart Class Learning Hub', visibility: 'tenant', is_active: true }],
       '/api/v1/content/folders/': [{ id: 2, library: 1, library_name: 'Smart Class Learning Hub', name: 'Presentation Resources' }],
@@ -26,6 +29,8 @@ const director = { effective_permissions: ['content:read', 'content:write', 'con
 const renderPage = (route) => renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><ContentPage user={director} route={route} onNav={vi.fn()} /></QueryClientProvider>);
 
 describe('content and print workspace', () => {
+  beforeEach(() => workspaceCalls.splice(0));
+
   it('shows upload and a readable library without a developer action console', () => {
     const html = renderPage('content/library');
     expect(html).toContain('Upload file');
@@ -40,5 +45,12 @@ describe('content and print workspace', () => {
     const printers = renderPage('content/printers');
     expect(printers).toContain('Reception Laser');
     expect(printers).toContain('Double-sided');
+  });
+
+  it('never sends unsupported ordering filters to content collections', () => {
+    renderPage('content/library');
+    const contentCalls = workspaceCalls.filter(({ path }) => path.startsWith('/api/v1/content/'));
+    expect(contentCalls).toHaveLength(3);
+    expect(contentCalls.every(({ params }) => !Object.hasOwn(params || {}, 'ordering'))).toBe(true);
   });
 });

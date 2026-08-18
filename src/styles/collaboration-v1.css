@@ -6,7 +6,7 @@
 .collab-segments button.is-active { color: var(--sf-primary); background: var(--sf-primary-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sf-primary) 25%, transparent); }
 .collab-segments.is-view { margin-left: auto; }
 
-.collab-modal-backdrop { position: fixed; z-index: 210; inset: 0; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, #090806 72%, transparent); backdrop-filter: blur(8px); }
+.collab-modal-backdrop { position: fixed; z-index: 210; inset: 0; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, #090806 72%, transparent); }
 .collab-modal { display: flex; width: min(560px, 100%); max-height: min(860px, calc(100dvh - 48px)); overflow: hidden; flex-direction: column; border: 1px solid var(--sf-border-strong); border-radius: 20px; background: var(--sf-surface); box-shadow: 0 30px 90px rgba(0,0,0,.36); }
 .collab-modal.is-wide { width: min(880px, 100%); }
 .collab-modal > header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px 18px; border-bottom: 1px solid var(--collab-line); }

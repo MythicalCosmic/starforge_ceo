@@ -35,8 +35,41 @@
 .schedule-card > footer button.is-danger { color: var(--sf-danger); }
 .schedule-card.is-cancelled { opacity: .68; }
 .schedule-card.is-cancelled > time { filter: grayscale(.5); }
-.schedule-modal-backdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: color-mix(in srgb, var(--sf-ink) 58%, transparent); backdrop-filter: blur(5px); }
-.schedule-modal { width: min(820px, 100%); max-height: calc(100dvh - 40px); overflow: hidden; border: 1px solid color-mix(in srgb, var(--sf-primary) 22%, var(--sf-border)); border-radius: 18px; background: var(--sf-surface); box-shadow: 0 28px 90px rgba(0,0,0,.36); }
+.absence-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--schedule-line); border-radius: 15px; background: var(--sf-surface); box-shadow: var(--sf-v2-shadow); }
+.absence-summary article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 16px; border-right: 1px solid var(--schedule-line); }
+.absence-summary article:last-child { border-right: 0; }
+.absence-summary small { color: var(--sf-muted); font-size: 8.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.absence-summary strong { grid-row: span 2; color: var(--sf-ink); font: 760 24px/1 var(--sf-font-display); }
+.absence-summary p { margin: 0; color: var(--sf-muted); font-size: 9px; }
+.absence-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.absence-list > article { display: flex; min-width: 0; flex-direction: column; padding: 15px; border: 1px solid var(--schedule-line); border-radius: 14px; background: var(--sf-surface); box-shadow: 0 8px 24px rgba(0,0,0,.035); }
+.absence-list article > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.absence-list article > header > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--sf-primary-soft); color: var(--sf-primary); }
+.absence-list header div { min-width: 0; }
+.absence-list header small { color: var(--sf-muted); font-size: 8px; }
+.absence-list h2 { margin: 3px 0 0; overflow: hidden; color: var(--sf-ink); font: 750 12px/1.3 var(--sf-font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.absence-reason { margin-top: 13px; padding: 11px; border-radius: 10px; background: var(--sf-surface-2); }
+.absence-reason span { color: var(--sf-primary); font-size: 8px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+.absence-reason p { margin: 5px 0 0; color: var(--sf-ink-2); font-size: 9.5px; line-height: 1.55; white-space: pre-wrap; }
+.absence-list dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0 0; }
+.absence-list dl div { padding: 8px; border: 1px solid var(--schedule-line); border-radius: 8px; }
+.absence-list dt { color: var(--sf-muted); font-size: 7.5px; font-weight: 800; text-transform: uppercase; }
+.absence-list dd { margin: 3px 0 0; color: var(--sf-ink); font-size: 8.5px; }
+.absence-decision-note { display: grid; gap: 3px; margin: 10px 0 0; padding: 9px; border: 1px solid color-mix(in srgb, var(--sf-primary) 24%, var(--schedule-line)); border-radius: 8px; background: var(--sf-primary-soft); color: var(--sf-muted); font-size: 8.5px; }
+.absence-decision-note strong { color: var(--sf-ink); }
+.absence-list article > footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: auto; padding-top: 12px; }
+.absence-decision-modal { width: min(500px, 100%); overflow: hidden; border: 1px solid color-mix(in srgb, var(--sf-primary) 22%, var(--sf-border)); border-radius: 17px; background: var(--sf-surface); box-shadow: 0 28px 90px rgba(0,0,0,.36); }
+.absence-decision-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px; border-bottom: 1px solid var(--schedule-line); }
+.absence-decision-modal > header span, .absence-decision-modal label > span { color: var(--sf-primary); font-size: 8.5px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.absence-decision-modal h2 { margin: 4px 0 0; color: var(--sf-ink); font: 760 20px/1.15 var(--sf-font-display); }
+.absence-decision-modal header p { margin: 5px 0 0; color: var(--sf-muted); font-size: 9px; }
+.absence-decision-modal header button { display: grid; width: 33px; height: 33px; place-items: center; border: 1px solid var(--sf-border); border-radius: 9px; background: var(--sf-surface-2); color: var(--sf-muted); cursor: pointer; }
+.absence-decision-modal form { padding: 17px; }
+.absence-decision-modal label { display: grid; gap: 6px; }
+.absence-decision-modal textarea { width: 100%; padding: 10px; border: 1px solid var(--sf-border); border-radius: 10px; outline: 0; resize: vertical; background: var(--sf-bg); color: var(--sf-ink); font: inherit; font-size: 10px; }
+.absence-decision-modal form > footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--schedule-line); }
+.schedule-modal-backdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: color-mix(in srgb, var(--sf-ink) 68%, transparent); }
+.schedule-modal { width: min(900px, 100%); max-height: calc(100dvh - 40px); overflow: hidden; border: 1px solid color-mix(in srgb, var(--sf-primary) 22%, var(--sf-border)); border-radius: 18px; background: var(--sf-surface); box-shadow: 0 28px 90px rgba(0,0,0,.36); }
 .schedule-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--schedule-line); background: linear-gradient(120deg, color-mix(in srgb, var(--sf-primary-soft) 58%, var(--sf-surface)), var(--sf-surface)); }
 .schedule-modal > header span { color: var(--sf-primary); font-size: 9px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
 .schedule-modal > header h2 { margin: 4px 0 0; color: var(--sf-ink); font: 760 21px/1.1 var(--sf-font-display); }
@@ -58,17 +91,34 @@
 .schedule-invitees > label { position: relative; display: block; margin-top: 9px; }
 .schedule-invitees > label svg { position: absolute; top: 10px; left: 10px; color: var(--sf-muted); }
 .schedule-invitees > label input { width: 100%; min-height: 35px; padding: 7px 10px 7px 32px; border: 1px solid var(--sf-border); border-radius: 8px; background: var(--sf-bg); color: var(--sf-ink); font: inherit; font-size: 10px; }
-.schedule-invitees > div { display: grid; max-height: 235px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; overflow-y: auto; }
-.schedule-invitees > div > button { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--schedule-line); border-radius: 9px; background: var(--sf-surface); color: var(--sf-muted); cursor: pointer; text-align: left; }
-.schedule-invitees > div > button.is-selected { border-color: color-mix(in srgb, var(--sf-primary) 42%, var(--sf-border)); background: var(--sf-primary-soft); color: var(--sf-primary); }
-.schedule-invitees button > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--sf-surface-2); color: var(--sf-primary); font-size: 9px; font-weight: 850; }
-.schedule-invitees button > div { display: grid; min-width: 0; gap: 2px; }
-.schedule-invitees button strong, .schedule-invitees button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.schedule-invitees button strong { color: var(--sf-ink); font-size: 9.5px; }
-.schedule-invitees button small { color: var(--sf-muted); font-size: 8px; }
+.schedule-audience-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 11px; }
+.schedule-audience-modes > button { display: grid; min-width: 0; min-height: 67px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--schedule-line); border-radius: 10px; background: var(--sf-surface); color: var(--sf-muted); cursor: pointer; text-align: left; transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease; }
+.schedule-audience-modes > button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--sf-primary) 45%, var(--sf-border)); transform: translateY(-1px); }
+.schedule-audience-modes > button.is-selected { border-color: color-mix(in srgb, var(--sf-primary) 54%, var(--sf-border)); background: var(--sf-primary-soft); color: var(--sf-primary); }
+.schedule-audience-modes > button:disabled { cursor: not-allowed; opacity: .46; }
+.schedule-audience-modes > button > span { display: grid; min-width: 0; gap: 2px; }
+.schedule-audience-modes strong, .schedule-audience-modes small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-audience-modes strong { color: var(--sf-ink); font-size: 9.5px; }
+.schedule-audience-modes small { color: var(--sf-muted); font-size: 7.8px; }
+.schedule-audience-options { display: grid; max-height: 224px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; overflow-y: auto; scrollbar-gutter: stable; }
+.schedule-audience-options > button { display: grid; min-width: 0; min-height: 49px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--schedule-line); border-radius: 9px; background: var(--sf-surface); color: var(--sf-muted); cursor: pointer; text-align: left; }
+.schedule-audience-options > button:hover { border-color: color-mix(in srgb, var(--sf-primary) 38%, var(--sf-border)); }
+.schedule-audience-options > button.is-selected { border-color: color-mix(in srgb, var(--sf-primary) 48%, var(--sf-border)); background: var(--sf-primary-soft); color: var(--sf-primary); }
+.schedule-audience-options > button > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--sf-surface-2); color: var(--sf-primary); font-size: 8.5px; font-weight: 850; }
+.schedule-audience-options > button > div { display: grid; min-width: 0; gap: 2px; }
+.schedule-audience-options strong, .schedule-audience-options small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-audience-options strong { color: var(--sf-ink); font-size: 9.5px; }
+.schedule-audience-options small { color: var(--sf-muted); font-size: 8px; }
+.schedule-audience-summary { display: flex; align-items: center; gap: 11px; margin-top: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--sf-primary) 28%, var(--schedule-line)); border-radius: 10px; background: var(--sf-primary-soft); }
+.schedule-audience-summary > span { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 10px; background: var(--sf-surface); color: var(--sf-primary); }
+.schedule-audience-summary strong { color: var(--sf-ink); font-size: 10px; }
+.schedule-audience-summary p { margin: 3px 0 0; color: var(--sf-muted); font-size: 8.5px; }
+.schedule-audience-note, .schedule-audience-empty { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--sf-surface-2); color: var(--sf-muted); font-size: 8.5px; line-height: 1.45; }
+.schedule-audience-note.is-warn { background: color-mix(in srgb, var(--sf-warn) 9%, var(--sf-surface)); color: var(--sf-warn); }
 .schedule-error { margin: 12px 0 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--sf-danger) 30%, var(--sf-border)); border-radius: 9px; background: color-mix(in srgb, var(--sf-danger) 7%, var(--sf-surface)); color: var(--sf-danger); font-size: 10px; }
 .schedule-modal form > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--schedule-line); }
 .schedule-modal form > footer > small { color: var(--sf-muted); font-size: 9px; }
 .schedule-modal form > footer > div { display: flex; gap: 7px; }
-@media (max-width: 860px) { .schedule-summary { grid-template-columns: 1fr; }.schedule-summary article { border-right: 0; border-bottom: 1px solid var(--schedule-line); }.schedule-summary article:last-child { border-bottom: 0; }.schedule-card { grid-template-columns: 50px minmax(0,1fr); }.schedule-card > footer { grid-column: 2; justify-content: flex-start; }.schedule-controls { align-items: stretch; flex-direction: column; }.schedule-controls > div { overflow-x: auto; } }
-@media (max-width: 620px) { .schedule-modal-backdrop { align-items: end; padding: 0; }.schedule-modal { max-height: 94dvh; border-radius: 18px 18px 0 0; }.schedule-modal > form { max-height: calc(94dvh - 115px); }.schedule-form-grid, .schedule-invitees > div { grid-template-columns: 1fr; }.schedule-form-grid label.is-wide { grid-column: 1; }.schedule-modal form > footer { align-items: stretch; flex-direction: column; }.schedule-modal form > footer > div { display: grid; grid-template-columns: 1fr 1fr; }.schedule-card { grid-template-columns: 45px minmax(0,1fr); padding: 11px; }.schedule-card dl { display: grid; }.schedule-card > footer { grid-column: 1 / -1; } }
+@media (max-width: 860px) { .schedule-summary, .absence-summary { grid-template-columns: 1fr; }.schedule-summary article, .absence-summary article { border-right: 0; border-bottom: 1px solid var(--schedule-line); }.schedule-summary article:last-child, .absence-summary article:last-child { border-bottom: 0; }.absence-list { grid-template-columns: 1fr; }.schedule-card { grid-template-columns: 50px minmax(0,1fr); }.schedule-card > footer { grid-column: 2; justify-content: flex-start; }.schedule-controls { align-items: stretch; flex-direction: column; }.schedule-controls > div { overflow-x: auto; } }
+@media (max-width: 720px) { .schedule-audience-modes { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .schedule-modal-backdrop { align-items: end; padding: 0; }.schedule-modal, .absence-decision-modal { max-height: 94dvh; border-radius: 18px 18px 0 0; }.schedule-modal > form { max-height: calc(94dvh - 115px); }.schedule-form-grid, .schedule-audience-options { grid-template-columns: 1fr; }.schedule-form-grid label.is-wide { grid-column: 1; }.schedule-modal form > footer { align-items: stretch; flex-direction: column; }.schedule-modal form > footer > div { display: grid; grid-template-columns: 1fr 1fr; }.absence-list dl { grid-template-columns: 1fr; }.schedule-card { grid-template-columns: 45px minmax(0,1fr); padding: 11px; }.schedule-card dl { display: grid; }.schedule-card > footer { grid-column: 1 / -1; } }
