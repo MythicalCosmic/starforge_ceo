@@ -30,13 +30,14 @@ const find = (moduleId, tabId) => {
   };
 };
 
-const executiveModule = ({ title, eyebrow, description, tabs, actionSurface }) =>
+const executiveModule = ({ title, eyebrow, description, tabs, actionSurface, cleanDetails }) =>
   Object.freeze({
     title,
     eyebrow,
     description,
     tabs: Object.freeze(tabs),
     ...(actionSurface ? { actionSurface } : {}),
+    ...(cleanDetails ? { cleanDetails: true } : {}),
   });
 
 const catalogModule = (moduleId, presentation) => {
@@ -51,6 +52,7 @@ const catalogModule = (moduleId, presentation) => {
       presentation.tabLabels?.[tab.id] || tab.label,
     )),
     actionSurface: presentation.actionSurface,
+    cleanDetails: presentation.cleanDetails,
   });
 };
 
@@ -150,11 +152,13 @@ const MODULES = Object.freeze({
       campaigns: 'Acquisition campaigns',
       duplicates: 'Duplicate candidates',
     },
+    cleanDetails: true,
   }),
   recognition: catalogModule('backendRecognition', {
     title: 'Recognition & conduct',
     eyebrow: 'Culture and safeguards',
     description: 'Review achievements, rewards, cards, conduct rules, and penalties in one accountable record.',
+    cleanDetails: true,
   }),
   schedule: catalogModule('backendScheduling', {
     title: 'Schedule',
@@ -174,7 +178,7 @@ const MODULES = Object.freeze({
   operations: catalogModule('backendOperations', {
     title: 'Operations',
     eyebrow: 'Cross-team delivery',
-    description: 'Review priority work, lesson cover, procurement, staff loans, and shared operating responsibilities.',
+    description: 'Coordinate lesson cover, procurement, staff loans, and shared operating responsibilities. Personal work stays in Tasks.',
     tabLabels: {
       loans: 'Staff loans',
       roleGrades: 'Responsibility levels',

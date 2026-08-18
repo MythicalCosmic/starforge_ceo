@@ -2243,34 +2243,9 @@ const modules = {
   backendOperations: {
     title: 'Operations',
     eyebrow: 'Cross-team execution',
-    description: 'Review tasks, lesson cover, purchase orders, and employee-loan workflows in one operational queue.',
+    description: 'Review lesson cover, purchase orders, and employee-loan workflows in one operational queue.',
     permission: 'Module-specific read grants',
     tabs: [
-      tab(
-        'tasks',
-        'Tasks',
-        '/api/v1/tasks/',
-        [
-          field('title', 'Task'),
-          status,
-          field('priority', 'Priority', 'status'),
-          field('assignee', 'Assignee', 'id'),
-          field('due_at', 'Due', 'datetime'),
-        ],
-        [
-          field('title', 'Task'),
-          field('description', 'Description', 'longText'),
-          status,
-          field('priority', 'Priority', 'status'),
-          field('assignee', 'Assignee', 'id'),
-          field('department', 'Department', 'id'),
-          field('branch', 'Branch', 'id'),
-          field('due_at', 'Due', 'datetime'),
-          field('completed_at', 'Completed', 'datetime'),
-          createdAt,
-        ],
-        { detailPath: '/api/v1/tasks/{id}/', permission: 'tasks:read' },
-      ),
       tab(
         'cover',
         'Lesson cover',

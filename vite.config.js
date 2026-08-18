@@ -52,7 +52,7 @@ export function alignDevProxySecurityHeaders(proxyRequest, request, upstreamOrig
   }
 }
 
-const TUNNEL_ALLOWED_HOSTS = Object.freeze(['.ngrok-free.app']);
+const TUNNEL_ALLOWED_HOSTS = Object.freeze(['.ngrok-free.app', 'ceo.localhost']);
 
 function apiProxyFor(apiProxyTarget) {
   return {

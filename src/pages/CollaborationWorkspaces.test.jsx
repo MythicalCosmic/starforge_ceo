@@ -12,7 +12,7 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
   }),
   useWorkspaceData(path, _params, options = {}) {
     const rowsByPath = {
-      '/api/v1/tasks/': [{
+      '/api/v1/tasks/mine/': [{
         id: 4,
         title: 'Review the August learning plan',
         description: 'Confirm the final milestones with every department.',
@@ -116,7 +116,7 @@ describe('leadership collaboration workspaces', () => {
     const html = renderToStaticMarkup(<TasksPage user={director} />);
 
     expect(html).toContain('Review the August learning plan');
-    expect(html).toContain('In progress');
+    expect(html).toContain('Working');
     expect(html).toContain('Create task');
     expect(html).toContain('task-board');
     expect(html).not.toContain('API payload');

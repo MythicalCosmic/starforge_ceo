@@ -87,8 +87,8 @@ const departments = nav('departments', Icons.globe, 'operations', 'Departments',
   app: 'org',
 });
 const operations = nav('operations', Icons.settings, 'operations', 'Operations', {
-  capabilities: ['tasks:read', 'cover:read', 'procurement:read', 'loan:read'],
-  app: ['staff_tasks', 'covers', 'procurement', 'loans'],
+  capabilities: ['cover:read', 'procurement:read', 'loan:read'],
+  app: ['covers', 'procurement', 'loans'],
 });
 const decisions = nav('decisions', Icons.check, 'operations', 'Decisions', {
   accent: 'var(--sf-warn)',

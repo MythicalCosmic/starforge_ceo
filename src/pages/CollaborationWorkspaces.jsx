@@ -17,8 +17,8 @@ import '../styles/focused-v3.css';
 
 const TASK_COLUMNS = Object.freeze([
   { id: 'open', label: 'To do', tone: 'neutral' },
-  { id: 'in_progress', label: 'In progress', tone: 'warn' },
-  { id: 'blocked', label: 'Needs attention', tone: 'danger' },
+  { id: 'in_progress', label: 'Working', tone: 'warn' },
+  { id: 'blocked', label: 'Needs review', tone: 'danger' },
   { id: 'done', label: 'Done', tone: 'success' },
 ]);
 
@@ -98,12 +98,6 @@ function taskIsMine(task, user) {
   if (taskPrincipalMatches(task?.assignee_principal, user)) return true;
   return !task?.assignee_principal && Boolean(task?.assignee_name) &&
     task.assignee_name.trim().toLowerCase() === displayName(user).trim().toLowerCase();
-}
-
-function taskWasCreatedByMe(task, user) {
-  if (taskPrincipalMatches(task?.created_by, user)) return true;
-  return !task?.created_by && Boolean(task?.created_by_name) &&
-    task.created_by_name.trim().toLowerCase() === displayName(user).trim().toLowerCase();
 }
 
 function taskIsFinished(task) {
@@ -361,14 +355,12 @@ function TaskDetail({ task, open, onClose, onTransition, canTransition, moving }
 
 export function TasksPage({ user }) {
   const toast = useToast();
-  const tasks = useWorkspaceData('/api/v1/tasks/', { page_size: 100 }, { refreshMs: 20_000 });
+  const tasks = useWorkspaceData('/api/v1/tasks/mine/', { page_size: 100 }, { refreshMs: 20_000 });
   const canWrite = canUseCapability(user, 'tasks:write');
   const staff = useWorkspaceData('/api/v1/org/staff/', { page_size: 100 }, { enabled: canWrite && canUseCapability(user, 'users:read') });
   const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: 100 }, { enabled: canWrite && canUseCapability(user, 'teachers:read') });
   const departments = useWorkspaceData('/api/v1/org/departments/', { page_size: 100 }, { enabled: canWrite && canUseCapability(user, 'org:read') });
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: 100 }, { enabled: canWrite && canUseCapability(user, 'org:read') });
-  const [view, setView] = useState('board');
-  const [perspective, setPerspective] = useState('all');
   const [scope, setScope] = useState('active');
   const [query, setQuery] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
@@ -395,9 +387,6 @@ export function TasksPage({ user }) {
   }, [taskRows]);
   const normalizedQuery = query.trim().toLowerCase();
   const visible = effectiveTasks.filter((task) => {
-    if (perspective === 'mine' && !taskIsMine(task, user)) return false;
-    if (perspective === 'created' && !taskWasCreatedByMe(task, user)) return false;
-    if (perspective === 'shared' && (task.assignee_principal || task.assignee_name)) return false;
     if (scope === 'active' && taskIsFinished(task)) return false;
     if (scope === 'overdue' && !taskIsOverdue(task)) return false;
     if (scope === 'done' && task.status !== 'done') return false;
@@ -417,8 +406,8 @@ export function TasksPage({ user }) {
     return leftDue - rightDue;
   });
   const metrics = {
-    active: effectiveTasks.filter((task) => !taskIsFinished(task)).length,
-    mine: effectiveTasks.filter((task) => taskIsMine(task, user) && !taskIsFinished(task)).length,
+    todo: effectiveTasks.filter((task) => task.status === 'open').length,
+    working: effectiveTasks.filter((task) => task.status === 'in_progress').length,
     overdue: effectiveTasks.filter(taskIsOverdue).length,
     blocked: effectiveTasks.filter((task) => task.status === 'blocked').length,
   };
@@ -446,21 +435,19 @@ export function TasksPage({ user }) {
   };
   const selectedTask = effectiveTasks.find((task) => String(task.id) === String(selectedTaskId)) || null;
   return <div className="fw-page collab-page">
-    <WorkspaceHeader eyebrow="Execution workspace" title="Tasks" description="Plan your own work, assign clear ownership, and follow every commitment without mixing tasks with technical records." actions={<>{canWrite && <ActionButton tone="primary" icon={Icons.plus} onClick={() => setComposerOpen(true)}>Create task</ActionButton>}</>} />
+    <WorkspaceHeader eyebrow="My work" title="Tasks" description="Your personal worklist, organized from to do through review and completion." actions={<>{canWrite && <ActionButton tone="primary" icon={Icons.plus} onClick={() => setComposerOpen(true)}>Create task</ActionButton>}</>} />
     <section className="task-overview" aria-label="Task overview">
-      <article><span>{cloneElement(Icons.check, { size: 17 })}</span><div><small>Active work</small><strong>{metrics.active}</strong><p>Open commitments in the loaded register</p></div></article>
-      <article><span>{cloneElement(Icons.user, { size: 17 })}</span><div><small>Assigned to me</small><strong>{metrics.mine}</strong><p>Your current personal worklist</p></div></article>
+      <article><span>{cloneElement(Icons.check, { size: 17 })}</span><div><small>To do</small><strong>{metrics.todo}</strong><p>Ready for you to start</p></div></article>
+      <article><span>{cloneElement(Icons.user, { size: 17 })}</span><div><small>Working</small><strong>{metrics.working}</strong><p>Currently in progress</p></div></article>
       <article className={metrics.overdue ? 'is-danger' : ''}><span>{cloneElement(Icons.cal, { size: 17 })}</span><div><small>Overdue</small><strong>{metrics.overdue}</strong><p>Needs a decision or a new deadline</p></div></article>
-      <article className={metrics.blocked ? 'is-warn' : ''}><span>{cloneElement(Icons.flag, { size: 17 })}</span><div><small>Blocked</small><strong>{metrics.blocked}</strong><p>Waiting for help or a dependency</p></div></article>
+      <article className={metrics.blocked ? 'is-warn' : ''}><span>{cloneElement(Icons.flag, { size: 17 })}</span><div><small>Needs review</small><strong>{metrics.blocked}</strong><p>Waiting for a decision or feedback</p></div></article>
     </section>
     <section className="task-controls">
-      <div className="task-perspectives"><span>Worklist</span><div>{[['all', 'All work'], ['mine', 'Assigned to me'], ['created', 'Created by me'], ['shared', 'Shared work']].map(([id, label]) => <button type="button" className={perspective === id ? 'is-active' : ''} onClick={() => setPerspective(id)} key={id}>{label}</button>)}</div></div>
-      <label className="task-search"><span>{cloneElement(Icons.search, { size: 15 })}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks, owners, or departments" /></label>
-      <div className="collab-segments is-view"><button type="button" className={view === 'board' ? 'is-active' : ''} onClick={() => setView('board')}>Board</button><button type="button" className={view === 'list' ? 'is-active' : ''} onClick={() => setView('list')}>List</button></div>
+      <label className="task-search"><span>{cloneElement(Icons.search, { size: 15 })}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search my tasks" /></label>
       <div className="collab-segments task-state-filter">{[['active', 'Active'], ['overdue', 'Overdue'], ['done', 'Completed'], ['all', 'All states']].map(([id, label]) => <button type="button" className={scope === id ? 'is-active' : ''} onClick={() => setScope(id)} key={id}>{label}</button>)}</div>
     </section>
     <WorkspaceState state={tasks} empty={!visible.length} emptyTitle="No tasks in this view" emptyBody="Create a task or choose another filter.">
-      {view === 'board' ? <div className="task-board">{TASK_COLUMNS.map((column) => {
+      <div className="task-board">{TASK_COLUMNS.map((column) => {
         const columnTasks = visible.filter((task) => task.status === column.id || (column.id === 'done' && task.status === 'cancelled'));
         return <section className="task-column" key={column.id}><header><span><i className={`is-${column.tone}`} />{column.label}</span><b>{columnTasks.length}</b></header><div>{columnTasks.length ? columnTasks.map((task) => {
           const due = taskDuePresentation(task);
@@ -472,10 +459,7 @@ export function TasksPage({ user }) {
             <footer><span><SfAvatar name={taskOwnerLabel(task)} size={26} decorative /><small>{taskOwnerLabel(task)}</small></span>{transitionAllowed ? <select aria-label={`Update ${task.title} status`} disabled={String(moving) === String(task.id)} value={task.status === 'cancelled' ? 'done' : task.status} onChange={(event) => transition(task, event.target.value)}>{TASK_COLUMNS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <StatusPill value={task.status} />}</footer>
           </article>;
         }) : <div className="task-column-empty"><span>{cloneElement(Icons.check, { size: 16 })}</span><small>Nothing here</small></div>}</div></section>;
-      })}</div> : <div className="task-list"><header><span aria-hidden="true" /><span>Task</span><span>Owner &amp; scope</span><span>Priority</span><span>Deadline</span><span>Status</span></header>{visible.map((task) => {
-        const due = taskDuePresentation(task);
-        return <article key={task.id}><button type="button" disabled={!canTransitionTask(task) || String(moving) === String(task.id)} className={task.status === 'done' ? 'is-complete' : ''} onClick={() => transition(task, task.status === 'done' ? 'open' : 'done')} aria-label={`Toggle ${task.title}`}>{task.status === 'done' && cloneElement(Icons.check, { size: 13 })}</button><button type="button" className="task-list-title" onClick={() => setSelectedTaskId(task.id)}><strong>{task.title}</strong><small>{task.description || `Created by ${taskCreatorLabel(task)}`}</small></button><div className="task-list-owner"><SfAvatar name={taskOwnerLabel(task)} size={25} decorative /><span><strong>{taskOwnerLabel(task)}</strong><small>{taskScopeLabel(task)}</small></span></div><StatusPill value={task.priority} /><time className={`is-${due.tone}`}>{due.label}</time><StatusPill value={task.status} /></article>;
-      })}</div>}
+      })}</div>
     </WorkspaceState>
     <TaskComposer open={composerOpen} onClose={() => setComposerOpen(false)} user={user} staff={rowsOf(staff)} teachers={rowsOf(teachers)} departments={rowsOf(departments)} branches={rowsOf(branches)} onSaved={tasks.retry} />
     <TaskDetail task={selectedTask} open={Boolean(selectedTask)} onClose={() => setSelectedTaskId(null)} onTransition={transition} canTransition={selectedTask ? canTransitionTask(selectedTask) : false} moving={selectedTask ? String(moving) === String(selectedTask.id) : false} />

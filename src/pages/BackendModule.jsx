@@ -693,7 +693,7 @@ function RecordBreadcrumb({ resource, listRoute, onBack, current = false }) {
   );
 }
 
-function RecordDetailPage({ resource, row, listRoute, onBack, workspaceTitle }) {
+function RecordDetailPage({ resource, row, listRoute, onBack, workspaceTitle, hideConnectedActivity = false }) {
   const detail = useApiDetail(resource, row);
   const data = detail.data || row;
   const fields = resource.detail?.length ? resource.detail : resource.columns;
@@ -807,7 +807,7 @@ function RecordDetailPage({ resource, row, listRoute, onBack, workspaceTitle }) 
         </section>
       )}
 
-      {!detail.error && resource.related?.length > 0 && (
+      {!hideConnectedActivity && !detail.error && resource.related?.length > 0 && (
         <section className="rv2-detail-section rv2-connected" aria-label="Connected activity">
           <div className="rv2-section-head">
             <h3>Connected activity</h3>
@@ -1335,6 +1335,7 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
                       onNavigate(`${listPath}${querySuffix}`, { replace: true });
                     }
                   }}
+                  hideConnectedActivity={module.cleanDetails}
                 />
               ) : systemAvailability ? (
                 <SystemAvailabilityPanel canWrite={canManageAvailability} />
@@ -1373,7 +1374,7 @@ export function BackendModule({ module, basePath, route, onNavigate, capabilitie
                     user={user}
                   />
                 )}
-              {!noVisibleTabs && !systemAvailability && !module.actionSurface && (detailRow || selectedActionTarget) && <ManagementActions
+              {!noVisibleTabs && !systemAvailability && !module.actionSurface && (!detailRow || !module.cleanDetails) && (detailRow || selectedActionTarget) && <ManagementActions
                 capabilities={capabilities}
                 pathPrefix={activeResource.path}
                 recordId={detailRow

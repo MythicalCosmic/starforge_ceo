@@ -7,7 +7,7 @@ function teacherView(module) {
 }
 
 describe('restored management page boundaries', () => {
-  it('keeps all 112 catalog views reachable through complete workspaces', () => {
+  it('keeps all non-duplicated catalog views reachable through complete workspaces', () => {
     const routeIds = [
       'account',
       'people',
@@ -37,7 +37,7 @@ describe('restored management page boundaries', () => {
         effective_permissions: ['*:*'],
       }).tabs);
 
-    expect(tabs).toHaveLength(112);
+    expect(tabs).toHaveLength(111);
   });
 
   it('adds explicit grants to shared people directories', () => {

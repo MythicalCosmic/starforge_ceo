@@ -13,19 +13,28 @@ import { ToastProvider } from './context/ToastContext.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { PageLoader } from './components/feedback.jsx';
 import { queryClient } from './api/queryClient.js';
+import { isolatedDevelopmentUrl } from './lib/devOrigin.js';
 
-createRoot(document.getElementById('root')).render(
-  <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <Suspense fallback={<PageLoader label="Opening StarForge EDU…" />}>
-        <PreferencesProvider>
-          <ToastProvider>
-            <AuthProvider>
-              <App />
-            </AuthProvider>
-          </ToastProvider>
-        </PreferencesProvider>
-      </Suspense>
-    </QueryClientProvider>
-  </ErrorBoundary>,
-);
+const isolatedUrl = import.meta.env.DEV
+  ? isolatedDevelopmentUrl(window.location, import.meta.env.VITE_DEV_APP_HOST || 'ceo.localhost')
+  : '';
+
+if (isolatedUrl) {
+  window.location.replace(isolatedUrl);
+} else {
+  createRoot(document.getElementById('root')).render(
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Suspense fallback={<PageLoader label="Opening StarForge EDU…" />}>
+          <PreferencesProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <App />
+              </AuthProvider>
+            </ToastProvider>
+          </PreferencesProvider>
+        </Suspense>
+      </QueryClientProvider>
+    </ErrorBoundary>,
+  );
+}
