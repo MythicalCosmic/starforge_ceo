@@ -4,6 +4,7 @@ import { ChartCard, DonutBreakdown, RankedBars } from '../components/ExecutiveCh
 import { Icons } from '../components/Icons.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
 import { BranchTransferPanel } from '../components/BranchTransferPanel.jsx';
+import { PeopleImportButton, PeopleImportDrafts, PeopleImportReviewPage } from '../components/PeopleImportWorkspace.jsx';
 import {
   ActionButton,
   CoverageBar,
@@ -964,6 +965,8 @@ export function StudentsPage({ route, onNav, branchId, user }) {
   const detailId = legacyDetail || directDetail;
   const detailSection = legacyDetail ? relative[2] : relative[1];
   const canWrite = canUseCapability(user, 'students:write');
+  const importId = relative[0] === 'imports' ? cleanId(relative[1]) : null;
+  if (importId) return <PeopleImportReviewPage kind="student" draftId={importId} onNav={onNav} branchId={branchId} canWrite={canWrite} />;
   const creating = relative[0] === 'new';
   const editing = Boolean(detailId) && detailSection === 'edit';
   if (creating || editing) {
@@ -977,8 +980,9 @@ export function StudentsPage({ route, onNav, branchId, user }) {
   const basePath = branchId ? `branches/${branchId}/students` : 'students';
   return (
     <div className="fw-page">
-      {!branchId && <WorkspaceHeader eyebrow="People" title="Students" description="Search the student portfolio, apply decision-ready filters, and open every learning, family, attendance, or finance section permitted for your role." actions={<>{canWrite && <LinkButton to="students/new" onNav={onNav} icon={Icons.plus} tone="primary">Create student</LinkButton>}<LinkButton to="students/directory?group=none" onNav={onNav} icon={Icons.flag}>Unassigned students</LinkButton></>} />}
+      {!branchId && <WorkspaceHeader eyebrow="People" title="Students" description="Search the student portfolio, apply decision-ready filters, and open every learning, family, attendance, or finance section permitted for your role." actions={<>{canWrite && <PeopleImportButton kind="student" onNav={onNav} basePath="students" />}{canWrite && <LinkButton to="students/new" onNav={onNav} icon={Icons.plus} tone="primary">Create student</LinkButton>}<LinkButton to="students/directory?group=none" onNav={onNav} icon={Icons.flag}>Unassigned students</LinkButton></>} />}
       {!branchId && <WorkspaceTabs label="Students" items={availableSections} active={section} basePath={basePath} onNav={onNav} />}
+      {!branchId && section === 'directory' && canWrite && <PeopleImportDrafts kind="student" onNav={onNav} basePath="students" />}
       <div className="fw-layout-content">
         {section === 'directory' && <StudentDirectory route={route} onNav={onNav} branchId={branchId} user={user} />}
         {section === 'enrollment' && <EnrollmentView onNav={onNav} />}

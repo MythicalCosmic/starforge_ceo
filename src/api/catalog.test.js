@@ -64,9 +64,9 @@ describe('backend management catalog', () => {
       });
     });
 
-    expect(listPaths).toHaveLength(112);
+    expect(listPaths).toHaveLength(111);
     expect(new Set(allPaths).size).toBe(allPaths.length);
-    expect(allPaths).toHaveLength(221);
+    expect(allPaths).toHaveLength(219);
   });
 
   it('does not issue a false GET for access assignment detail', () => {

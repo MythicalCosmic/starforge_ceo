@@ -4,6 +4,7 @@ import { ChartCard, RankedBars } from '../components/ExecutiveCharts.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
 import { BranchTransferPanel } from '../components/BranchTransferPanel.jsx';
+import { PeopleImportButton, PeopleImportDrafts, PeopleImportReviewPage } from '../components/PeopleImportWorkspace.jsx';
 import {
   ActionButton,
   CoverageBar,
@@ -493,6 +494,8 @@ export function TeachersPage({ route, onNav, user, branchId }) {
   const routed = workspaceRoute(route);
   const relative = branchId ? routed.segments.slice(3) : routed.segments.slice(1);
   const canHire = canUseCapability(user, 'teachers:write');
+  const importId = relative[0] === 'imports' ? cleanId(relative[1]) : null;
+  if (importId) return <PeopleImportReviewPage kind="teacher" draftId={importId} onNav={onNav} branchId={branchId} canWrite={canHire} />;
   if (!branchId && relative[0] === 'new' && canHire) return <TeacherEditor onNav={onNav} />;
   const legacy = relative[0] === 'directory' ? cleanId(relative[1]) : null;
   const direct = cleanId(relative[0]);
@@ -504,8 +507,9 @@ export function TeachersPage({ route, onNav, user, branchId }) {
   const section = availableSections.some((item) => item.id === relative[0]) ? relative[0] : 'directory';
   const base = branchId ? `branches/${branchId}/teachers` : 'teachers';
   return <div className="fw-page">
-    {!branchId && <WorkspaceHeader eyebrow="Faculty" title="Teachers" description="See group and student workload, recent delivery signals, employment context, and controlled compensation without reducing educators to a single score." actions={canHire && <LinkButton to="teachers/new" onNav={onNav} icon={Icons.user} tone="primary">Hire teacher</LinkButton>} />}
+    {!branchId && <WorkspaceHeader eyebrow="Faculty" title="Teachers" description="See group and student workload, recent delivery signals, employment context, and controlled compensation without reducing educators to a single score." actions={canHire && <><PeopleImportButton kind="teacher" onNav={onNav} basePath="teachers" /><LinkButton to="teachers/new" onNav={onNav} icon={Icons.user} tone="primary">Hire teacher</LinkButton></>} />}
     {!branchId && <WorkspaceTabs label="Teachers" items={availableSections} active={section} basePath={base} onNav={onNav} />}
+    {!branchId && section === 'directory' && canHire && <PeopleImportDrafts kind="teacher" onNav={onNav} basePath="teachers" />}
     <div className="fw-layout-content">
       {section === 'directory' && <TeacherDirectory route={route} onNav={onNav} branchId={branchId} user={user} />}
       {section === 'activity' && <ActivityView onNav={onNav} />}

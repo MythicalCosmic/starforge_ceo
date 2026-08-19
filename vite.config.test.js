@@ -6,8 +6,8 @@ describe('tunnel serving', () => {
     vi.stubEnv('VITE_API_PROXY_TARGET', 'https://tenant.example');
     const config = viteConfig({ command: 'serve', mode: 'test' });
 
-    expect(config.server.allowedHosts).toEqual(['.ngrok-free.app']);
-    expect(config.preview.allowedHosts).toEqual(['.ngrok-free.app']);
+    expect(config.server.allowedHosts).toEqual(['.ngrok-free.app', 'ceo.localhost']);
+    expect(config.preview.allowedHosts).toEqual(['.ngrok-free.app', 'ceo.localhost']);
     expect(config.preview.proxy['/api'].target).toBe('https://tenant.example');
 
     vi.unstubAllEnvs();
