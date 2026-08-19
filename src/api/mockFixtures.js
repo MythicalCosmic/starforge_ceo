@@ -630,6 +630,49 @@ const INVOICES = Object.freeze([
   { id: 710, number: 'INV-2026-0603', branch: 2, branch_name: 'Riverside Campus', student: 108, student_name: 'Sardor Khalilov', cohort: 22, cohort_name: 'Aurora · A2', fee_schedule: 954, fee_schedule_name: 'A2 completion fee', period: '2026-06', status: 'paid', issue_date: '2026-06-15', due_date: '2026-06-22', total_uzs: '1800000', outstanding_uzs: '0', currency: 'UZS', lines: [{ id: 10, description: 'Completion assessment and certificate', line_type: 'assessment', quantity: '1', unit_price_uzs: '1800000', amount_uzs: '1800000' }], allocations: [{ payment_id: 907, amount_uzs: '1800000', created_at: '2026-06-18T05:00:00Z' }], created_by_name: 'Demo Director', created_at: '2026-06-15T04:10:00Z', sample_only: true },
 ]);
 
+const DEBT_STUDENTS = Object.freeze([
+  {
+    id: '102:12',
+    student: 102,
+    student_id: 'SF-2417',
+    student_name: 'Timur Abdullayev',
+    branch: 1,
+    branch_name: 'Central Campus',
+    cohort: 12,
+    cohort_name: 'Nova · B1',
+    teacher: 203,
+    teacher_name: 'Kamola Ergasheva',
+    overdue_invoice_count: 1,
+    total_billed_uzs: '2800000',
+    outstanding_uzs: '2800000',
+    oldest_due_date: '2026-07-08',
+    latest_due_date: '2026-07-08',
+    days_overdue: 25,
+    aging_bucket: '8_30',
+    sample_only: true,
+  },
+  {
+    id: '101:11',
+    student: 101,
+    student_id: 'SF-2401',
+    student_name: 'Aziza Karimova',
+    branch: 1,
+    branch_name: 'Central Campus',
+    cohort: 11,
+    cohort_name: 'Orion · B2',
+    teacher: 201,
+    teacher_name: 'Dilshod Rahimov',
+    overdue_invoice_count: 1,
+    total_billed_uzs: '3200000',
+    outstanding_uzs: '1200000',
+    oldest_due_date: '2026-07-08',
+    latest_due_date: '2026-07-08',
+    days_overdue: 25,
+    aging_bucket: '8_30',
+    sample_only: true,
+  },
+]);
+
 const PAYMENT_RELATIONSHIPS = Object.freeze({
   901: { invoice_number: 'INV-2026-0501', student_name: 'Aziza Karimova', payer_name: 'Zarina Karimova', cashier_name: 'Madina Aliyeva' },
   902: { invoice_number: 'INV-2026-0601', student_name: 'Sabina Iskandarova', payer_name: 'Nodira Iskandarova', cashier_name: '' },
@@ -738,6 +781,7 @@ const COLLECTIONS = Object.freeze({
   '/api/v1/parents/guardians/': GUARDIANS,
   '/api/v1/parents/pickups/': PICKUPS,
   '/api/v1/finance/invoices/': INVOICES,
+  '/api/v1/finance/debt-students/': DEBT_STUDENTS,
   '/api/v1/payments/': PAYMENTS,
   '/api/v1/finance/expenses/': EXPENSES,
   '/api/v1/finance/refunds/': REFUNDS,
@@ -838,6 +882,7 @@ function recordDate(item, path) {
   if (path === '/api/v1/attendance/records/') return item.lesson_starts_at || item.marked_at;
   if (path === '/api/v1/academics/exams/') return item.exam_date;
   if (path === '/api/v1/finance/invoices/') return item.issue_date || item.created_at;
+  if (path === '/api/v1/finance/debt-students/') return item.oldest_due_date;
   if (path === '/api/v1/payments/') return item.paid_at || item.created_at;
   return item.created_at || item.due_at || item.starts_at || item.updated_at;
 }
@@ -898,6 +943,15 @@ function applyParams(items, path, params = {}) {
       if (!subjects.some((subject) => String(subject).toLocaleLowerCase() === String(params.subject).toLocaleLowerCase())) return false;
     }
     if (params.exam_type != null && params.exam_type !== '' && String(item.exam_type) !== String(params.exam_type)) return false;
+    if (path === '/api/v1/finance/debt-students/') {
+      const dueDate = String(item.oldest_due_date || '').slice(0, 10);
+      const dueFrom = String(params.date_from || '').slice(0, 10);
+      const dueTo = String(params.date_to || '').slice(0, 10);
+      if (dueFrom && (!dueDate || dueDate < dueFrom)) return false;
+      if (dueTo && (!dueDate || dueDate > dueTo)) return false;
+      if (params.aging && String(item.aging_bucket) !== String(params.aging)) return false;
+      if (params.minimum_outstanding && Number(item.outstanding_uzs) < Number(params.minimum_outstanding)) return false;
+    }
 
     const active = truthyParam(params.is_active);
     if (active != null && Boolean(item.is_active) !== active) return false;
@@ -1362,8 +1416,51 @@ function attendanceDashboard(cohortId, params) {
   return { rate: rows.length ? present / rows.length * 100 : 0, students, sample_only: true };
 }
 
+function buildExamOverview(params = {}) {
+  const branchId = Number(params.branch) || null;
+  const rows = scopedRows(EXAMS, '/api/v1/academics/exams/')
+    .filter((exam) => branchId == null || Number(branchOf(exam, '/api/v1/academics/exams/')) === branchId);
+  const end = new Date(`${PREVIEW_NOW}T12:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + 13);
+  const windowEnd = end.toISOString().slice(0, 10);
+  const upcoming = rows
+    .filter((exam) => String(exam.exam_date || '') >= PREVIEW_NOW)
+    .sort((left, right) => String(left.exam_date).localeCompare(String(right.exam_date)) || left.id - right.id);
+  const recent = rows
+    .filter((exam) => String(exam.exam_date || '') < PREVIEW_NOW)
+    .sort((left, right) => String(right.exam_date).localeCompare(String(left.exam_date)) || right.id - left.id);
+  const attention = rows
+    .filter((exam) => exam.requires_republish || !exam.is_published)
+    .sort((left, right) => Number(Boolean(right.requires_republish)) - Number(Boolean(left.requires_republish)) || String(left.exam_date).localeCompare(String(right.exam_date)))
+    .slice(0, 6);
+  const distribution = (keyFor, labelFor) => Object.values(rows.reduce((map, exam) => {
+    const id = keyFor(exam) ?? 'none';
+    map[id] ||= { id: id === 'none' ? null : id, label: labelFor(exam), value: 0 };
+    map[id].value += 1;
+    return map;
+  }, {})).sort((left, right) => right.value - left.value || left.label.localeCompare(right.label)).slice(0, 7);
+  return {
+    total_exams: rows.length,
+    published_exams: rows.filter((exam) => exam.is_published && !exam.requires_republish).length,
+    drafts: rows.filter((exam) => !exam.is_published && !exam.requires_republish).length,
+    corrections_due: rows.filter((exam) => exam.requires_republish).length,
+    next_14_days: rows.filter((exam) => String(exam.exam_date || '') >= PREVIEW_NOW && String(exam.exam_date || '') <= windowEnd).length,
+    subjects_used: new Set(rows.map((exam) => exam.subject).filter(Boolean)).size,
+    branch: branchId,
+    as_of: PREVIEW_NOW,
+    window_end: windowEnd,
+    schedule_kind: upcoming.length ? 'upcoming' : 'recent',
+    schedule: (upcoming.length ? upcoming : recent).slice(0, 8),
+    attention,
+    subject_distribution: distribution((exam) => exam.subject, (exam) => exam.subject_name || 'Subject not recorded'),
+    type_distribution: distribution((exam) => exam.exam_type, (exam) => exam.exam_type_detail?.name || 'Type not recorded'),
+    sample_only: true,
+  };
+}
+
 function fixtureFor(path, params = {}) {
   if (path === '/api/v1/intelligence/executive-summary/') return buildExecutiveSnapshot(params);
+  if (path === '/api/v1/academics/exams/overview/') return buildExamOverview(params);
   const studentLeadership = path.match(/^\/api\/v1\/students\/(\d+)\/leadership-profile\/$/);
   if (studentLeadership) return buildStudentLeadershipProfile(studentLeadership[1], params);
   if (path === '/api/v1/students/stats/') return studentStats(previewRole() === 'manager' ? CENTRAL_BRANCH_ID : Number(params.branch) || null);
@@ -1457,5 +1554,13 @@ export async function mockHttpRequest(method, path, { params, withMeta = false }
   if (fixture === null) throw new ApiError(404, 'This preview record is no longer available.');
   const value = Array.isArray(fixture) ? applyParams(scopedRows(fixture, path), path, params) : fixture;
   const result = Array.isArray(value) ? page(value, params) : { data: value, pagination: undefined };
+  if (path === '/api/v1/finance/debt-students/' && result.pagination) {
+    result.pagination.summary = {
+      student_groups: value.length,
+      overdue_invoice_count: value.reduce((total, item) => total + Number(item.overdue_invoice_count || 0), 0),
+      total_outstanding_uzs: String(value.reduce((total, item) => total + Number(item.outstanding_uzs || 0), 0)),
+      as_of: PREVIEW_NOW,
+    };
+  }
   return withMeta ? result : result.data;
 }

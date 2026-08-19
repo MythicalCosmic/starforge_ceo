@@ -1246,9 +1246,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 7px 8px 7px 13px;
-  border: 1px solid color-mix(in srgb, var(--sf-warn) 28%, var(--sf-border));
+  border: 1px solid var(--sf-border);
   border-radius: 13px;
-  background: color-mix(in srgb, var(--sf-warn-soft) 65%, var(--sf-surface));
+  background: color-mix(in srgb, var(--sf-surface-2) 54%, var(--sf-surface));
   color: var(--sf-ink-2);
   font-size: 11.5px;
   font-weight: 650;

@@ -154,12 +154,12 @@
 .ad-shell-v2 .ad-preview-note {
   margin: 0 0 14px;
   padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--sf-accent) 35%, var(--sf-border));
+  border: 1px solid var(--sf-border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--sf-accent-soft) 55%, var(--sf-surface));
-  color: var(--sf-accent-ink);
+  background: color-mix(in srgb, var(--sf-surface-2) 54%, var(--sf-surface));
+  color: var(--sf-muted);
   font-size: 11px;
-  font-weight: 760;
+  font-weight: 680;
   letter-spacing: 0.025em;
   text-align: center;
 }

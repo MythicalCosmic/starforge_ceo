@@ -124,7 +124,7 @@
 .fw-filter-disclosure > .fw-filter-fields { padding-top: 8px; }
 
 .fw-coverage { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--sf-success) 20%, var(--sf-border)); border-radius: 10px; background: color-mix(in srgb, var(--sf-success-soft) 32%, transparent); color: var(--sf-success); }
-.fw-coverage.is-partial { border-color: color-mix(in srgb, var(--sf-warn) 28%, var(--sf-border)); background: color-mix(in srgb, var(--sf-warn-soft) 33%, transparent); color: var(--sf-warn-ink); }
+.fw-coverage.is-partial { border-color: var(--sf-v2-border); background: color-mix(in srgb, var(--sf-surface-2) 48%, transparent); color: var(--sf-muted); }
 .fw-coverage > span:nth-child(2) { display: grid; gap: 1px; }
 .fw-coverage strong { color: var(--sf-ink-2); font-size: 11px; }
 .fw-coverage small { color: var(--sf-muted); font-size: 11px; }
@@ -196,7 +196,7 @@
 .fw-summary-card a { color: var(--sf-primary); text-decoration: none; }
 .fw-summary-card strong { overflow: hidden; text-overflow: ellipsis; }
 .fw-data-note,
-.fw-safety-block { margin-bottom: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--sf-warn) 24%, var(--sf-border)); border-radius: 10px; background: color-mix(in srgb, var(--sf-warn-soft) 28%, transparent); color: var(--sf-muted); font-size: 11px; line-height: 1.55; }
+.fw-safety-block { margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--sf-v2-border); border-radius: 10px; background: color-mix(in srgb, var(--sf-surface-2) 42%, transparent); color: var(--sf-muted); font-size: 11px; line-height: 1.55; }
 .fw-safety-block { border-color: color-mix(in srgb, var(--sf-success) 25%, var(--sf-border)); background: color-mix(in srgb, var(--sf-success-soft) 28%, transparent); }
 .fw-leadership-source { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--sf-success) 25%, var(--sf-border)); border-radius: 12px; background: linear-gradient(105deg, color-mix(in srgb, var(--sf-success-soft) 34%, var(--sf-surface)), var(--sf-surface)); }
 .fw-leadership-source-icon { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--sf-success) 14%, var(--sf-surface)); color: var(--sf-success-ink); }

@@ -39,6 +39,25 @@ const invoice = {
   lines: [],
 };
 
+const debtStudent = {
+  id: '44:12',
+  student: 44,
+  student_id: 'STU-0044',
+  student_name: 'Mohira Olimova',
+  branch: 2,
+  branch_name: 'North Branch',
+  cohort: 12,
+  cohort_name: 'North Stars',
+  teacher: 77,
+  teacher_name: 'Malika Karimova, Dilshod Saidov',
+  overdue_invoice_count: 2,
+  outstanding_uzs: '1350000.00',
+  oldest_due_date: '2026-06-15',
+  latest_due_date: '2026-07-15',
+  days_overdue: 66,
+  aging_bucket: '61_plus',
+};
+
 const readablePayment = {
   id: 9,
   branch: 2,
@@ -149,6 +168,8 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
     const records = {
       '/api/v1/org/branches/': [{ id: 2, name: 'North Branch' }],
       '/api/v1/cohorts/': [{ id: 12, name: 'North Stars', branch: 2 }],
+      '/api/v1/teachers/': [{ id: 77, full_name: 'Dilshod Saidov' }],
+      '/api/v1/finance/debt-students/': [debtStudent],
       '/api/v1/finance/invoices/': [invoice],
       '/api/v1/payments/': [readablePayment],
       '/api/v1/finance/expenses/': [expense],
@@ -195,8 +216,22 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
                   ? loan
                   : null;
     const rows = detail ? [] : records[path] || [];
+    const debtRegister = path === '/api/v1/finance/debt-students/';
     const paginated = ['/api/v1/finance/invoices/', '/api/v1/payments/', '/api/v1/finance/expenses/', '/api/v1/finance/refunds/'].includes(path) && params?.page;
-    const pagination = paginated ? { total: 76, page: Number(params.page), page_size: Number(params.page_size), pages: 4 } : null;
+    const pagination = debtRegister
+      ? {
+        total: 1,
+        page: Number(params.page || 1),
+        page_size: Number(params.page_size),
+        pages: 1,
+        summary: {
+          student_groups: 1,
+          overdue_invoice_count: 2,
+          total_outstanding_uzs: '1350000.00',
+          as_of: '2026-08-20',
+        },
+      }
+      : paginated ? { total: 76, page: Number(params.page), page_size: Number(params.page_size), pages: 4 } : null;
     return {
       data: detail || { count: rows.length, results: rows },
       rows,
@@ -250,6 +285,27 @@ describe('Finance workspace redesign', () => {
     expect(html).toContain('Financial coverage complete');
     expect(html.match(/class="fw-coverage/g)).toHaveLength(1);
     expect(html).toContain('-UZS');
+  });
+
+  it('opens a decision-ready debt register and sends every selected filter to the aggregate endpoint', () => {
+    const html = renderToStaticMarkup(<FinancePage route="finance/debt?q=Mohira&branch=2&cohort=12&teacher=77&from=2026-06-01&to=2026-07-31&aging=61_plus&minimum=300000&ordering=student_name" onNav={vi.fn()} user={director} />);
+    const request = workspaceRequests.find((item) => item.path === '/api/v1/finance/debt-students/');
+
+    expect(request.params).toMatchObject({
+      search: 'Mohira',
+      branch: '2',
+      cohort: '12',
+      teacher: '77',
+      date_from: '2026-06-01',
+      date_to: '2026-07-31',
+      aging: '61_plus',
+      minimum_outstanding: '300000',
+      ordering: 'student_name',
+    });
+    expect(html).toContain('Mohira Olimova');
+    expect(html).toContain('Malika Karimova, Dilshod Saidov');
+    expect(html).toContain('UZS\u00a01,350,000');
+    expect(html).toContain('href="/students/directory/44/finance"');
   });
 
   it('does not present missing invoice or allocation amounts as genuine zeroes', () => {

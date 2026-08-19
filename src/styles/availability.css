@@ -102,10 +102,10 @@
   gap: 10px;
   margin: 0 auto 12px;
   padding: 10px 13px;
-  border: 1px solid color-mix(in srgb, var(--sf-warn) 34%, var(--sf-border));
+  border: 1px solid var(--sf-border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--sf-warn) 8%, var(--sf-surface));
-  color: var(--sf-warn-ink, var(--sf-ink-2));
+  background: color-mix(in srgb, var(--sf-surface-2) 54%, var(--sf-surface));
+  color: var(--sf-ink-2);
 }
 .sf-app-degraded > span:last-child { display: grid; gap: 2px; }
 .sf-app-degraded strong { font-size: 11.5px; }

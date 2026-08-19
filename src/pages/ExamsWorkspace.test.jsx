@@ -59,6 +59,20 @@ vi.mock('../hooks/useWorkspaceData.js', () => ({
     if (path === '/api/v1/academics/exams/7/readiness/') data = { exam: 7, version: 4, eligible: 1, graded: 1, missing: 0, excluded: 0, coverage_fraction: 1, ready: true, generated_at: '2026-05-02T08:00:00Z' };
     if (path === '/api/v1/academics/exams/7/history/') data = { count: 1, results: [{ id: 10, event_type: 'published', exam_version: 4, reason: '', actor_name: 'Amina Karimova', created_at: '2026-05-03T05:00:00Z' }] };
     if (path === '/api/v1/academics/exams/9/history/') data = { count: 1, results: [{ id: 11, event_type: 'published', exam_version: 4, reason: '', actor_name: 'Amina Karimova', created_at: '2026-05-03T05:00:00Z' }] };
+    if (path === '/api/v1/academics/exams/overview/') data = {
+      total_exams: 2,
+      published_exams: 0,
+      drafts: 2,
+      corrections_due: 0,
+      next_14_days: 0,
+      subjects_used: 1,
+      as_of: '2026-08-20',
+      schedule_kind: 'recent',
+      schedule: [exam],
+      attention: [exam],
+      subject_distribution: [{ id: 3, label: 'English', value: 2 }],
+      type_distribution: [{ id: 2, label: 'Midterm', value: 2 }],
+    };
     if (path === '/api/v1/academics/subjects/') data = { count: 1, results: [{ id: 3, code: 'ENG', name: 'English', description: 'Language', is_active: true }] };
     if (path === '/api/v1/cohorts/' && String(params?.branch || '') === '2') {
       data = { count: 1, results: [{ id: 12, name: 'North Stars' }] };
@@ -112,8 +126,12 @@ describe('Exams route-backed workflows', () => {
 
   it('uses a calendar-first overview and progressive register filters', () => {
     const overview = renderToStaticMarkup(<ExamsPage route="exams/overview" onNav={vi.fn()} user={{ effective_permissions: ['academics:read'] }} />);
-    expect(overview).toContain('Recent assessment moments');
+    expect(overview).toContain('Assessment schedule');
+    expect(overview).toContain('Assessment overview is exact');
+    expect(overview).toContain('Exact distribution across the current scope');
     expect(overview).toContain('href="/exams/exams/7"');
+    expect(loadedPaths()).toContain('/api/v1/academics/exams/overview/');
+    expect(loadedPaths()).not.toContain('/api/v1/academics/exams/');
 
     const register = renderToStaticMarkup(<ExamsPage route="exams/exams?subject=3" onNav={vi.fn()} user={{ effective_permissions: ['academics:read'] }} />);
     expect(register).toContain('<details class="fw-filter-disclosure"');
@@ -291,9 +309,10 @@ describe('Exams route-backed workflows', () => {
   it('does not present organization-wide grade registers as branch records', () => {
     const html = renderToStaticMarkup(<ExamsPage route="branches/2/exams/grades" branchId="2" onNav={vi.fn()} user={{ effective_permissions: ['*:*'] }} />);
 
-    expect(html).toContain('Recent assessment moments');
+    expect(html).toContain('Assessment schedule');
+    expect(html).toContain('Exact branch assessment scope');
     expect(loadedPaths()).not.toContain('/api/v1/academics/grades/');
     expect(loadedPaths()).not.toContain('/api/v1/academics/subjects/');
-    expect(loadedPaths()).toEqual(expect.arrayContaining(['/api/v1/cohorts/', '/api/v1/academics/exams/']));
+    expect(loadedPaths()).toEqual(['/api/v1/academics/exams/overview/']);
   });
 });

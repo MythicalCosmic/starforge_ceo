@@ -1,6 +1,5 @@
 import { cloneElement, useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ChartCard, ComparisonBars, DonutBreakdown, RankedBars } from '../components/ExecutiveCharts.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { DeferredFilterInput } from '../components/PeopleWorkspacePrimitives.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
@@ -31,19 +30,20 @@ import { canUseCapability } from '../lib/permissions.js';
 import { userFacingError } from '../lib/userFacingError.js';
 import '../styles/focused-v3.css';
 import '../styles/financial-academic-v4.css';
+import '../styles/financial-academic-v5.css';
 
 const SECTIONS = Object.freeze([
-  { id: 'overview', label: 'Financial overview', description: 'Position and movement', icon: Icons.home },
-  { id: 'invoices', label: 'Invoices', description: 'Billing and reasons', icon: Icons.doc },
-  { id: 'payments', label: 'Payments', description: 'Collections register', icon: Icons.trend },
-  { id: 'expenses', label: 'Expenses', description: 'Commitments and approvals', icon: Icons.flag },
+  { id: 'overview', label: 'Overview', description: 'Financial position and movement', icon: Icons.home },
+  { id: 'debt', label: 'Debt students', description: 'Overdue tuition follow-up', icon: Icons.user },
+  { id: 'invoices', label: 'Billing', description: 'Invoices and reasons', icon: Icons.doc },
+  { id: 'payments', label: 'Collections', description: 'Payments received', icon: Icons.trend },
+  { id: 'expenses', label: 'Spending', description: 'Expenses and approvals', icon: Icons.wallet },
   { id: 'refunds', label: 'Refunds', description: 'Controlled reversals', icon: Icons.shield },
-  { id: 'cashier', label: 'Cashier operations', description: 'Shifts and reconciliation', icon: Icons.user },
+  { id: 'cashier', label: 'Cashier', description: 'Shifts and reconciliation', icon: Icons.user },
   { id: 'loans', label: 'Staff loans', description: 'Employee loan lifecycle', icon: Icons.folder },
-  { id: 'configuration', label: 'Billing setup', description: 'Fees and payment methods', icon: Icons.settings },
+  { id: 'configuration', label: 'Setup', description: 'Fees and payment methods', icon: Icons.settings },
 ]);
 
-const COLORS = ['var(--sf-primary)', 'var(--sf-success)', 'var(--sf-warn)', 'var(--sf-danger)', '#7389b6', '#9a82ba'];
 const BILLABLE_INVOICE_STATUSES = new Set(['issued', 'partially_paid', 'paid', 'overdue']);
 const PAYABLE_INVOICE_STATUSES = new Set(['issued', 'partially_paid', 'overdue']);
 const REGISTER_PAGE_SIZE = 25;
@@ -59,6 +59,8 @@ const ALL_FINANCE_FILTER_STATUSES = Object.freeze([...new Set([
 ])]);
 const PAYMENT_PROVIDERS = Object.freeze(['cash', 'click', 'payme', 'uzum', 'bank_transfer']);
 const ALLOCATION_FILTERS = Object.freeze(['auto', 'manual_review', 'allocated']);
+const DEBT_AGING_FILTERS = Object.freeze(['1_7', '8_30', '31_60', '61_plus']);
+const DEBT_ORDERING = Object.freeze(['-outstanding_uzs', 'outstanding_uzs', 'oldest_due_date', '-oldest_due_date', 'student_name', '-student_name']);
 
 function normalizedStatus(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -179,6 +181,10 @@ function queryFilters(params, statusChoices = ALL_FINANCE_FILTER_STATUSES) {
     provider: choiceParam(params, 'provider', PAYMENT_PROVIDERS),
     allocation: choiceParam(params, 'allocation', ALLOCATION_FILTERS),
     category: boundedTextParam(params, 'category', 80),
+    teacher: idParam(params, 'teacher'),
+    aging: choiceParam(params, 'aging', DEBT_AGING_FILTERS),
+    minimum: boundedTextParam(params, 'minimum', 24),
+    ordering: choiceParam(params, 'ordering', DEBT_ORDERING),
   };
 }
 
@@ -298,7 +304,21 @@ function useFinanceSources(filters = {}, requested = [], registerPages = {}) {
   const refunds = useWorkspaceData('/api/v1/finance/refunds/', { ...paginationFor('refunds'), ...registerWindow, state: filters.status || undefined, provider: filters.provider || undefined }, { enabled: enabled('refunds') });
   const branches = useWorkspaceData('/api/v1/org/branches/', { page_size: 100 }, { enabled: enabled('branches') });
   const students = useWorkspaceData('/api/v1/students/', { page_size: 100, branch: filters.branch || undefined }, { enabled: enabled('students') });
-  return { cohorts, invoices, payments, expenses, refunds, branches, students };
+  const teachers = useWorkspaceData('/api/v1/teachers/', { page_size: 100, branch: filters.branch || undefined }, { enabled: enabled('teachers') });
+  const debt = useWorkspaceData('/api/v1/finance/debt-students/', {
+    page_size: registerPages.debt ? REGISTER_PAGE_SIZE : 6,
+    page: registerPages.debt || undefined,
+    branch: filters.branch || undefined,
+    cohort: filters.cohort || undefined,
+    teacher: filters.teacher || undefined,
+    date_from: filters.from || undefined,
+    date_to: filters.to || undefined,
+    search: filters.q || undefined,
+    aging: filters.aging || undefined,
+    minimum_outstanding: filters.minimum || undefined,
+    ordering: filters.ordering || undefined,
+  }, { enabled: enabled('debt') });
+  return { cohorts, invoices, payments, expenses, refunds, branches, students, teachers, debt };
 }
 
 function humanLabel(value, fallback = 'Not recorded') {
@@ -375,30 +395,79 @@ function FinanceCoverage({ registers }) {
   );
 }
 
-function RegisterPreview({ eyebrow, title, description, rows, empty, to, onNav, describe, state }) {
-  return (
-    <section className="fa4-register">
-      <header>
-        <div><span>{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>
-        <RouteLink to={to} onNav={onNav}>View register{cloneElement(Icons.chevR, { size: 14 })}</RouteLink>
-      </header>
-      <div className="fa4-register-list">
-        <WorkspaceState state={state} empty={!rows.length} emptyTitle={empty} emptyBody="Change the selected scope or return when activity has been recorded.">{rows.map((row, index) => {
-          const item = describe(row);
-          const content = <><span><strong>{item.title}</strong><small>{item.detail}</small></span><span><strong>{item.value}</strong><StatusPill value={item.status} /></span></>;
-          return item.to
-            ? <RouteLink className="fa4-register-row" key={row.id ?? index} to={item.to} onNav={onNav}>{content}</RouteLink>
-            : <div className="fa4-register-row" key={row.id ?? index}>{content}</div>;
-        })}</WorkspaceState>
+function percent(value) {
+  return Number.isFinite(value) ? `${value.toLocaleString('en', { maximumFractionDigits: 1 })}%` : '—';
+}
+
+function DebtAging({ days }) {
+  const parsed = Number(days);
+  const tone = !Number.isFinite(parsed) ? 'unknown' : parsed > 60 ? 'critical' : parsed > 30 ? 'high' : parsed > 7 ? 'medium' : 'recent';
+  return <span className={`fa5-aging is-${tone}`}>{Number.isFinite(parsed) ? `${formatBusinessNumber(parsed)} days` : 'Age unavailable'}</span>;
+}
+
+function FinanceMetricRail({ metrics }) {
+  return <section className="fa5-metric-rail" aria-label="Financial position">{metrics.map((metric) => <article className={metric.tone ? `is-${metric.tone}` : ''} key={metric.label}>
+    <span>{metric.label}</span>
+    <strong>{metric.value}</strong>
+    <small>{metric.detail}</small>
+  </article>)}</section>;
+}
+
+function DebtPreview({ state, onNav }) {
+  const summary = state.pagination?.summary;
+  const exactTotal = finiteAmount(summary?.total_outstanding_uzs);
+  return <section className="fa5-panel fa5-debt-preview">
+    <header>
+      <div><h2>Students who need payment follow-up</h2><p>Past-due tuition only. Open a student to review the invoices behind the balance.</p></div>
+      <LinkButton to="finance/debt" onNav={onNav} tone="primary">Open debt register</LinkButton>
+    </header>
+    <div className="fa5-debt-summary">
+      <span><small>Outstanding now</small><strong>{state.pending ? '…' : exactTotal == null ? '—' : money(exactTotal)}</strong></span>
+      <span><small>Students / groups</small><strong>{state.pending ? '…' : summary ? formatBusinessNumber(summary.student_groups) : formatBusinessNumber(state.total)}</strong></span>
+      <span><small>Overdue invoices</small><strong>{state.pending ? '…' : summary ? formatBusinessNumber(summary.overdue_invoice_count) : '—'}</strong></span>
+      <span><small>As of</small><strong>{summary?.as_of ? formatOrganizationDate(summary.as_of, { dateOnly: true }) : 'Current view'}</strong></span>
+    </div>
+    <WorkspaceState state={state} empty={!state.rows.length} emptyTitle="No overdue tuition in this scope" emptyBody="Every currently visible monthly payment is settled or not yet due.">
+      <div className="fa5-debt-list">{state.rows.map((row) => <RouteLink key={row.id} to={`students/directory/${row.student}/finance`} onNav={onNav}>
+        <span className="fa5-person-mark" aria-hidden="true">{String(row.student_name || 'S').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>
+        <span><strong>{row.student_name || row.student_id || 'Student'}</strong><small>{row.cohort_name || 'No group'} · {row.teacher_name || 'Teacher not assigned'}</small></span>
+        <DebtAging days={row.days_overdue} />
+        <span><strong>{money(row.outstanding_uzs)}</strong><small>{formatBusinessNumber(row.overdue_invoice_count)} overdue invoice{Number(row.overdue_invoice_count) === 1 ? '' : 's'}</small></span>
+        {cloneElement(Icons.chevR, { size: 15 })}
+      </RouteLink>)}</div>
+    </WorkspaceState>
+  </section>;
+}
+
+function MovementLedger({ rows, states, onNav }) {
+  const state = combinedState(...states);
+  return <section className="fa5-panel fa5-movement">
+    <header>
+      <div><h2>Recent money movement</h2><p>A single chronological trail across billing, collections, spending, and refunds.</p></div>
+      <div className="fa5-register-links">
+        <RouteLink to="finance/invoices" onNav={onNav}>Latest invoices</RouteLink>
+        <RouteLink to="finance/payments" onNav={onNav}>Latest payments</RouteLink>
+        <RouteLink to="finance/expenses" onNav={onNav}>Latest expenses</RouteLink>
+        <RouteLink to="finance/refunds" onNav={onNav}>Latest refunds</RouteLink>
       </div>
-    </section>
-  );
+    </header>
+    <WorkspaceState state={state} empty={!rows.length} emptyTitle="No financial movement in this period" emptyBody="Change the selected dates or branch to review another period.">
+      <div className="fa5-movement-list">{rows.map((row) => <RouteLink key={`${row.kind}-${row.id}`} to={row.to} onNav={onNav}>
+        <span className={`fa5-movement-kind is-${row.kind}`}>{cloneElement(row.icon, { size: 15 })}</span>
+        <span><strong>{row.title}</strong><small>{row.kindLabel} · {row.detail}</small></span>
+        <time>{formatOrganizationDate(row.date, { dateOnly: true }) || 'Date unavailable'}</time>
+        <span className={row.amount < 0 ? 'is-negative' : ''}>{signedMoney(row.amount)}</span>
+        <StatusPill value={row.status} />
+        {cloneElement(Icons.chevR, { size: 15 })}
+      </RouteLink>)}</div>
+    </WorkspaceState>
+  </section>;
 }
 
 function FinanceOverview({ route, onNav }) {
   const routed = workspaceRoute(route);
   const filters = queryFilters(routed.params, []);
-  const source = useFinanceSources(filters, ['cohorts', 'invoices', 'payments', 'expenses', 'refunds', 'branches']);
+  const source = useFinanceSources(filters, ['cohorts', 'invoices', 'payments', 'expenses', 'refunds', 'branches', 'debt']);
   const invoices = source.invoices.rows.filter((row) => inDates(row.issue_date || row.created_at, filters.from, filters.to));
   const payments = source.payments.rows.filter((row) => inDates(row.paid_at || row.created_at, filters.from, filters.to));
   const expenses = source.expenses.rows.filter((row) => inDates(row.created_at, filters.from, filters.to));
@@ -434,9 +503,6 @@ function FinanceOverview({ route, onNav }) {
   const spent = source.expenses.complete ? spentEvidence : null;
   const commitments = source.expenses.complete ? commitmentsEvidence : null;
   const outstanding = source.invoices.complete ? outstandingEvidence : null;
-  const statusMix = Object.values(invoices.reduce((map, invoice, index) => {
-    const label = normalizedStatus(invoice.status) || 'unknown'; map[label] ||= { label, value: 0, color: COLORS[index % COLORS.length] }; map[label].value += 1; return map;
-  }, {}));
   const billingMovementReady = source.invoices.complete
     && billedEvidence != null
     && issuedInvoices.every((invoice) => isValidDateInput(String(invoice.issue_date || invoice.created_at || '').slice(0, 10)));
@@ -473,8 +539,16 @@ function FinanceOverview({ route, onNav }) {
     return { id: branch.id, label: branch.name, value: total(rows, 'total_uzs'), detail: `${rows.length} issued invoices` };
   }) : [];
   const collectionsState = combinedState(source.payments, source.refunds);
-  const positionState = combinedState(source.invoices, source.payments, source.refunds, source.expenses);
   const branchState = combinedState(source.branches, source.cohorts, source.invoices);
+  const collectionRate = billed != null && billed > 0 && netCollected != null ? (netCollected / billed) * 100 : null;
+  const operatingMovement = netCollected != null && spent != null ? netCollected - spent : null;
+  const movementRows = [
+    ...invoices.map((row) => ({ id: row.id, kind: 'invoice', kindLabel: 'Invoice', icon: Icons.doc, title: row.student_name || row.number || 'Invoice', detail: row.number || row.fee_schedule_name || row.period || 'Billing record', amount: finiteAmount(row.total_uzs), date: row.issue_date || row.created_at, status: row.status, to: `finance/invoices/${row.id}` })),
+    ...payments.map((row) => ({ id: row.id, kind: 'payment', kindLabel: 'Payment', icon: Icons.trend, title: row.student_name || humanLabel(row.provider, 'Payment received'), detail: humanLabel(row.provider, 'Payment method'), amount: finiteAmount(row.amount_uzs), date: row.paid_at || row.created_at, status: row.status, to: `finance/payments/${row.id}` })),
+    ...expenses.map((row) => ({ id: row.id, kind: 'expense', kindLabel: 'Expense', icon: Icons.wallet, title: row.description || humanLabel(row.category, 'Expense'), detail: row.branch_name || humanLabel(row.category), amount: finiteAmount(row.amount_uzs) == null ? null : -finiteAmount(row.amount_uzs), date: row.paid_at || row.created_at, status: row.status, to: `finance/expenses/${row.id}` })),
+    ...refunds.map((row) => ({ id: row.id, kind: 'refund', kindLabel: 'Refund', icon: Icons.shield, title: row.reason || 'Refund request', detail: humanLabel(row.provider, 'Provider'), amount: finiteAmount(row.amount_uzs) == null ? null : -finiteAmount(row.amount_uzs), date: row.created_at, status: row.state, to: `finance/refunds/${row.id}` })),
+  ].filter((row) => id(row.id)).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 12);
+  const maxBranchValue = branchRows.reduce((maximum, row) => Math.max(maximum, finiteAmount(row.value) || 0), 0);
   const filterCount = Object.values(filters).filter(Boolean).length;
   return <>
     <FilterPanel title="Finance period" activeCount={filterCount} actions={<ActionButton tone="ghost" onClick={() => onNav('finance/overview')}>Clear</ActionButton>}>
@@ -482,34 +556,89 @@ function FinanceOverview({ route, onNav }) {
       <FilterField label="To"><input type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => changeFilter(filters, 'to', event.target.value, 'finance/overview', onNav)} /></FilterField>
       <FilterField label="Branch"><select value={filters.branch} onChange={(event) => changeFilter(filters, 'branch', event.target.value, 'finance/overview', onNav)}><option value="">All branches</option><UnloadedSelectionOption value={filters.branch} options={source.branches.rows} label="branch" />{source.branches.rows.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></FilterField>
     </FilterPanel>
-    <div className="fw-data-note">Branch and inclusive period filters are applied before each financial register is loaded. Every figure below is explicitly tied to the visible register coverage; generated XLSX/PDF reports use the same selected scope.</div>
     <FinanceCoverage registers={source} />
-    <div className="fw-summary-grid">
-      <div className="fw-summary-card"><span>Issued billing</span><strong>{stateValue(source.invoices, billed)}</strong><small>{stateDescription(source.invoices, billed == null ? 'One or more invoice amounts are unavailable, or a lifecycle state is invalid' : `${issuedInvoices.length} issued invoices`)}</small></div>
-      <div className="fw-summary-card"><span>Net collections</span><strong>{stateValue(collectionsState, netCollected, signedMoney)}</strong><small>{stateDescription(collectionsState, netCollected == null ? 'One or more collection or refund amounts are unavailable, or a lifecycle state is invalid' : `${money(grossCollected)} completed less ${money(completedRefunds)} refunded`)}</small></div>
-      <div className="fw-summary-card"><span>Paid expenses</span><strong>{stateValue(source.expenses, spent)}</strong><small>{stateDescription(source.expenses, spent == null ? 'One or more paid expense amounts are unavailable' : 'Completed disbursements loaded')}</small></div>
-      <div className="fw-summary-card"><span>Outstanding balance</span><strong>{stateValue(source.invoices, outstanding)}</strong><small>{stateDescription(source.invoices, outstanding == null ? 'One or more invoice balances are unavailable' : 'Invoice value less settled value')}</small></div>
-      <div className="fw-summary-card"><span>Approved commitments</span><strong>{stateValue(source.expenses, commitments)}</strong><small>{stateDescription(source.expenses, commitments == null ? 'One or more approved amounts are unavailable' : 'Approved, not recorded as spent')}</small></div>
-      <div className="fw-summary-card"><span>Completed refunds</span><strong>{stateValue(source.refunds, completedRefunds)}</strong><small>{stateDescription(source.refunds, completedRefunds == null ? 'One or more completed refund amounts are unavailable' : 'Deducted from net collections')}</small></div>
+    <FinanceMetricRail metrics={[
+      { label: 'Issued billing', value: stateValue(source.invoices, billed), detail: stateDescription(source.invoices, billed == null ? 'One or more invoice amounts are unavailable, or a lifecycle state is invalid' : `${issuedInvoices.length} issued invoices`) },
+      { label: 'Net collections', value: stateValue(collectionsState, netCollected, signedMoney), detail: stateDescription(collectionsState, netCollected == null ? 'One or more collection or refund amounts are unavailable, or a lifecycle state is invalid' : `${percent(collectionRate)} of issued billing`) },
+      { label: 'Outstanding balance', value: stateValue(source.invoices, outstanding), detail: stateDescription(source.invoices, outstanding == null ? 'One or more invoice balances are unavailable' : 'Open invoice value after allocations'), tone: outstanding > 0 ? 'danger' : '' },
+      { label: 'Operating movement', value: stateValue(combinedState(collectionsState, source.expenses), operatingMovement, signedMoney), detail: stateDescription(combinedState(collectionsState, source.expenses), operatingMovement == null ? 'Collections or expense evidence is incomplete' : 'Net collections less paid expenses') },
+    ]} />
+    <div className="fa5-primary-grid">
+      <DebtPreview state={source.debt} onNav={onNav} />
+      <section className="fa5-panel fa5-position-panel">
+        <header><div><h2>What changed the position</h2><p>Supporting figures for the selected scope.</p></div></header>
+        <div className="fa5-position-list">
+          <div><span>Paid expenses</span><strong>{stateValue(source.expenses, spent)}</strong><small>{stateDescription(source.expenses, spent == null ? 'One or more paid expense amounts are unavailable' : 'Completed disbursements')}</small></div>
+          <div><span>Approved commitments</span><strong>{stateValue(source.expenses, commitments)}</strong><small>{stateDescription(source.expenses, commitments == null ? 'One or more approved amounts are unavailable' : 'Approved, not yet paid')}</small></div>
+          <div><span>Completed refunds</span><strong>{stateValue(source.refunds, completedRefunds)}</strong><small>{stateDescription(source.refunds, completedRefunds == null ? 'One or more completed refund amounts are unavailable' : 'Already deducted from collections')}</small></div>
+          <div><span>Gross collected</span><strong>{stateValue(source.payments, grossCollected)}</strong><small>{stateDescription(source.payments, 'Completed payments before refunds')}</small></div>
+        </div>
+      </section>
     </div>
-    <div className="fw-analytics-grid">
-      <WorkspaceState state={positionState}><ChartCard eyebrow="Financial position" title="Billing, net collections, spending, balance" description={positionState.complete ? 'UZS · complete selected register coverage' : 'Totals are withheld until every supporting register is complete.'}><ComparisonBars formatter={signedMoney} data={[
-        { label: 'Issued billing', value: billed, color: 'var(--sf-primary)' }, { label: 'Net collections', value: netCollected, color: 'var(--sf-success)' },
-        { label: 'Paid expenses', value: spent, color: 'var(--sf-warn)' }, { label: 'Outstanding', value: outstanding, color: 'var(--sf-danger)' },
-      ]} /></ChartCard></WorkspaceState>
-      <WorkspaceState state={source.invoices}><ChartCard eyebrow="Invoice portfolio" title="Invoice status mix" description="Loaded invoice register"><DonutBreakdown data={statusMix} centerValue={formatBusinessNumber(invoices.length)} centerLabel="invoices" /></ChartCard></WorkspaceState>
-      <WorkspaceState state={source.invoices}><ChartCard eyebrow="Billing movement" title="Issued value by month" description={billingMovementReady ? 'Discrete issue months · UZS · complete register' : 'Movement is withheld until invoice coverage, dates, lifecycle states, and amounts are complete.'}><ComparisonBars data={months} formatter={money} /></ChartCard></WorkspaceState>
-      <WorkspaceState state={branchState}><ChartCard eyebrow="Branch comparison" title="Billed value by branch" description={branchComparisonReady ? 'Verified direct or group-to-branch attribution · complete registers' : 'Comparison is withheld until every issued invoice can be matched to a visible branch.'}><RankedBars data={branchRows} formatter={money} onSelect={(branch) => onNav(`branches/${branch.id}/finance`)} /></ChartCard></WorkspaceState>
+    <MovementLedger rows={movementRows} states={[source.invoices, source.payments, source.expenses, source.refunds]} onNav={onNav} />
+    <div className="fa5-secondary-grid">
+      <section className="fa5-panel fa5-period-panel">
+        <header><div><h2>Billing by month</h2><p>{billingMovementReady ? 'Discrete issue months · verified UZS totals' : 'Movement is withheld until invoice coverage, dates, lifecycle states, and amounts are complete.'}</p></div></header>
+        {months.length ? <div className="fa5-period-list">{months.slice(-8).map((row) => <div key={row.label}><span>{row.label}</span><strong>{money(row.value)}</strong></div>)}</div> : <div className="fa5-quiet-empty">No verified monthly movement is available.</div>}
+      </section>
+      <section className="fa5-panel fa5-branch-panel">
+        <header><div><h2>Branch billing comparison</h2><p>{branchComparisonReady ? 'Verified invoice attribution for this scope.' : 'Comparison is withheld until every issued invoice can be matched to a visible branch.'}</p></div></header>
+        <WorkspaceState state={branchState} empty={branchComparisonReady && !branchRows.length} emptyTitle="No branch billing in this period">
+          <div className="fa5-branch-list">{branchRows.slice(0, 8).map((branch) => <button type="button" key={branch.id} onClick={() => onNav(`branches/${branch.id}/finance`)}>
+            <span><strong>{branch.label}</strong><small>{branch.detail}</small></span><b>{money(branch.value)}</b><i style={{ '--fa5-fill': `${maxBranchValue > 0 ? ((finiteAmount(branch.value) || 0) / maxBranchValue) * 100 : 0}%` }} />
+          </button>)}</div>
+        </WorkspaceState>
+      </section>
     </div>
-    <section className="fa4-ledger" aria-labelledby="finance-ledger-title">
-      <header className="fa4-section-head"><div><span>Operating ledger</span><h2 id="finance-ledger-title">Recent money movement</h2><p>Continue from the executive position into the exact record that explains it.</p></div></header>
-      <div className="fa4-register-grid">
-        <RegisterPreview state={source.invoices} eyebrow="Billing" title="Latest invoices" description="Student, reason, value, and collection state" rows={invoices.slice(0, 6)} empty={source.invoices.complete ? 'No invoices are recorded in this scope.' : 'No invoices appear in the incomplete loaded view.'} to="finance/invoices" onNav={onNav} describe={(row) => ({ title: row.number || 'Invoice', detail: `${row.student_name || 'Student not recorded'} · ${row.fee_schedule_name || row.period || 'Billing reason not recorded'}`, value: money(row.total_uzs), status: row.status, to: id(row.id) ? `finance/invoices/${id(row.id)}` : null })} />
-        <RegisterPreview state={source.payments} eyebrow="Collections" title="Latest payments" description="Completed and pending collection events" rows={payments.slice(0, 6)} empty={source.payments.complete ? 'No payments are recorded in this scope.' : 'No payments appear in the incomplete loaded view.'} to="finance/payments" onNav={onNav} describe={(row) => ({ title: humanLabel(row.provider, 'Payment'), detail: formatOrganizationDate(row.paid_at || row.created_at) || 'Date not recorded', value: money(row.amount_uzs), status: row.status, to: id(row.id) ? `finance/payments/${id(row.id)}` : null })} />
-        <RegisterPreview state={source.expenses} eyebrow="Commitments" title="Latest expenses" description="What the education center needs to pay" rows={expenses.slice(0, 6)} empty={source.expenses.complete ? 'No expenses are recorded in this scope.' : 'No expenses appear in the incomplete loaded view.'} to="finance/expenses" onNav={onNav} describe={(row) => ({ title: row.description || humanLabel(row.category, 'Expense'), detail: `${row.branch_name || 'Branch not recorded'} · ${humanLabel(row.category)}`, value: money(row.amount_uzs), status: row.status, to: id(row.id) ? `finance/expenses/${id(row.id)}` : null })} />
-        <RegisterPreview state={source.refunds} eyebrow="Reversals" title="Latest refunds" description="Controlled returns and their current state" rows={refunds.slice(0, 6)} empty={source.refunds.complete ? 'No refunds are recorded in this scope.' : 'No refunds appear in the incomplete loaded view.'} to="finance/refunds" onNav={onNav} describe={(row) => ({ title: row.reason || 'Refund request', detail: `${humanLabel(row.provider)} · ${formatOrganizationDate(row.created_at) || 'Date not recorded'}`, value: money(row.amount_uzs), status: row.state, to: id(row.id) ? `finance/refunds/${id(row.id)}` : null })} />
-      </div>
+  </>;
+}
+
+function DebtStudents({ route, onNav }) {
+  const routed = workspaceRoute(route);
+  const filters = queryFilters(routed.params, []);
+  const page = queryPage(routed.params);
+  const base = 'finance/debt';
+  const source = useFinanceSources(filters, ['debt', 'cohorts', 'branches', 'teachers'], { debt: page });
+  const summary = source.debt.pagination?.summary;
+  const totalOutstanding = finiteAmount(summary?.total_outstanding_uzs);
+  const averageDebt = totalOutstanding != null && Number(summary?.student_groups) > 0
+    ? totalOutstanding / Number(summary.student_groups)
+    : null;
+  const activeCount = Object.values(filters).filter(Boolean).length;
+  return <>
+    <section className="fa5-section-intro">
+      <div><h2>Debt students</h2><p>Every row is a student and course group with at least one past-due invoice and a positive unpaid balance.</p></div>
+      <RouteLink to="finance/invoices?status=overdue" onNav={onNav}>Review overdue invoices{cloneElement(Icons.chevR, { size: 15 })}</RouteLink>
     </section>
+    <div className="fa5-debt-register-summary" aria-label="Debt register summary">
+      <span><small>Outstanding</small><strong>{source.debt.pending ? '…' : totalOutstanding == null ? '—' : money(totalOutstanding)}</strong></span>
+      <span><small>Students / groups</small><strong>{source.debt.pending ? '…' : formatBusinessNumber(summary?.student_groups ?? source.debt.total)}</strong></span>
+      <span><small>Overdue invoices</small><strong>{source.debt.pending ? '…' : summary ? formatBusinessNumber(summary.overdue_invoice_count) : '—'}</strong></span>
+      <span><small>Average balance</small><strong>{source.debt.pending ? '…' : averageDebt == null ? '—' : money(averageDebt)}</strong></span>
+    </div>
+    <FilterPanel title="Debt filters" activeCount={activeCount} advancedCount={['from', 'to', 'aging', 'minimum', 'ordering'].filter((key) => filters[key]).length} actions={<ActionButton tone="ghost" onClick={() => onNav(base)}>Clear all</ActionButton>} primary={<>
+      <FilterField label="Student" wide><DeferredFilterInput type="search" maxLength={120} value={filters.q} placeholder="Name or student ID" onCommit={(value) => changeFilter(filters, 'q', value, base, onNav, { replace: true })} /></FilterField>
+      <FilterField label="Branch"><select value={filters.branch} onChange={(event) => changeFilter(filters, 'branch', event.target.value, base, onNav)}><option value="">All branches</option><UnloadedSelectionOption value={filters.branch} options={source.branches.rows} label="branch" />{source.branches.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></FilterField>
+      <FilterField label="Group"><select value={filters.cohort} onChange={(event) => changeFilter(filters, 'cohort', event.target.value, base, onNav)}><option value="">All groups</option><UnloadedSelectionOption value={filters.cohort} options={source.cohorts.rows} label="group" />{source.cohorts.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></FilterField>
+      <FilterField label="Teacher"><select value={filters.teacher} onChange={(event) => changeFilter(filters, 'teacher', event.target.value, base, onNav)}><option value="">All teachers</option><UnloadedSelectionOption value={filters.teacher} options={source.teachers.rows} label="teacher" />{source.teachers.rows.map((item) => <option value={item.id} key={item.id}>{item.full_name}</option>)}</select></FilterField>
+    </>}>
+      <FilterField label="Due from"><input type="date" value={filters.from} max={filters.to || undefined} onChange={(event) => changeFilter(filters, 'from', event.target.value, base, onNav)} /></FilterField>
+      <FilterField label="Due to"><input type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => changeFilter(filters, 'to', event.target.value, base, onNav)} /></FilterField>
+      <FilterField label="Age"><select value={filters.aging} onChange={(event) => changeFilter(filters, 'aging', event.target.value, base, onNav)}><option value="">Any overdue age</option><option value="1_7">1–7 days</option><option value="8_30">8–30 days</option><option value="31_60">31–60 days</option><option value="61_plus">61+ days</option></select></FilterField>
+      <FilterField label="Minimum balance"><input type="number" inputMode="numeric" min="0" step="1000" value={filters.minimum} placeholder="Any amount" onChange={(event) => changeFilter(filters, 'minimum', event.target.value, base, onNav)} /></FilterField>
+      <FilterField label="Sort by"><select value={filters.ordering} onChange={(event) => changeFilter(filters, 'ordering', event.target.value, base, onNav)}><option value="">Highest balance first</option><option value="outstanding_uzs">Lowest balance first</option><option value="oldest_due_date">Oldest debt first</option><option value="-oldest_due_date">Newest debt first</option><option value="student_name">Student A–Z</option><option value="-student_name">Student Z–A</option></select></FilterField>
+    </FilterPanel>
+    <PaginatedRegister state={source.debt} requestedPage={page} filters={filters} base={base} label="debt students" onNav={onNav} emptyTitle="No students match this debt view">
+      <WorkspaceTable label="Debt students" rows={source.debt.rows} rowLabel={(row) => row.student_name || row.student_id} columns={[
+        { key: 'student_name', label: 'Student', render: (row) => <span className="fw-person-cell"><strong><RouteLink to={`students/directory/${row.student}/finance`} onNav={onNav}>{row.student_name || 'Student'}</RouteLink></strong><small>{row.student_id || `Record ${row.student}`}</small></span> },
+        { key: 'cohort_name', label: 'Group', render: (row) => <span className="fw-person-cell"><strong>{row.cohort_name || 'No group recorded'}</strong><small>{row.branch_name || 'Branch unavailable'}</small></span> },
+        { key: 'teacher_name', label: 'Teacher', render: (row) => row.teacher_name || 'Not assigned' },
+        { key: 'oldest_due_date', label: 'Oldest due', render: (row) => <span className="fw-person-cell"><strong>{formatOrganizationDate(row.oldest_due_date, { dateOnly: true })}</strong><small>Latest {formatOrganizationDate(row.latest_due_date, { dateOnly: true })}</small></span> },
+        { key: 'days_overdue', label: 'Age', render: (row) => <DebtAging days={row.days_overdue} /> },
+        { key: 'overdue_invoice_count', label: 'Invoices', render: (row) => formatBusinessNumber(row.overdue_invoice_count) },
+        { key: 'outstanding_uzs', label: 'Outstanding', render: (row) => <strong className="fa5-debt-amount">{money(row.outstanding_uzs)}</strong> },
+      ]} onOpen={(row) => onNav(`students/directory/${row.student}/finance`)} />
+    </PaginatedRegister>
   </>;
 }
 
@@ -893,8 +1022,9 @@ export function FinancePage({ route, onNav, user }) {
   const invoiceId = relative[0] === 'invoices' ? id(relative[1]) : null;
   if (invoiceId) return <div className="fw-page"><InvoiceDetail invoiceId={invoiceId} onNav={onNav} canPay={canPay} /></div>;
   const section = SECTIONS.some((item) => item.id === relative[0]) ? relative[0] : 'overview';
-  return <div className="fw-page"><WorkspaceHeader eyebrow="Financial stewardship" title="Finance" description="Follow billing, collections, expenses, refunds, cashier activity, and staff loans with connected records and honest data coverage." actions={<FinanceReportActions filters={queryFilters(routed.params)} onNav={onNav} canWrite={canReport} />} /><WorkspaceLayout navigation={<SectionNav label="Finance" items={SECTIONS} active={section} basePath="finance" onNav={onNav} />}>
+  return <div className="fw-page fa5-workspace"><WorkspaceHeader eyebrow="Financial stewardship" title="Finance" description="See what was billed, what arrived, what remains unpaid, and which student accounts need follow-up—without leaving the financial trail." actions={<FinanceReportActions filters={queryFilters(routed.params)} onNav={onNav} canWrite={canReport} />} /><WorkspaceLayout navigation={<SectionNav label="Finance" items={SECTIONS} active={section} basePath="finance" onNav={onNav} />}>
     {section === 'overview' && <FinanceOverview route={route} onNav={onNav} />}
+    {section === 'debt' && <DebtStudents route={route} onNav={onNav} />}
     {section === 'invoices' && <InvoiceList route={route} onNav={onNav} />}
     {section === 'payments' && <PaymentList route={route} onNav={onNav} canPay={canPay} />}
     {section === 'expenses' && <ExpenseList route={route} onNav={onNav} canCreate={canCreateExpense} />}

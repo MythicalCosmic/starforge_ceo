@@ -1,6 +1,5 @@
-import { useRef, useState } from 'react';
+import { cloneElement, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ChartCard, DonutBreakdown, RankedBars } from '../components/ExecutiveCharts.jsx';
 import { Icons } from '../components/Icons.jsx';
 import { UnloadedSelectionOption } from '../components/SelectionScopeOption.jsx';
 import {
@@ -30,14 +29,15 @@ import { userFacingError } from '../lib/userFacingError.js';
 import { readableValidationDetails } from '../lib/validationPresentation.js';
 import '../styles/focused-v3.css';
 import '../styles/financial-academic-v4.css';
+import '../styles/financial-academic-v5.css';
 
 const SECTIONS = Object.freeze([
-  { id: 'overview', label: 'Academic overview', description: 'Assessments at a glance', icon: Icons.home },
-  { id: 'exams', label: 'Exams', description: 'Assessment register', icon: Icons.doc },
+  { id: 'overview', label: 'Overview', description: 'Schedule and readiness', icon: Icons.home },
+  { id: 'exams', label: 'Exam register', description: 'All assessments', icon: Icons.cal },
+  { id: 'grades', label: 'Results & grades', description: 'Published outcomes', icon: Icons.trend },
+  { id: 'transcripts', label: 'Transcripts', description: 'Generated records', icon: Icons.doc },
   { id: 'subjects', label: 'Subjects', description: 'Academic catalogue', icon: Icons.folder },
   { id: 'types', label: 'Exam types', description: 'Assessment definitions', icon: Icons.settings },
-  { id: 'grades', label: 'Grades', description: 'Published outcomes', icon: Icons.trend },
-  { id: 'transcripts', label: 'Transcripts', description: 'Generated records', icon: Icons.doc },
 ]);
 
 function pathId(value) {
@@ -175,69 +175,56 @@ function stateMetric(state, value) {
 }
 
 function ExamsOverview({ onNav, branchId }) {
-  const cohorts = useWorkspaceData('/api/v1/cohorts/', { page_size: 100, branch: branchId || undefined }, { enabled: Boolean(branchId) });
-  const exams = useWorkspaceData('/api/v1/academics/exams/', { page_size: 100 });
-  const grades = useWorkspaceData('/api/v1/academics/grades/', { page_size: 100 }, { enabled: !branchId });
-  const subjects = useWorkspaceData('/api/v1/academics/subjects/', { page_size: 100 }, { enabled: !branchId });
-  const visibleExams = branchExamRows(exams.rows, cohorts.rows, branchId);
-  const visibleSubjectCount = new Set(visibleExams.map((exam) => relationId(exam.subject)).filter(Boolean)).size;
-  const scopeState = branchId ? {
-    pending: exams.pending || cohorts.pending,
-    paused: exams.paused || cohorts.paused,
-    error: exams.error || cohorts.error,
-    rows: [],
-    data: null,
-    retry: () => Promise.all([exams.retry?.(), cohorts.retry?.()].filter(Boolean)),
-  } : exams;
-  const branchCoverageComplete = !branchId || (cohorts.complete && exams.complete);
-  const published = visibleExams.filter((exam) => exam.is_published).length;
-  const typeMix = Object.values(visibleExams.reduce((map, exam) => {
-    const label = exam.exam_type_detail?.name || 'Unspecified';
-    map[label] ||= { label, value: 0, color: exam.exam_type_detail?.color || 'var(--sf-primary)' };
-    map[label].value += 1;
-    return map;
-  }, {}));
-  const subjectBars = Object.entries(visibleExams.reduce((map, exam) => {
-    const key = exam.subject_name || 'Unspecified'; map[key] = (map[key] || 0) + 1; return map;
-  }, {})).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-  const datedExams = visibleExams.slice().sort((a, b) => String(b.exam_date || '').localeCompare(String(a.exam_date || ''))).slice(0, 6);
+  const overview = useWorkspaceData('/api/v1/academics/exams/overview/', { branch: branchId || undefined });
+  const data = overview.data || {};
+  const scheduleRows = Array.isArray(data.schedule) ? data.schedule : [];
+  const attentionRows = Array.isArray(data.attention) ? data.attention : [];
+  const typeRows = Array.isArray(data.type_distribution) ? data.type_distribution : [];
+  const subjectRows = Array.isArray(data.subject_distribution) ? data.subject_distribution : [];
+  const maxDistribution = Math.max(1, ...typeRows.map((row) => row.value), ...subjectRows.map((row) => row.value));
+  const drafts = Number(data.drafts || 0);
+  const corrections = Number(data.corrections_due || 0);
+  const nextTwoWeeks = Number(data.next_14_days || 0);
   return <>
-    <div className="fw-summary-grid">
-      <div className="fw-summary-card"><span>{branchId ? 'Branch-linked exams' : 'Exams'}</span><strong>{stateMetric(scopeState, branchId ? visibleExams.length : exams.total)}</strong><small>{branchId ? 'Verified through this branch’s groups' : 'Assessments visible'}</small></div>
-      <div className="fw-summary-card"><span>Published</span><strong>{stateMetric(scopeState, published)}</strong><small>{scopeState.pending ? 'Preparing assessment register…' : `Of ${visibleExams.length} loaded exams in scope`}</small></div>
-      <div className="fw-summary-card"><span>{branchId ? 'Subjects used' : 'Subjects'}</span><strong>{stateMetric(branchId ? scopeState : subjects, branchId ? visibleSubjectCount : subjects.total)}</strong><small>{branchId ? 'Across branch-linked exams' : 'Academic definitions'}</small></div>
-      {branchId
-        ? <div className="fw-summary-card"><span>Groups</span><strong>{stateMetric(cohorts, cohorts.total)}</strong><small>Branch groups used for attribution</small></div>
-        : <div className="fw-summary-card"><span>Grade records</span><strong>{stateMetric(grades, grades.total)}</strong><small>Visible outcomes</small></div>}
-    </div>
-    {branchId && <div className={`fw-data-note${branchCoverageComplete ? '' : ' is-warning'}`}>{branchCoverageComplete ? 'Every loaded assessment has been checked against the complete branch group register.' : 'Only assessments whose group can be verified in the loaded branch register are shown. No organization-wide assessment is substituted.'}</div>}
-    <div className="fw-coverage-stack" aria-label="Academic register coverage">
-      <CoverageBar state={exams} label={branchId ? 'organization exams used for branch attribution' : 'exams'} />
-      {!branchId && <CoverageBar state={subjects} label="subjects" />}
-      {!branchId && <CoverageBar state={grades} label="grade records" />}
-    </div>
-    <WorkspaceState state={scopeState}><><section aria-labelledby="assessment-calendar-title">
-      <header className="fa4-section-head"><div><span>Assessment calendar</span><h2 id="assessment-calendar-title">Recent assessment moments</h2><p>Open an exam to review its definition, result coverage, and publication controls.</p></div>{!branchId && <LinkButton to="exams/exams" onNav={onNav}>Open full register</LinkButton>}</header>
-      <div className="fa4-calendar">
-        {datedExams.map((exam) => {
-          const badge = examDateBadge(exam.exam_date);
-          return <RouteLink className="fa4-exam-card" key={exam.id} to={examRecordPath(branchId, exam.id)} onNav={onNav}>
-            <div><div><h3>{exam.title}</h3><p>{exam.subject_name || 'Subject not recorded'} · {exam.cohort_name || 'Group not recorded'}</p></div><time dateTime={exam.exam_date}><span>{badge.month}</span><strong>{badge.day}</strong></time></div>
-            <footer><span>{exam.exam_type_detail?.name || 'Assessment'}</span><StatusPill value={exam.is_published ? 'Published' : 'Draft'} /></footer>
-          </RouteLink>;
-        })}
-        {!datedExams.length && <div className="fa4-register-empty">No assessment dates are recorded in this scope.</div>}
-      </div>
+    <section className="fa5-metric-rail fa5-academic-rail" aria-label="Assessment readiness">
+      <article><span>{branchId ? 'Branch exams' : 'Visible exams'}</span><strong>{stateMetric(overview, data.total_exams)}</strong><small>{branchId ? 'Exact branch assessment scope' : 'Exact current academic scope'}</small></article>
+      <article><span>Next 14 days</span><strong>{stateMetric(overview, nextTwoWeeks)}</strong><small>{nextTwoWeeks === 1 ? 'One assessment approaching' : 'Today plus the next 13 dates'}</small></article>
+      <article className={drafts ? 'is-attention' : ''}><span>Drafts</span><strong>{stateMetric(overview, drafts)}</strong><small>{drafts ? 'Definitions still need publication' : 'No unpublished definitions'}</small></article>
+      <article className={corrections ? 'is-danger' : ''}><span>Corrections due</span><strong>{stateMetric(overview, corrections)}</strong><small>{corrections ? 'Corrected records need republishing' : 'No correction backlog'}</small></article>
+      <article><span>Published</span><strong>{stateMetric(overview, data.published_exams)}</strong><small>{formatBusinessNumber(data.subjects_used || 0)} subjects represented</small></article>
     </section>
-    <div className="fw-analytics-grid">
-      <ChartCard eyebrow="Assessment portfolio" title="Exam type mix" description="Based on the loaded exam register in this scope."><DonutBreakdown data={typeMix} centerValue={formatBusinessNumber(visibleExams.length)} centerLabel="exams loaded" /></ChartCard>
-      <ChartCard eyebrow="Subjects" title="Assessments by subject" description="Counts reflect the loaded register."><RankedBars data={subjectBars} /></ChartCard>
+    <div className={`fw-coverage${overview.complete ? '' : ' is-partial'}`} role="status">
+      <span>{cloneElement(overview.complete ? Icons.check : Icons.flag, { size: 13 })}</span>
+      <span><strong>{overview.pending ? 'Loading exact assessment scope' : overview.error || overview.paused ? 'Assessment overview unavailable' : 'Assessment overview is exact'}</strong><small>{overview.complete ? 'Metrics, schedule, and distributions are calculated by the server across the full permitted register.' : 'No complete conclusion is drawn until the server aggregate is available.'}</small></span>
+      {data.as_of && <time>{formatOrganizationDate(data.as_of, { dateOnly: true })}</time>}
     </div>
-    <DetailSection eyebrow="Upcoming and recent" title="Exam register"><WorkspaceTable label="Recent exams" rows={visibleExams.slice(0, 12)} columns={[
-      { key: 'title', label: 'Exam' }, { key: 'subject_name', label: 'Subject' }, { key: 'cohort_name', label: 'Group' },
-      { key: 'exam_date', label: 'Date', render: (row) => formatOrganizationDate(row.exam_date, { dateOnly: true }) },
-      { key: 'is_published', label: 'Publication', render: (row) => <StatusPill value={row.is_published ? 'Published' : 'Draft'} /> },
-    ]} onOpen={(row) => onNav(examRecordPath(branchId, row.id))} /></DetailSection></></WorkspaceState>
+    <WorkspaceState state={overview}><><div className="fa5-exam-overview">
+      <section className="fa5-panel fa5-schedule-panel" aria-labelledby="assessment-calendar-title">
+        <header><div><h2 id="assessment-calendar-title">Assessment schedule</h2><p>{data.schedule_kind === 'recent' ? 'No future assessment is recorded; these are the most recent completed dates.' : 'The next assessment dates across the complete permitted register.'}</p></div><LinkButton to={examRegisterPath(branchId)} onNav={onNav}>Open exam register</LinkButton></header>
+        <div className="fa5-schedule-list">{scheduleRows.map((exam) => {
+          const badge = examDateBadge(exam.exam_date);
+          return <RouteLink key={exam.id} to={examRecordPath(branchId, exam.id)} onNav={onNav}>
+            <time dateTime={exam.exam_date}><span>{badge.month}</span><strong>{badge.day}</strong></time>
+            <span><strong>{exam.title}</strong><small>{exam.subject_name || 'Subject not recorded'} · {exam.cohort_name || 'Group not recorded'}</small></span>
+            <span className="fa5-exam-type">{exam.exam_type_detail?.name || 'Assessment'}</span>
+            <StatusPill value={publicationStatus(exam)} tone={exam.requires_republish ? 'warn' : undefined} />
+            {cloneElement(Icons.chevR, { size: 15 })}
+          </RouteLink>;
+        })}{!scheduleRows.length && <div className="fa5-quiet-empty">No assessment dates are recorded in this scope.</div>}</div>
+      </section>
+      <section className="fa5-panel fa5-attention-panel">
+        <header><div><h2>Needs attention</h2><p>Definitions that are not ready to stay on the published academic record.</p></div><span>{formatBusinessNumber(attentionRows.length)} visible</span></header>
+        {attentionRows.length ? <div className="fa5-attention-list">{attentionRows.map((exam) => <RouteLink key={exam.id} to={examRecordPath(branchId, exam.id)} onNav={onNav}>
+          <span className={exam.requires_republish ? 'is-danger' : ''}>{cloneElement(exam.requires_republish ? Icons.shield : Icons.doc, { size: 15 })}</span>
+          <span><strong>{exam.title}</strong><small>{exam.requires_republish ? 'Correction pending publication' : 'Draft definition'} · {formatOrganizationDate(exam.exam_date, { dateOnly: true })}</small></span>
+          {cloneElement(Icons.chevR, { size: 15 })}
+        </RouteLink>)}</div> : <div className="fa5-quiet-empty is-success">Every visible exam definition is published and current.</div>}
+      </section>
+    </div>
+    <div className="fa5-secondary-grid fa5-academic-distribution">
+      <section className="fa5-panel"><header><div><h2>Assessments by subject</h2><p>Exact distribution across the current scope.</p></div></header>{subjectRows.length ? <div className="fa5-distribution-list">{subjectRows.map((row) => <div key={row.id ?? row.label}><span><strong>{row.label}</strong><small>{formatBusinessNumber(row.value)} exam{row.value === 1 ? '' : 's'}</small></span><i style={{ '--fa5-fill': `${(row.value / maxDistribution) * 100}%` }} /></div>)}</div> : <div className="fa5-quiet-empty">No subject distribution is available.</div>}</section>
+      <section className="fa5-panel"><header><div><h2>Assessment types</h2><p>Exact mix of tests, reviews, and formal exams.</p></div></header>{typeRows.length ? <div className="fa5-distribution-list">{typeRows.map((row) => <div key={row.id ?? row.label}><span><strong>{row.label}</strong><small>{formatBusinessNumber(row.value)} exam{row.value === 1 ? '' : 's'}</small></span><i style={{ '--fa5-fill': `${(row.value / maxDistribution) * 100}%` }} /></div>)}</div> : <div className="fa5-quiet-empty">No assessment type distribution is available.</div>}</section>
+    </div></></WorkspaceState>
   </>;
 }
 
@@ -276,7 +263,16 @@ function ExamList({ route, onNav, canWrite, branchId }) {
     complete: exams.complete && (!branchId || cohorts.complete),
   };
   return <>
-    <FilterPanel title="Exam filters" activeCount={[...params.keys()].length} advancedCount={['subject', 'term', 'type'].filter((key) => params.get(key)).length} actions={<><ActionButton tone="ghost" onClick={() => onNav(base)}>Clear</ActionButton>{canWrite && <LinkButton to={`${base}/new`} onNav={onNav} tone="primary" icon={Icons.doc}>Create exam</LinkButton>}</>} primary={<>
+    <section className="fa5-section-intro">
+      <div><h2>Exam register</h2><p>One operational list for exam dates, groups, subjects, scoring rules, and publication readiness.</p></div>
+      {canWrite && <LinkButton to={`${base}/new`} onNav={onNav} tone="primary" icon={Icons.plus}>Create exam</LinkButton>}
+    </section>
+    <nav className="fa5-state-switch" aria-label="Exam publication state">
+      <RouteLink className={!filters.published ? 'is-active' : ''} to={base} onNav={onNav}>All exams</RouteLink>
+      <RouteLink className={filters.published === 'false' ? 'is-active' : ''} to={`${base}?published=false`} onNav={onNav}>Drafts</RouteLink>
+      <RouteLink className={filters.published === 'true' ? 'is-active' : ''} to={`${base}?published=true`} onNav={onNav}>Published</RouteLink>
+    </nav>
+    <FilterPanel title="Exam filters" activeCount={[...params.keys()].length} advancedCount={['subject', 'term', 'type'].filter((key) => params.get(key)).length} actions={<ActionButton tone="ghost" onClick={() => onNav(base)}>Clear</ActionButton>} primary={<>
       <FilterField label="Group"><select value={filters.cohort} onChange={(event) => updateFilters(params, 'cohort', event.target.value, base, onNav)}><option value="">All groups</option><UnloadedSelectionOption value={filters.cohort} options={cohorts.rows} label="group" />{cohorts.rows.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></FilterField>
       <FilterField label="Publication"><select value={filters.published} onChange={(event) => updateFilters(params, 'published', event.target.value, base, onNav)}><option value="">All publication states</option><option value="true">Published</option><option value="false">Draft</option></select></FilterField>
     </>}>
@@ -288,10 +284,12 @@ function ExamList({ route, onNav, canWrite, branchId }) {
     {branchId && cohorts.error && <div className="fw-safety-block">Branch group relationships could not be verified. Assessment records remain closed in this branch workspace.</div>}
     <CoverageBar state={scopedExams} label={branchId ? 'branch-linked exams' : 'exams'} filtered={params.size > 0} />
     <WorkspaceState state={scopedExams} empty={!visibleExams.length}><WorkspaceTable label="Exams" rows={visibleExams} columns={[
-      { key: 'title', label: 'Exam' }, { key: 'subject_name', label: 'Subject' }, { key: 'cohort_name', label: 'Group' },
-      { key: 'term_name', label: 'Term' }, { key: 'exam_type_detail.name', label: 'Type' },
+      { key: 'title', label: 'Exam', render: (row) => <span className="fw-person-cell"><strong>{row.title || 'Untitled exam'}</strong><small>{row.exam_type_detail?.name || 'Assessment type not recorded'}</small></span> },
+      { key: 'subject_name', label: 'Subject' }, { key: 'cohort_name', label: 'Group' },
+      { key: 'term_name', label: 'Term' },
       { key: 'exam_date', label: 'Date', render: (row) => formatOrganizationDate(row.exam_date, { dateOnly: true }) },
-      { key: 'is_published', label: 'Status', render: (row) => <StatusPill value={row.is_published ? 'Published' : 'Draft'} /> },
+      { key: 'max_score', label: 'Scoring', render: (row) => <span className="fw-person-cell"><strong>{row.max_score ?? '—'} points</strong><small>{row.weight == null ? 'Weight not recorded' : `${row.weight} weight`}</small></span> },
+      { key: 'is_published', label: 'Readiness', render: (row) => <StatusPill value={publicationStatus(row)} /> },
     ]} onOpen={(row) => onNav(`${base}/${row.id}`)} /></WorkspaceState>
   </>;
 }
@@ -799,7 +797,7 @@ export function ExamsPage({ route, onNav, user, branchId }) {
   const availableSections = branchId ? new Set(['overview', 'exams']) : new Set(SECTIONS.map((item) => item.id));
   const section = availableSections.has(relative[0]) ? relative[0] : 'overview';
   const base = branchId ? `branches/${branchId}/exams` : 'exams';
-  return <div className="fw-page">{!branchId && <WorkspaceHeader eyebrow="Learning outcomes" title="Exams" description="Create and review assessments, manage subjects and exam types, and follow published outcomes in a clear academic workspace." actions={canWrite && <LinkButton to={`${examDirectoryPath(branchId)}/new`} onNav={onNav} tone="primary" icon={Icons.doc}>Create exam</LinkButton>} />}<WorkspaceLayout navigation={!branchId ? <SectionNav label="Exams" items={SECTIONS} active={section} basePath={base} onNav={onNav} /> : null}>
+  return <div className="fw-page fa5-workspace">{!branchId && <WorkspaceHeader eyebrow="Learning outcomes" title="Exams" description="Plan assessment dates, see what is ready to publish, review outcomes, and keep the academic catalogue connected to every exam." actions={section === 'overview' && canWrite && <LinkButton to={`${examDirectoryPath(branchId)}/new`} onNav={onNav} tone="primary" icon={Icons.plus}>Create exam</LinkButton>} />}<WorkspaceLayout navigation={!branchId ? <SectionNav label="Exams" items={SECTIONS} active={section} basePath={base} onNav={onNav} /> : null}>
     {section === 'overview' && <ExamsOverview onNav={onNav} branchId={branchId} />}
     {section === 'exams' && <ExamList route={route} onNav={onNav} canWrite={canWrite} branchId={branchId} />}
     {section === 'subjects' && <DefinitionList kind="subjects" onNav={onNav} canManageCatalogue={canManageCatalogue} branchId={branchId} />}

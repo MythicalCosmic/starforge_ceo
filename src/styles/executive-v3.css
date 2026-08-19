@@ -413,7 +413,7 @@
   font-size: 11px;
   line-height: 1.55;
 }
-.ex-source-note.is-partial { color: var(--sf-warn); }
+.ex-source-note.is-partial { color: var(--sf-muted); }
 
 .ex-dashboard-grid {
   display: grid;
