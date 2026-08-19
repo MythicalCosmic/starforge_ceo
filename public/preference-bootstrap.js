@@ -3,7 +3,7 @@
     theme: { key: 'sf-theme', choices: ['light', 'dark'] },
     palette: {
       key: 'sf-palette',
-      choices: ['saroy', 'marvarid', 'samarqand', 'daryo'],
+      choices: ['saroy', 'marvarid', 'samarqand', 'daryo', 'osmon', 'uchqun', 'meros'],
     },
     density: { key: 'sf-density', choices: ['dense', 'comfortable'] },
     navigation: {

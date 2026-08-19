@@ -67,10 +67,10 @@
   --sf-border: #DDDAD0;
   --sf-border-strong: #BFBBA8;
 
-  --sf-primary: #1F6B66;
-  --sf-primary-hover: #155A56;
-  --sf-primary-soft: #CFE3DF;
-  --sf-primary-ink: #0B2E2C;
+  --sf-primary: #087E88;
+  --sf-primary-hover: #066C74;
+  --sf-primary-soft: #C8F1F3;
+  --sf-primary-ink: #063D43;
 
   --sf-accent: #C4892F;
   --sf-accent-soft: #F2E2BD;
@@ -94,10 +94,10 @@
   --sf-border: #DCD4BA;
   --sf-border-strong: #BFB596;
 
-  --sf-primary: #2A3D8F;
-  --sf-primary-hover: #1F2F73;
-  --sf-primary-soft: #D2D8EE;
-  --sf-primary-ink: #121A45;
+  --sf-primary: #5548DF;
+  --sf-primary-hover: #463AC5;
+  --sf-primary-soft: #DDD9FF;
+  --sf-primary-ink: #211B74;
 
   --sf-accent: #D8A22A;
   --sf-accent-soft: #F4E1AA;
@@ -121,10 +121,10 @@
   --sf-border: #D9D6BD;
   --sf-border-strong: #B7B399;
 
-  --sf-primary: #4F6A3A;
-  --sf-primary-hover: #3E5A29;
-  --sf-primary-soft: #DBE5C7;
-  --sf-primary-ink: #1F2C13;
+  --sf-primary: #087F5B;
+  --sf-primary-hover: #066B4C;
+  --sf-primary-soft: #CDEFE1;
+  --sf-primary-ink: #063E2E;
 
   --sf-accent: #BA8C2C;
   --sf-accent-soft: #ECDBA8;
@@ -133,6 +133,78 @@
   --sf-ai: #6A5128;
   --sf-ai-bg: linear-gradient(135deg, #EDE2C2 0%, #DECBA0 100%);
   --sf-ai-border: #B49A5E;
+}
+
+/* Palette: OSMON — bright azure + electric cyan */
+[data-palette="osmon"] {
+  --sf-bg: #EEF6FF;
+  --sf-surface: #FAFDFF;
+  --sf-surface-2: #E2F0FF;
+  --sf-surface-3: #CFE5FA;
+  --sf-ink: #071827;
+  --sf-ink-2: #17364E;
+  --sf-muted: #587086;
+  --sf-muted-2: #587086;
+  --sf-border: #C9DDEC;
+  --sf-border-strong: #A8C3D8;
+  --sf-primary: #0B6ECF;
+  --sf-primary-hover: #075CAF;
+  --sf-primary-soft: #D4E9FF;
+  --sf-primary-ink: #073C70;
+  --sf-accent: #087E88;
+  --sf-accent-soft: #C8F1F3;
+  --sf-accent-ink: #063D43;
+  --sf-ai: #155AA0;
+  --sf-ai-bg: linear-gradient(135deg, #DDEEFF 0%, #CDEFF3 100%);
+  --sf-ai-border: #8BBCE6;
+}
+
+/* Palette: UCHQUN — forge amber + terracotta */
+[data-palette="uchqun"] {
+  --sf-bg: #FFF7E8;
+  --sf-surface: #FFFCF5;
+  --sf-surface-2: #F8E8C8;
+  --sf-surface-3: #EED8AC;
+  --sf-ink: #23190A;
+  --sf-ink-2: #443016;
+  --sf-muted: #7C6745;
+  --sf-muted-2: #7C6745;
+  --sf-border: #E8D3AA;
+  --sf-border-strong: #CFB57D;
+  --sf-primary: #9B6414;
+  --sf-primary-hover: #80500D;
+  --sf-primary-soft: #F7E2B8;
+  --sf-primary-ink: #543205;
+  --sf-accent: #B85535;
+  --sf-accent-soft: #F3D9CC;
+  --sf-accent-ink: #5A2412;
+  --sf-ai: #8B5A0F;
+  --sf-ai-bg: linear-gradient(135deg, #FBEBCB 0%, #F3D69E 100%);
+  --sf-ai-border: #D9AB58;
+}
+
+/* Palette: MEROS — deep terracotta + forge amber */
+[data-palette="meros"] {
+  --sf-bg: #F9EEE9;
+  --sf-surface: #FFF9F5;
+  --sf-surface-2: #F1DDD4;
+  --sf-surface-3: #E5C8BB;
+  --sf-ink: #25140F;
+  --sf-ink-2: #4A2A20;
+  --sf-muted: #7A5E54;
+  --sf-muted-2: #7A5E54;
+  --sf-border: #E2C9BE;
+  --sf-border-strong: #C7A696;
+  --sf-primary: #913F2A;
+  --sf-primary-hover: #773221;
+  --sf-primary-soft: #EBCFC3;
+  --sf-primary-ink: #4D1E13;
+  --sf-accent: #9B6414;
+  --sf-accent-soft: #F7E2B8;
+  --sf-accent-ink: #543205;
+  --sf-ai: #7B3927;
+  --sf-ai-bg: linear-gradient(135deg, #F1D9CD 0%, #E7C2B1 100%);
+  --sf-ai-border: #C08F7A;
 }
 
 /* DARK MODE overlay — applied on top of any palette */
@@ -177,19 +249,94 @@
 }
 
 [data-theme="dark"][data-palette="marvarid"] {
-  --sf-primary: #6FB6AE;
-  --sf-primary-hover: #84C7BF;
-  --sf-primary-soft: #18302E;
+  --sf-bg: #071418;
+  --sf-surface: #0C2025;
+  --sf-surface-2: #123038;
+  --sf-surface-3: #19414A;
+  --sf-ink: #E8FAFA;
+  --sf-ink-2: #C7E8E9;
+  --sf-muted: #89AAAD;
+  --sf-muted-2: #89AAAD;
+  --sf-border: #24434A;
+  --sf-border-strong: #315962;
+  --sf-primary: #087E88;
+  --sf-primary-hover: #0A929E;
+  --sf-primary-soft: #12383D;
 }
 [data-theme="dark"][data-palette="samarqand"] {
-  --sf-primary: #8A9AE0;
-  --sf-primary-hover: #9DABE6;
-  --sf-primary-soft: #1A2147;
+  --sf-bg: #0E0D1C;
+  --sf-surface: #17152A;
+  --sf-surface-2: #211E3B;
+  --sf-surface-3: #2D2850;
+  --sf-ink: #F1EFFF;
+  --sf-ink-2: #D8D4F2;
+  --sf-muted: #9E98BB;
+  --sf-muted-2: #9E98BB;
+  --sf-border: #373257;
+  --sf-border-strong: #4A4372;
+  --sf-primary: #6558F5;
+  --sf-primary-hover: #756AFF;
+  --sf-primary-soft: #292258;
 }
 [data-theme="dark"][data-palette="daryo"] {
-  --sf-primary: #95B27A;
-  --sf-primary-hover: #A8C290;
-  --sf-primary-soft: #1E2A14;
+  --sf-bg: #07140F;
+  --sf-surface: #0E2118;
+  --sf-surface-2: #153126;
+  --sf-surface-3: #1D4233;
+  --sf-ink: #EAF8F1;
+  --sf-ink-2: #CDE8D9;
+  --sf-muted: #8EAD9D;
+  --sf-muted-2: #8EAD9D;
+  --sf-border: #27483A;
+  --sf-border-strong: #35604D;
+  --sf-primary: #087F5B;
+  --sf-primary-hover: #09966C;
+  --sf-primary-soft: #123A2B;
+}
+[data-theme="dark"][data-palette="osmon"] {
+  --sf-bg: #07111D;
+  --sf-surface: #0C1A2A;
+  --sf-surface-2: #12263C;
+  --sf-surface-3: #19344F;
+  --sf-ink: #EEF7FF;
+  --sf-ink-2: #D0E5F6;
+  --sf-muted: #8DA9BF;
+  --sf-muted-2: #8DA9BF;
+  --sf-border: #273D52;
+  --sf-border-strong: #35536F;
+  --sf-primary: #0B6ECF;
+  --sf-primary-hover: #168BFF;
+  --sf-primary-soft: #12365B;
+}
+[data-theme="dark"][data-palette="uchqun"] {
+  --sf-bg: #171006;
+  --sf-surface: #241A0B;
+  --sf-surface-2: #342610;
+  --sf-surface-3: #463417;
+  --sf-ink: #FFF5DF;
+  --sf-ink-2: #ECD7AE;
+  --sf-muted: #B19A6E;
+  --sf-muted-2: #B19A6E;
+  --sf-border: #4B3A1D;
+  --sf-border-strong: #65502A;
+  --sf-primary: #9B6414;
+  --sf-primary-hover: #B8791C;
+  --sf-primary-soft: #452F12;
+}
+[data-theme="dark"][data-palette="meros"] {
+  --sf-bg: #180C09;
+  --sf-surface: #25130F;
+  --sf-surface-2: #351C16;
+  --sf-surface-3: #48271F;
+  --sf-ink: #FFF0EA;
+  --sf-ink-2: #E7CFC5;
+  --sf-muted: #B09589;
+  --sf-muted-2: #B09589;
+  --sf-border: #503027;
+  --sf-border-strong: #6A4034;
+  --sf-primary: #B85535;
+  --sf-primary-hover: #CA6746;
+  --sf-primary-soft: #4A241A;
 }
 
 /* Frame container — everything inside a phone reads these tokens */
@@ -259,23 +406,13 @@
   opacity: 0.35;
 }
 
-/* 8-point star — the StarForge mark. Drawn with conic + clip */
+/* Official Starforge symbol, recolored through a mask for decorative contexts. */
 .sf-mark {
   display: inline-block;
   width: 1em; height: 1em;
   background: currentColor;
-  clip-path: polygon(
-    50% 0%,
-    61% 35%,
-    98% 35%,
-    68% 57%,
-    79% 91%,
-    50% 70%,
-    21% 91%,
-    32% 57%,
-    2% 35%,
-    39% 35%
-  );
+  -webkit-mask: url('/brand/symbol.svg') center / contain no-repeat;
+  mask: url('/brand/symbol.svg') center / contain no-repeat;
 }
 
 /* Buttons */

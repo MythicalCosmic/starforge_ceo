@@ -1,7 +1,8 @@
 import { cloneElement, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
-import { SfAvatar, SfStar } from '../components/primitives.jsx';
+import { BrandLogo } from '../components/BrandLogo.jsx';
+import { SfAvatar } from '../components/primitives.jsx';
 import { groupNav } from '../config/roles.js';
 
 function itemLabel(item, t) {
@@ -152,12 +153,7 @@ export function Sidebar({
             onMouseEnter={() => onPrefetch?.('overview')}
             onFocus={() => onPrefetch?.('overview')}
           >
-            <span aria-hidden="true">
-              <SfStar size={20} color="currentColor" />
-            </span>
-            <strong>
-              StarForge <small>EDU</small>
-            </strong>
+            <BrandLogo decorative />
           </a>
           <button
             ref={closeRef}
@@ -263,11 +259,8 @@ export function Sidebar({
           onMouseEnter={() => onPrefetch?.('overview')}
           onFocus={() => onPrefetch?.('overview')}
         >
-          <span className="ad-navigator-mark" aria-hidden="true">
-            <SfStar size={22} color="currentColor" />
-          </span>
-          <span>
-            <strong>StarForge EDU</strong>
+          <span className="ad-navigator-brand-copy">
+            <BrandLogo decorative />
             <small id="navigator-title">
               {t('shell.navigatorTitle', { defaultValue: 'Workspace navigator' })}
             </small>

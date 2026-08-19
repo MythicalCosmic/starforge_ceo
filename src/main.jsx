@@ -6,6 +6,7 @@ import './i18n/index.js';
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/foundation-v2.css';
+import './styles/brand.css';
 import App from './App.jsx';
 import { PreferencesProvider } from './context/PreferencesContext.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';

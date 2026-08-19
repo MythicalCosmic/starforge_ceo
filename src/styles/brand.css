@@ -1,0 +1,127 @@
+:root {
+  --sf-brand-logo-image: url('/brand/logo-terracotta.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-terracotta.svg');
+}
+
+:root[data-palette='marvarid'] {
+  --sf-brand-logo-image: url('/brand/logo-electric-cyan.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-electric-cyan.svg');
+}
+
+:root[data-palette='samarqand'] {
+  --sf-brand-logo-image: url('/brand/logo-signal-indigo.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-signal-indigo.svg');
+}
+
+:root[data-palette='daryo'] {
+  --sf-brand-logo-image: url('/brand/logo-growth-emerald.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-growth-emerald.svg');
+}
+
+:root[data-palette='osmon'] {
+  --sf-brand-logo-image: url('/brand/logo-bright-azure.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-bright-azure.svg');
+}
+
+:root[data-palette='uchqun'] {
+  --sf-brand-logo-image: url('/brand/logo-forge-amber.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-forge-amber.svg');
+}
+
+:root[data-palette='meros'] {
+  --sf-brand-logo-image: url('/brand/logo-deep-terracotta.svg');
+  --sf-brand-symbol-image: url('/brand/symbol-deep-terracotta.svg');
+}
+
+.sf-brand-logo {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  line-height: 0;
+  user-select: none;
+}
+
+.sf-brand-logo::before {
+  width: 100%;
+  height: 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  content: '';
+}
+
+.sf-brand-logo--lockup {
+  width: 132px;
+  aspect-ratio: 881.577 / 260;
+}
+
+.sf-brand-logo--lockup::before {
+  background-image: var(--sf-brand-logo-image);
+}
+
+.sf-brand-logo--symbol {
+  width: 32px;
+  height: 32px;
+}
+
+.sf-brand-logo--symbol::before {
+  background-image: var(--sf-brand-symbol-image);
+}
+
+.sf-brand-logo--lockup.sf-brand-logo--light::before {
+  background-image: url('/brand/logo-light.svg');
+}
+
+.sf-brand-logo--lockup.sf-brand-logo--reverse::before {
+  background-image: url('/brand/logo-reverse.svg');
+}
+
+.ad-rail-brand .sf-brand-logo--lockup,
+.ad-masthead-brand .sf-brand-logo--lockup {
+  width: 126px;
+}
+
+.ad-brand-logo-compact {
+  display: none;
+}
+
+.ad-navigator-brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ad-navigator-brand-copy small {
+  color: var(--sf-muted);
+  font-size: 11px;
+}
+
+.sf-auth-brand .sf-brand-logo {
+  width: 158px;
+}
+
+.sf-login-brand .sf-brand-logo {
+  width: 150px;
+}
+
+.sf-login-brand-copy {
+  display: grid;
+  gap: 3px;
+}
+
+@media (max-width: 560px) {
+  .ad-masthead-brand .ad-brand-logo-full {
+    display: none;
+  }
+
+  .ad-masthead-brand .ad-brand-logo-compact {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+  }
+
+  .sf-login-brand .sf-brand-logo {
+    width: 138px;
+  }
+}

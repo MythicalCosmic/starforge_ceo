@@ -1,9 +1,10 @@
 import { cloneElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
+import { BrandLogo } from '../components/BrandLogo.jsx';
 import { PageLoader } from '../components/feedback.jsx';
 import { TextInput } from '../components/form.jsx';
-import { Button, Card, SfStar } from '../components/primitives.jsx';
+import { Button, Card } from '../components/primitives.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -40,8 +41,7 @@ function AuthFrame({ title, description, children }) {
     <main className="sf-auth">
       <div className="sf-auth-panel">
         <div className="sf-auth-brand">
-          <SfStar size={30} color="var(--sf-primary)" />
-          <strong style={{ fontSize: 19, letterSpacing: '-0.02em' }}>StarForge · EDU</strong>
+          <BrandLogo />
         </div>
         <Card title={title}>
           {description ? (
@@ -201,11 +201,8 @@ function LoginFrame({ children }) {
     <main className="sf-login">
       <section className="sf-login-story-panel" aria-label={t('connection.storyLabel')}>
         <div className="sf-login-brand">
-          <span className="sf-login-brand-mark">
-            <SfStar size={24} color="currentColor" />
-          </span>
-          <span>
-            <strong>StarForge EDU</strong>
+          <BrandLogo tone="reverse" />
+          <span className="sf-login-brand-copy">
             <small>{t('connection.brandLine')}</small>
           </span>
         </div>

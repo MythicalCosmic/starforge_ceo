@@ -1,7 +1,8 @@
 import { cloneElement, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icons } from '../components/Icons.jsx';
-import { SfAvatar, SfStar } from '../components/primitives.jsx';
+import { BrandLogo } from '../components/BrandLogo.jsx';
+import { SfAvatar } from '../components/primitives.jsx';
 import { groupNav } from '../config/roles.js';
 import { usePopover } from '../hooks/useOutsideClick.js';
 import { PreferencesMenu } from './PreferencesMenu.jsx';
@@ -381,8 +382,8 @@ export function Topbar({
           onFocus={() => onPrefetch?.('overview')}
           aria-label="StarForge EDU · Overview"
         >
-          <span aria-hidden="true"><SfStar size={20} color="currentColor" /></span>
-          <strong>StarForge <small>EDU</small></strong>
+          <BrandLogo className="ad-brand-logo-full" decorative />
+          <BrandLogo className="ad-brand-logo-compact" compact decorative />
         </a>
 
         <div className="ad-top-context">

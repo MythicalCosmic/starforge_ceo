@@ -1,4 +1,2 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#B85535" />
-  <path d="M16 4 L18.8 12.6 L27.7 12.8 L20.5 18 L23.2 26.6 L16 21.1 L8.8 26.6 L11.5 18 L4.3 12.8 L13.2 12.6 Z" fill="#FBF6EC" />
-</svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc"><title id="title">Starforge app icon</title><desc id="desc">Starforge identity asset. Canonical geometry SHA-256: 44301041ebad151c53a2ea2503f84a97aa26215963385b7bd65abea599f52891</desc><defs><linearGradient id="sf-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="507" x2="540" y2="0"><stop offset="0" stop-color="#16D9E3"/><stop offset="1" stop-color="#168BFF"/></linearGradient></defs><rect width="512" height="512" fill="#07111D"/><g id="starforge-symbol" fill="url(#sf-gradient)" transform="translate(97.856 107.52) scale(0.586)"><path id="sf-main" d="M 539 0.5 L 393.5 302 L 385.5 193 L 13 504.5 L 334 148.5 L 227.5 145 Z"/><path id="sf-upper-trail" d="M 263 187.5 L 192.5 266 L 1 364.5 L 140.5 262 Z"/><path id="sf-lower-trail" d="M 363.5 249 L 295 359.5 L 184.5 506 L 285 318.5 Z"/></g></svg>

@@ -38,7 +38,7 @@ export const Icons = {
   globe: <SfIcon><circle cx="12" cy="12" r="9" /><path d="M3 12 H21 M12 3 a13 13 0 0 1 0 18 M12 3 a13 13 0 0 0 0 18" /></SfIcon>,
   settings: <SfIcon><circle cx="12" cy="12" r="3" /><path d="M12 2 V5 M12 19 V22 M4 12 H2 M22 12 H19 M5.6 5.6 L7 7 M17 17 L18.4 18.4 M5.6 18.4 L7 17 M17 7 L18.4 5.6" /></SfIcon>,
   logout: <SfIcon d="M9 5 H5 a1 1 0 0 0 -1 1 V18 a1 1 0 0 0 1 1 H9 M15 8 L20 12 L15 16 M20 12 H9" />,
-  brand: <SfIcon><path d="M12 3 L14 9 L20 10 L15 14 L17 20 L12 17 L7 20 L9 14 L4 10 L10 9 Z" /></SfIcon>,
+  brand: <SfIcon><g fill="currentColor" stroke="none" transform="translate(1.6 2.26) scale(.04)"><path d="M 539 0.5 L 393.5 302 L 385.5 193 L 13 504.5 L 334 148.5 L 227.5 145 Z" /><path d="M 263 187.5 L 192.5 266 L 1 364.5 L 140.5 262 Z" /><path d="M 363.5 249 L 295 359.5 L 184.5 506 L 285 318.5 Z" /></g></SfIcon>,
   shield: <SfIcon d="M12 3 L20 6 V12 c0 5-4 8-8 9 c-4-1-8-4-8-9 V6 Z" />,
   flag: <SfIcon d="M5 21 V4 H15 L13 8 L15 12 H5" />,
   sun: <SfIcon><circle cx="12" cy="12" r="4.5" /><path d="M12 2 V4 M12 20 V22 M2 12 H4 M20 12 H22 M5 5 L6.5 6.5 M17.5 17.5 L19 19 M19 5 L17.5 6.5 M6.5 17.5 L5 19" /></SfIcon>,

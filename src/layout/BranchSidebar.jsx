@@ -1,6 +1,7 @@
 import { cloneElement, useEffect, useRef } from 'react';
 import { Icons } from '../components/Icons.jsx';
-import { SfAvatar, SfStar } from '../components/primitives.jsx';
+import { BrandLogo } from '../components/BrandLogo.jsx';
+import { SfAvatar } from '../components/primitives.jsx';
 import { availableBranchSections } from '../config/branchWorkspace.js';
 
 const FOCUSABLE_SELECTOR = [
@@ -126,8 +127,7 @@ export function BranchSidebar({
           onMouseEnter={() => onPrefetch?.('branches')}
           onFocus={() => onPrefetch?.('branches')}
         >
-          <span aria-hidden="true"><SfStar size={20} color="currentColor" /></span>
-          <strong>StarForge <small>EDU</small></strong>
+          <BrandLogo decorative />
         </a>
         <button ref={closeRef} type="button" className="ad-rail-close" onClick={onClose} aria-label="Close navigation">
           {cloneElement(Icons.x, { size: 17 })}
